@@ -4,6 +4,34 @@
 
 核心思路:**宁缺毋滥**。多个专项 reviewer 并行找问题,每条候选再由一个没看过推理过程的 verifier 独立核实并打分,低于 80 分的不展示。没有问题时就说没有问题。
 
+## 安装
+
+**Claude Code**
+
+```
+/plugin install crosscheck --marketplace paddychenc75/crosscheck
+```
+
+需要 Claude Code 2.1.275 或更高版本。更早的版本分两步,在终端里执行:
+
+```
+claude plugin marketplace add paddychenc75/crosscheck
+claude plugin install crosscheck@crosscheck
+```
+
+想改着用的话,克隆后直接加载目录:
+
+```
+git clone https://github.com/paddychenc75/crosscheck.git
+claude --plugin-dir ./crosscheck
+```
+
+**Cursor、Codex 和其他支持 SKILL.md 的 agent**
+
+`skills/cr/` 是自包含的 skill 目录。克隆仓库后,把它复制或软链接到该 agent 的 skills 目录,例如项目内的 `.cursor/skills/cr/` 或 `.agents/skills/cr/`。这样装只有审查流程,没有只读拦截的 hook(核对仍然有效)。
+
+通过 Cursor 和 Codex 各自的插件机制安装本仓库的方式还没有验证过。
+
 ## 用法
 
 | 宿主 | 调用 |

@@ -1,0 +1,17 @@
+{
+  "name": "crosscheck",
+  "description": "crosscheck code review 插件的安装源",
+  "owner": {
+    "name": "PaddyChen"
+  },
+  "plugins": [
+    {
+      "name": "crosscheck",
+      "source": {
+        "source": "github",
+        "repo": "paddychenc75/crosscheck"
+      },
+      "description": "高信噪比的本地 code review:多角色并行查找、独立核实、增量审查"
+    }
+  ]
+}
