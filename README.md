@@ -82,10 +82,16 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fi
 
 ## 报告、记录与增量审查
 
-报告是 Markdown,直接显示在对话里,同时存一份到用户目录:
+报告是 Markdown,直接显示在对话里,同时存一份到用户目录。审查结束时会用系统默认程序自动打开这份报告,对话里的报告末尾也有一行可点击的 `file://` 链接指向它。
+
+- 不想自动打开:设置 `CROSSCHECK_OPEN=0`。
+- 想用指定的程序打开:设置 `CROSSCHECK_OPEN_CMD`,例如 `code` 或 `cursor`;或者直接改系统里 `.md` 文件的默认打开方式(macOS:访达里选中一个 `.md` 文件 → Cmd+I → 打开方式 → 全部更改)。第一次自动打开时,报告末尾会提示一次怎么改。
+- 通过 SSH 连接、在 CI 里、或 Linux 上没有图形界面时不会自动打开,只给链接。
+
+记录的目录结构:
 
 ```
-~/.crosscheck/reviews/<仓库名>-<路径哈希>/<目标>/
+~/.crosscheck/reviews/<项目名>/<目标>/
 ├── 20261009-143000/
 │   ├── report.md        报告全文
 │   ├── findings.json    本次结束时仍然成立的发现
@@ -95,7 +101,9 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fi
 └── baseline             增量审查所依据的那一次
 ```
 
-`<目标>` 是 `branch-<分支名>`、`pr-<编号>`、`mr-<编号>` 或 `range-<范围>`。不管你在不在那个分支上,同一个分支用的是同一份记录。用环境变量 `CROSSCHECK_HOME` 可以改存放位置。记录不在仓库里,不会被提交;报告里会引用代码片段,注意这个目录的访问权限。
+`<项目名>` 取自 `origin` 远程地址的最后一段(如 `gitlab.example.com/group/shop-api` 就是 `shop-api`),没有远程时取主工作区的目录名。同一个项目的各个 worktree、不同位置的克隆都落在同一个目录下,分支和 MR 的记录也放在一起。恰好有另一个同名的项目时,后来的那个会在目录名后面加一段哈希来区分。
+
+`<目标>` 是 `branch-<分支名>`、`pr-<编号>`、`mr-<编号>` 或 `range-<范围>`。不管你在不在那个分支上、在哪个 worktree 里,同一个分支用的是同一份记录。用环境变量 `CROSSCHECK_HOME` 可以改存放位置。记录不在仓库里,不会被提交;报告里会引用代码片段,注意这个目录的访问权限。
 
 **同一个目标再次审查时默认做增量**:
 

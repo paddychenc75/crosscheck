@@ -24,7 +24,7 @@
 #   hashes.txt      hash<TAB>path          — 每个文件 diff 的哈希,用于判断下次是否需要重审
 #
 # 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
-# ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/ 下,由 save-review.sh 写入),diff.patch 等文件
+# ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/ 下,由 save-review.sh 写入),diff.patch 等文件
 # 只保留自那次以来 diff 发生变化的文件,并额外写出:
 #   incremental.txt     status<TAB>path    — unchanged / changed / new / removed
 #   diff.full.patch、files.full.txt        — 完整的改动
@@ -332,8 +332,27 @@ case "$mode" in
     ;;
 esac
 target_key=$(printf '%s' "$target_key" | sed 's/[^A-Za-z0-9._-]/_/g')
-repo_key="$(basename "$root" | sed 's/[^A-Za-z0-9._-]/_/g')-$(printf '%s' "$root" | git hash-object --stdin | cut -c1-8)"
-store_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews/$repo_key/$target_key"
+# 记录按项目名存放。项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;
+# 两者在同一仓库的各个 worktree 里都一样,所以它们共用一份记录。
+remote_url=$(git remote get-url origin 2>/dev/null || true)
+if [ -n "$remote_url" ]; then
+  repo_id=$(printf '%s' "$remote_url" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+else
+  common=$(git rev-parse --git-common-dir)
+  repo_id=$(dirname "$(cd "$common" && pwd)")
+fi
+reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
+repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
+# 早期版本用"目录名-路径哈希"做键;新位置还没有记录时,把旧记录挪过来。
+old_key="$(basename "$root" | sed 's/[^A-Za-z0-9._-]/_/g')-$(printf '%s' "$root" | git hash-object --stdin | cut -c1-8)"
+if [ -d "$reviews_dir/$old_key" ] && [ ! -e "$reviews_dir/$repo_key" ]; then
+  mv "$reviews_dir/$old_key" "$reviews_dir/$repo_key" && printf '%s\n' "$repo_id" > "$reviews_dir/$repo_key/.repo"
+fi
+# 另一个同名的项目已经占用了这个目录时,加上哈希区分。
+if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_key/.repo")" != "$repo_id" ]; then
+  repo_key="$repo_key-$(printf '%s' "$repo_id" | git hash-object --stdin | cut -c1-8)"
+fi
+store_dir="$reviews_dir/$repo_key/$target_key"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
 rank() { case "$1" in quick) echo 1 ;; deep) echo 3 ;; *) echo 2 ;; esac; }
@@ -449,7 +468,9 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'only=%s\n' "$only"
   printf 'review_scope=%s\n' "$review_scope"
   printf 'prev_review=%s\n' "$prev_review"
+  if [ -n "$prev_review" ] && [ -f "$store_dir/$prev_review/report.md" ]; then printf 'prev_report=%s\n' "$store_dir/$prev_review/report.md"; fi
   printf 'unchanged_files=%s\n' "$unchanged_count"
+  printf 'repo_id=%s\n' "$repo_id"
   printf 'target_key=%s\n' "$target_key"
   printf 'store_dir=%s\n' "$store_dir"
   printf 'started_at=%s\n' "$(date '+%Y-%m-%d %H:%M')"

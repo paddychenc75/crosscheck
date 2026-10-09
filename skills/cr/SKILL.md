@@ -66,7 +66,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [-
 
 用户要求全量重审时传 `--full`,脚本不读历史,`review_scope=full`。
 
-如果输出里有 `UNCHANGED`,说明上次审过之后改动没有变化。运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>`,告诉用户没有新的改动需要审查,把 `prev-findings.json` 里的发现作为"上次遗留"简要列出,并说明可以用 `--full` 全量重审,然后停止。
+如果输出里有 `UNCHANGED`,说明上次审过之后改动没有变化。运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>`,告诉用户没有新的改动需要审查,把 `prev-findings.json` 里的发现作为"上次遗留"简要列出,给出上次报告的链接(`meta.txt` 中的 `prev_report` 是它的路径,写成 `[路径](file://路径)`),并说明可以用 `--full` 全量重审,然后停止。
 
 如果输出里有 `EMPTY`,运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>` 结束只读阶段,告诉用户没有可审查的内容,然后停止。任何其他提前结束审查的情况也一样,先运行这条命令。
 
@@ -182,7 +182,7 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:全量
 跳过文件:<n>(lock/生成/vendored)
-记录:<保存目录>/report.md
+记录:[<报告路径>](<file:// 链接>)
 ```
 
 增量审查(`review_scope=incremental`)的报告,在标题下说明范围,并把发现分成三段:
@@ -214,7 +214,7 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:增量
 跳过文件:<n>(lock/生成/vendored)
-记录:<保存目录>/report.md
+记录:[<报告路径>](<file:// 链接>)
 ```
 
 某一段没有内容时省略该段。`<N>` 是新增加遗留的条数,不含已解决的。
@@ -235,7 +235,21 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 sh <skill_dir>/scripts/save-review.sh <review_dir>
 ```
 
-脚本最后一行输出保存到的目录,把它填进报告末尾的 `记录:` 一行。保存失败不影响报告:照常展示报告,并说明记录没有存下来以及原因。
+脚本会用系统默认程序打开保存好的 `report.md`,并输出:
+
+```
+report=<报告的路径>
+link=<报告的 file:// 链接>
+opened=yes | no (<原因>)
+dir=<保存到的目录>
+hint=<怎么更换打开报告的程序>
+```
+
+`hint` 一行只在第一次自动打开时出现。出现时,把它的内容原样作为报告的最后一行(放在 `记录:` 之后),让用户知道怎么改默认的打开程序;没有这一行就不要提。
+
+把报告末尾的 `记录:` 一行写成 Markdown 链接:`记录:[<report 的路径>](<link 的值>)`,路径和链接都原样照抄,不要自己拼。`opened=no` 时在这一行后面用括号注明没有自动打开及原因;`opened=yes` 时不用多说。不要自己再去运行 `open` 之类的命令。
+
+保存失败不影响报告:照常展示报告,并说明记录没有存下来以及原因。
 
 ### 7. `--fix`
 
@@ -254,4 +268,4 @@ sh <skill_dir>/scripts/save-review.sh <review_dir>
 
 如果用户说某条发现是错的或不值得报告,接受即可。主动提出在仓库的 `.cr/ignore.md` 中追加一行描述该模式的条目,让以后的审查不再提它;仅在用户同意后才添加。
 
-同时把这条发现从刚保存的记录里删掉:编辑 `<保存目录>/findings.json`,去掉对应的那一项。否则下次增量审查会把它当作"上次遗留"再列一遍。
+同时把这条发现从刚保存的记录里删掉:编辑 `dir` 那个目录下的 `findings.json`,去掉对应的那一项。否则下次增量审查会把它当作"上次遗留"再列一遍。
