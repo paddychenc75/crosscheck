@@ -15,7 +15,7 @@
 也可以直接用自然语言:"review 一下这个分支"、"deep review MR 128"。
 
 ```
-cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--fix]
+cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fix]
 ```
 
 | 参数 | 说明 |
@@ -28,6 +28,7 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--fix]
 | `--quick` | 单次扫描,只查 bug 和安全,最多 5 条 |
 | `--deep` | 额外从调用方/影响面再查一遍;verifier 可以跑项目已有的类型检查和测试来复现 |
 | `--only` | 只查指定维度 |
+| `--full` | 忽略以前的审查记录,全量重审。说"重新审""全量""忽略之前的"也一样 |
 | `--fix` | 报告之后,把核实过的问题改到工作区,并跑相关检查 |
 
 不带 `--fix` 时不改任何文件。审查结果只在本地输出:插件不会往 PR/MR 发评论,也永远不会 approve、request changes 或 merge。
@@ -50,6 +51,39 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--fix]
 - **Cursor**:随插件安装,配置在 `hooks/cursor-hooks.json`。
 
 没有 `jq` 也没有 `python3` 时拦截不生效,只剩核对。
+
+## 报告、记录与增量审查
+
+报告是 Markdown,直接显示在对话里,同时存一份到用户目录:
+
+```
+~/.crosscheck/reviews/<仓库名>-<路径哈希>/<目标>/
+├── 20261009-143000/
+│   ├── report.md        报告全文
+│   ├── findings.json    本次结束时仍然成立的发现
+│   ├── hashes.txt       每个文件 diff 的哈希
+│   └── meta.txt         目标、commit、深度、时间等
+├── latest               最近一次审查的目录名
+└── baseline             增量审查所依据的那一次
+```
+
+`<目标>` 是 `branch-<分支名>`、`pr-<编号>`、`mr-<编号>` 或 `range-<范围>`。不管你在不在那个分支上,同一个分支用的是同一份记录。用环境变量 `CROSSCHECK_HOME` 可以改存放位置。记录不在仓库里,不会被提交;报告里会引用代码片段,注意这个目录的访问权限。
+
+**同一个目标再次审查时默认做增量**:
+
+- 按文件比较 diff 的哈希。没变的文件不再看,上次在这些文件里的发现原样带过来。
+- 变了的和新增的文件重新审。上次在这些文件里的发现会重新核实,分成"遗留"和"已解决"。
+- 报告开头会写明这是增量审查、跳过了多少文件,发现分成"新发现""上次遗留""已解决"三段。
+- 未提交的改动同样算在内,哈希是按实际内容算的。
+
+**什么时候不做增量**:
+
+- 你说"重新审""全量""忽略之前的",或带 `--full`。
+- 这次的深度比上次高(上次 standard,这次 `--deep`)。反过来可以:deep 之后的 standard 会做增量。
+- 上次用了 `--only`:只查部分维度的审查会存记录,但不会成为增量的基准。
+- 换了目标:另一个分支、另一个 PR,或同一分支上指定了不同的范围。
+
+否定某条发现后,它会从记录里删掉,下次不会再作为遗留问题出现。
 
 ## 审查维度
 
@@ -133,7 +167,7 @@ skills/cr/
 ├── SKILL.md        编排流程
 ├── roles/          bug-hunter / security-reviewer / rules-auditor / simplifier / verifier
 ├── references/     发现结构、评分标准、误报清单
-└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / guard.sh
+└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / save-review.sh / guard.sh
 hooks/
 ├── hooks.json          Claude Code 和 Codex 的 hook 注册
 └── cursor-hooks.json   Cursor 的 hook 注册
@@ -149,5 +183,7 @@ hooks/
 
 ## 已知限制
 
+- 增量按文件判断:文件 A 没变而它依赖的文件 B 变了时,A 不会被重看。问题如果出在 B 的改动上仍然能发现;担心时用 `--full`。
+- 基准分支更新后重新变基,所有文件的 diff 哈希都可能变化,那次会退化成全量。
 - PR/MR 的 head commit 无法 fetch 到本地时,只能基于 diff 本身审查,深度会下降,报告中会注明。
 - 规则文件从当前工作区读取,而不是从 PR 的 head 读取。

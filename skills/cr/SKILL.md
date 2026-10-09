@@ -13,7 +13,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 本 skill 自包含。`skill_dir` 是本文件所在的目录:
 
-- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
+- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`、`save-review.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
 - `roles/` — 每个 reviewer 角色一份说明
 - `references/` — 发现结构、评分标准、误报清单
 
@@ -26,6 +26,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 | target | 省略:当前分支相对默认分支的改动,加上未提交的工作。分支名或其他 ref:该分支相对默认分支的改动,不需要检出它。`A..B`:commit 范围。路径:该路径下的本地改动。数字或 URL:GitHub PR 或 GitLab MR。 |
 | `--quick` / `--deep` | 深度。默认为 standard。 |
 | `--only <list>` | 只查 `bug`、`security`、`rules`、`simplify` 中的若干项。 |
+| `--full` | 忽略以前的审查记录,全量重审。用户说"重新审""全量""忽略之前的""从头来"都是这个意思。 |
 | `--fix` | 报告之后,把核实过的发现改到工作区。 |
 
 不带 `--fix` 时,审查不改任何文件。审查结果只在本地输出,任何情况下都不往 PR/MR 发内容。
@@ -52,10 +53,20 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 ### 1. 收集改动
 
 ```
-sh <skill_dir>/scripts/collect-diff.sh [target]
+sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [--only <list>] [--full]
 ```
 
-输出的最后一行是 `review_dir`。其中包含 `diff.patch`、`files.txt`、`ranges.txt`、`skipped.txt`、`batches.txt`、`batch-<n>.patch`、`meta.txt` 和 `description.md`。lock 文件、生成代码、vendored 代码和二进制文件已被过滤,列在 `skipped.txt` 中。
+`--depth` 和 `--only` 照用户的要求传,脚本用它们判断以前的审查记录能不能复用。输出的最后一行是 `review_dir`。其中包含 `diff.patch`、`files.txt`、`ranges.txt`、`skipped.txt`、`batches.txt`、`batch-<n>.patch`、`hashes.txt`、`state.txt`、`meta.txt` 和 `description.md`。lock 文件、生成代码、vendored 代码和二进制文件已被过滤,列在 `skipped.txt` 中。
+
+**增量。** 每次审查结束都会存一份记录(第 6 步)。同一仓库、同一目标以前审过,且那次的深度不低于这次时,脚本自动做增量:`meta.txt` 中 `review_scope=incremental`,`diff.patch`、`files.txt`、`ranges.txt` 和各批次里只剩自上次以来 diff 发生变化的文件,后面的步骤照常进行,不需要特殊处理。另外多出:
+
+- `incremental.txt` — 每个文件的状态:`unchanged`(没变,本次不看)、`changed`、`new`、`removed`(上次在改动里,现在不在了)。
+- `prev-findings.json` — 上次审查结束时仍然成立的发现。
+- `diff.full.patch`、`files.full.txt` — 完整的改动,需要了解全貌时查看。
+
+用户要求全量重审时传 `--full`,脚本不读历史,`review_scope=full`。
+
+如果输出里有 `UNCHANGED`,说明上次审过之后改动没有变化。运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>`,告诉用户没有新的改动需要审查,把 `prev-findings.json` 里的发现作为"上次遗留"简要列出,并说明可以用 `--full` 全量重审,然后停止。
 
 如果输出里有 `EMPTY`,运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>` 结束只读阶段,告诉用户没有可审查的内容,然后停止。任何其他提前结束审查的情况也一样,先运行这条命令。
 
@@ -121,6 +132,8 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>/files.txt > <review_dir>/ru
 
 候选要严格按 schema 定义的样子传递。不要附上发现者的推理或你自己的意见 — verifier 必须依据代码判断。
 
+**增量时**,`prev-findings.json` 中位于 `changed` 文件里的发现也要重新核实:去掉 `confidence` 和 `verdict`、保留 `since`,和新候选一起交给 verifier。代码变了,它们可能已经被修掉,也可能只是换了行号(verifier 会修正 `line`)。记住哪些候选来自上次,报告里要分开列。
+
 **没有子代理,或者是 quick 时**:阅读 `roles/verifier.md` 并自己执行。把你在查找阶段得出的结论放到一边。对每条候选,重新打开文件,先为反方辩护 — 即这条发现是错的 — 然后再打分。
 
 ### 5. 过滤与排序
@@ -128,6 +141,11 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>/files.txt > <review_dir>/ru
 - 丢弃所有 `confidence` 低于 80 的。
 - 丢弃 `REVIEW.md` 审查设置要求跳过的路径或问题类别中的发现。
 - 丢弃所有 `line` 不在 `ranges.txt` 中该文件任一范围内的。
+- 增量时,把上次的发现归为三类:
+  - 位于 `unchanged` 文件里的:原样带入,不重新核实,也不做上面的行范围检查。
+  - 位于 `changed` 文件里的:通过了第 4 步核实的算"遗留";没通过的算"已解决"。
+  - 位于 `removed` 文件里的:算"已解决"。
+  - 与本次新发现描述同一位置同一缺陷的,合并为一条,算"遗留"。
 - 先按严重程度(`critical`、`major`、`minor`)排序,再按置信度。
 - `bug` / `security` / `rules` 发现最多保留 10 条(quick 为 5 条),`simplify` 发现最多保留 5 条。`REVIEW.md` 的审查设置里写了条数上限时,以它为准。如果有裁掉的,说明裁掉了多少。
 
@@ -147,6 +165,8 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 严重程度显示为:`critical` → 严重,`major` → 重要,`minor` → 轻微。维度沿用 `bug` / `security` / `rules` / `simplify`。
 
+全量审查(`review_scope=full`)的报告:
+
 ```
 ## 审查:<target 描述> — <N> 条发现
 
@@ -157,13 +177,47 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 ### 2. ...
 
-<折叠块或单独的简短小节>
-可简化(<n>)
+### 可简化(<n>)
 - `path:line` — <摘要> → <建议>
 
-已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard
+已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:全量
 跳过文件:<n>(lock/生成/vendored)
+记录:<保存目录>/report.md
 ```
+
+增量审查(`review_scope=incremental`)的报告,在标题下说明范围,并把发现分成三段:
+
+```
+## 审查:<target 描述> — <N> 条发现(新增 <a> · 遗留 <b> · 已解决 <c>)
+
+增量审查:上次(<prev_review 的日期时间>)审过的 <unchanged_files> 个文件没有变化,本次只看了有变化的 <files> 个。全量重审请说"重新审"或加 `--full`。
+
+### 新发现
+
+#### 1. [重要 · bug] <摘要>
+`path/to/file.ts:42`
+<失败场景>
+修复:<建议>
+
+### 上次遗留(仍然存在)
+
+#### 2. [重要 · security] <摘要> · 首次报告于 <since>
+`path/to/other.ts:17`
+<失败场景>
+修复:<建议>
+
+### 已解决(<c>)
+- `path:line` — <摘要>
+
+### 可简化(<n>)
+- `path:line` — <摘要> → <建议>
+
+已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:增量
+跳过文件:<n>(lock/生成/vendored)
+记录:<保存目录>/report.md
+```
+
+某一段没有内容时省略该段。`<N>` 是新增加遗留的条数,不含已解决的。
 
 - 每条发现以 `path:line` 给出文件和行号。
 - 简化建议与缺陷分开,视觉上居于次要位置。
@@ -171,6 +225,17 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 - 如果采用了 `REVIEW.md` 的审查设置,在 `已检查:` 一行后面注明(例如"已应用 REVIEW.md 的审查设置");如果因为它被本次 PR 修改而没有采用,同样注明。
 - 如果没有任何发现通过核实,直说没有发现问题,后面跟上 `已检查:` 那一行。不要为了填充篇幅而添加观察、表扬或泛泛的建议。
 - 不要列出被否决的候选。
+
+**保存记录。** 报告定稿后,把两个文件写进 `review_dir`(它在仓库之外),再运行保存脚本:
+
+- `report.md` — 报告全文,和你展示给用户的内容一致(`记录:` 那一行除外)。
+- `findings.json` — 本次结束时仍然成立的全部发现:新发现加上遗留的,`simplify` 的也在内;因条数上限没有展示的同样要写进去,否则它们所在的文件下次不会再被审到,问题就丢了。不含已解决的。格式同发现结构,保留 `confidence` 和 `verdict`,每条带 `since`:新发现填 `meta.txt` 中的 `started_at`,遗留的沿用原值。没有发现时写 `[]`。
+
+```
+sh <skill_dir>/scripts/save-review.sh <review_dir>
+```
+
+脚本最后一行输出保存到的目录,把它填进报告末尾的 `记录:` 一行。保存失败不影响报告:照常展示报告,并说明记录没有存下来以及原因。
 
 ### 7. `--fix`
 
@@ -188,3 +253,5 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 ## 当某条发现被否定时
 
 如果用户说某条发现是错的或不值得报告,接受即可。主动提出在仓库的 `.cr/ignore.md` 中追加一行描述该模式的条目,让以后的审查不再提它;仅在用户同意后才添加。
+
+同时把这条发现从刚保存的记录里删掉:编辑 `<保存目录>/findings.json`,去掉对应的那一项。否则下次增量审查会把它当作"上次遗留"再列一遍。

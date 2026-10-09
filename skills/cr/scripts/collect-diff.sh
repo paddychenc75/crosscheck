@@ -1,7 +1,8 @@
 #!/bin/sh
 # collect-diff.sh — 把待审查的改动收集到一个由纯文本文件组成的目录中。
 #
-# 用法: collect-diff.sh [target] [--platform github|gitlab] [--out DIR]
+# 用法: collect-diff.sh [target] [--depth quick|standard|deep] [--only LIST] [--full]
+#                        [--platform github|gitlab] [--out DIR]
 #
 #   省略 target        当前分支相对其与默认分支的 merge-base 的改动,
 #                      加上未提交和未跟踪的改动
@@ -20,6 +21,15 @@
 #   meta.txt        关于审查目标的 key=value 信息
 #   state.txt       审查开始时的仓库状态,供 check-state.sh 在结束时核对
 #   description.md  PR/MR 的标题和描述(本地审查时为空)
+#   hashes.txt      hash<TAB>path          — 每个文件 diff 的哈希,用于判断下次是否需要重审
+#
+# 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
+# ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/ 下,由 save-review.sh 写入),diff.patch 等文件
+# 只保留自那次以来 diff 发生变化的文件,并额外写出:
+#   incremental.txt     status<TAB>path    — unchanged / changed / new / removed
+#   diff.full.patch、files.full.txt        — 完整的改动
+#   prev-findings.json                     — 上次留下的发现
+# --full 忽略历史,全量审查。
 
 set -eu
 
@@ -29,15 +39,29 @@ need() { command -v "$1" >/dev/null 2>&1 || die "$2 需要 '$1',但在 PATH 中�
 target=""
 platform="${CR_PLATFORM:-}"
 out=""
+depth=standard
+only=all
+full=no
+local_path=""
+ref_key=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; shift 2 ;;
+    --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
+    --full) full=yes; shift ;;
+    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
 done
+
+case "$depth" in quick|standard|deep) ;; *) die "--depth 应为 quick、standard 或 deep" ;; esac
+only=$(printf '%s' "$only" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//')
+case ",$only," in
+  ,all,|,bug,rules,security,simplify,) only=all ;;
+esac
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前不在 git 仓库中"
 script_dir=$(cd "$(dirname "$0")" && pwd)
@@ -95,6 +119,7 @@ print("" if d is None else d)' "$1" "$2"
 
 collect_local() {
   pathspec=$1
+  local_path=$1
   head_sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
   if [ -n "$head_sha" ]; then
     if base_ref=$(default_branch_ref); then
@@ -128,6 +153,7 @@ collect_ref() {
     return 0
   fi
   base_ref=$(default_branch_ref) || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 A..B 指定范围"
+  ref_key="branch-${ref#origin/}"
   collect_range "$base_ref...$ref"
 }
 
@@ -272,6 +298,80 @@ END { flush() }
 rm -f "$raw"
 for f in diff.patch files.txt skipped.txt; do [ -f "$out/$f" ] || : > "$out/$f"; done
 
+# 每个文件 diff 的哈希。内容没变则哈希不变,下次审查据此跳过。
+split="$out/split"
+rm -rf "$split" "$out/hashes.txt" "$out/incremental.txt" "$out/diff.full.patch" "$out/files.full.txt" "$out/prev-findings.json"
+mkdir -p "$split"
+: > "$split/index"
+awk -v dir="$split" '
+function flush(   f) {
+  if (!open) return
+  n++; f = dir "/" n ".patch"
+  print buf > f; close(f)
+  print n "\t" path >> (dir "/index")
+  open = 0
+}
+/^diff --git / { flush(); buf = $0; path = $0; open = 1; sub(/^diff --git a\/.* b\//, "", path); next }
+open { buf = buf "\n" $0 }
+END { flush() }
+' "$out/diff.patch"
+tab=$(printf '\t')
+: > "$out/hashes.txt"
+while IFS="$tab" read -r n path; do
+  printf '%s\t%s\n' "$(git hash-object "$split/$n.patch")" "$path" >> "$out/hashes.txt"
+done < "$split/index"
+
+# 这个目标的审查记录放在哪里。
+case "$mode" in
+  pr) if [ "$platform" = gitlab ]; then target_key="mr-$number"; else target_key="pr-$number"; fi ;;
+  range) target_key=${ref_key:-range-$target} ;;
+  *)
+    branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
+    [ -n "$branch" ] || branch="detached-$(git rev-parse --short HEAD 2>/dev/null || echo none)"
+    target_key="branch-$branch${local_path:+--path-$local_path}"
+    ;;
+esac
+target_key=$(printf '%s' "$target_key" | sed 's/[^A-Za-z0-9._-]/_/g')
+repo_key="$(basename "$root" | sed 's/[^A-Za-z0-9._-]/_/g')-$(printf '%s' "$root" | git hash-object --stdin | cut -c1-8)"
+store_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews/$repo_key/$target_key"
+
+# 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
+rank() { case "$1" in quick) echo 1 ;; deep) echo 3 ;; *) echo 2 ;; esac; }
+review_scope=full
+prev_review=""
+unchanged_count=0
+if [ "$full" = no ] && [ -f "$store_dir/baseline" ]; then
+  prev_review=$(head -n 1 "$store_dir/baseline")
+  prev="$store_dir/$prev_review"
+  if [ -f "$prev/hashes.txt" ] && [ -f "$prev/meta.txt" ]; then
+    prev_depth=$(sed -n 's/^depth=//p' "$prev/meta.txt" | head -n 1)
+    if [ "$(rank "$prev_depth")" -ge "$(rank "$depth")" ]; then review_scope=incremental; fi
+  fi
+  [ "$review_scope" = incremental ] || prev_review=""
+fi
+if [ "$review_scope" = incremental ]; then
+  awk -F '\t' '
+    NR == FNR { old[$2] = $1; next }
+    { seen[$2] = 1
+      if (!($2 in old)) print "new\t" $2
+      else if (old[$2] == $1) print "unchanged\t" $2
+      else print "changed\t" $2 }
+    END { for (p in old) if (!(p in seen)) print "removed\t" p }
+  ' "$prev/hashes.txt" "$out/hashes.txt" > "$out/incremental.txt"
+  unchanged_count=$(grep -c "^unchanged$tab" "$out/incremental.txt" || true)
+  mv "$out/diff.patch" "$out/diff.full.patch"
+  mv "$out/files.txt" "$out/files.full.txt"
+  : > "$out/diff.patch"
+  : > "$out/files.txt"
+  while IFS="$tab" read -r n path; do
+    if grep -qxF "unchanged$tab$path" "$out/incremental.txt"; then continue; fi
+    cat "$split/$n.patch" >> "$out/diff.patch"
+    printf '%s\n' "$path" >> "$out/files.txt"
+  done < "$split/index"
+  [ -f "$prev/findings.json" ] && cp "$prev/findings.json" "$out/prev-findings.json"
+fi
+rm -rf "$split"
+
 # 每个 hunk 的新侧行范围,用于锚定发现。
 awk '
 /^\+\+\+ b\// { path = substr($0, 7); next }
@@ -345,11 +445,22 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'changed_lines=%s\n' "$changed_lines"
   printf 'skipped=%s\n' "$skipped_count"
   printf 'batches=%s\n' "$batch_count"
+  printf 'depth=%s\n' "$depth"
+  printf 'only=%s\n' "$only"
+  printf 'review_scope=%s\n' "$review_scope"
+  printf 'prev_review=%s\n' "$prev_review"
+  printf 'unchanged_files=%s\n' "$unchanged_count"
+  printf 'target_key=%s\n' "$target_key"
+  printf 'store_dir=%s\n' "$store_dir"
+  printf 'started_at=%s\n' "$(date '+%Y-%m-%d %H:%M')"
 } > "$out/meta.txt"
 
 sh "$script_dir/check-state.sh" --save "$out"
 
-printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s\n' \
-  "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out"
-[ "$file_count" -gt 0 ] || printf 'EMPTY: 没有可审查的内容\n'
+printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
+  "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
+if [ "$file_count" -eq 0 ]; then
+  if [ "$unchanged_count" -gt 0 ]; then printf 'UNCHANGED: 自上次审查(%s)以来没有变化\n' "$prev_review"
+  else printf 'EMPTY: 没有可审查的内容\n'; fi
+fi
 printf '%s\n' "$out"
