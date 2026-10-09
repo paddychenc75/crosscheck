@@ -8,23 +8,14 @@
 
 **Claude Code**
 
-```
-/plugin install crosscheck --marketplace paddychenc75/crosscheck
-```
-
-需要 Claude Code 2.1.275 或更高版本。更早的版本分两步,在终端里执行:
-
-```
-claude plugin marketplace add paddychenc75/crosscheck
-claude plugin install crosscheck@crosscheck
-```
-
-想改着用的话,克隆后直接加载目录:
+克隆仓库后直接加载目录:
 
 ```
 git clone https://github.com/paddychenc75/crosscheck.git
 claude --plugin-dir ./crosscheck
 ```
+
+通过插件市场安装的方式后续提供。
 
 **Cursor、Codex 和其他支持 SKILL.md 的 agent**
 
