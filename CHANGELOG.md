@@ -33,5 +33,5 @@
 - 通过 Cursor 和 Codex 各自的插件机制安装的方式没有验证过。
 - 80 分阈值和每批 1000 行没有在标注数据集上验证过。
 
-[未发布]: https://github.com/paddychenc75/crosscheck/compare/2847f9d...HEAD
-[0.1.0]: https://github.com/paddychenc75/crosscheck/commits/2847f9d
+[未发布]: https://github.com/paddychenc75/crosscheck/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/paddychenc75/crosscheck/releases/tag/v0.1.0
