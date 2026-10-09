@@ -6,28 +6,37 @@
 
 ## 安装
 
-**Claude Code**
-
-克隆仓库后直接加载目录:
+还没有发布到插件市场,目前用拷贝的方式安装:克隆仓库,把 `skills/cr/` 整个目录拷到对应 agent 的 skills 目录下。
 
 ```
 git clone https://github.com/paddychenc75/crosscheck.git
-claude --plugin-dir ./crosscheck
 ```
 
-通过插件市场安装的方式后续提供。
+| 宿主 | 拷贝到 | 生效范围 |
+|---|---|---|
+| Claude Code | `~/.claude/skills/cr/` | 所有项目 |
+| Claude Code | `<项目>/.claude/skills/cr/` | 仅该项目 |
+| Cursor | `<项目>/.cursor/skills/cr/` | 仅该项目 |
+| Codex 及其他支持 SKILL.md 的 agent | `<项目>/.agents/skills/cr/` | 仅该项目 |
 
-**Cursor、Codex 和其他支持 SKILL.md 的 agent**
+以 Claude Code 为例:
 
-`skills/cr/` 是自包含的 skill 目录。克隆仓库后,把它复制或软链接到该 agent 的 skills 目录,例如项目内的 `.cursor/skills/cr/` 或 `.agents/skills/cr/`。这样装只有审查流程,没有只读拦截的 hook(核对仍然有效)。
+```
+mkdir -p ~/.claude/skills
+cp -R crosscheck/skills/cr ~/.claude/skills/cr
+```
 
-通过 Cursor 和 Codex 各自的插件机制安装本仓库的方式还没有验证过。
+拷贝后重启会话,用 `/cr` 调用。
+
+- **更新**:在克隆的目录里 `git pull`,然后重新拷贝一次(先删掉旧的 `cr` 目录)。不想每次拷贝的话,可以改用软链接:`ln -s "$(pwd)/crosscheck/skills/cr" ~/.claude/skills/cr`,之后只需要 `git pull`。
+- **拷贝安装不包含只读拦截的 hook。** 审查流程、审查记录、增量和出报告前的状态核对都正常工作,只是审查期间不会主动拦截危险的 git 命令和会显示凭证的操作。
+- **想带上 hook**:Claude Code 可以用 `claude --plugin-dir ./crosscheck` 把整个仓库作为插件加载,调用方式变为 `/crosscheck:cr`。这个参数只对当次启动的会话生效。
 
 ## 用法
 
 | 宿主 | 调用 |
 |---|---|
-| Claude Code | `/crosscheck:cr [参数]` |
+| Claude Code | `/cr [参数]`(作为插件加载时是 `/crosscheck:cr [参数]`) |
 | Cursor | `/cr [参数]` |
 | Codex | `$cr [参数]` |
 
