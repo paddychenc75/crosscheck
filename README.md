@@ -82,6 +82,17 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fi
 
 ## 报告、记录与增量审查
 
+报告的结构:
+
+- **概览表**:每条发现一行,列出严重程度、维度、位置和摘要,先看全貌。
+- **逐条发现**,每条包含:
+  - 位置:`文件:行号`。
+  - 问题代码:从被审查的那一版代码里摘出的原文,带行号,出问题的那一行有标记。
+  - 问题:具体的输入或状态会导致什么错误结果。
+  - 修复建议:能确定时给出 diff 形式的替换代码,否则用文字说明。
+- **可简化**:单独的一小节,只列位置和建议。
+- **末尾**:查了哪些维度、深度和范围、跳过了多少文件、报告文件的链接。
+
 报告是 Markdown,直接显示在对话里,同时存一份到用户目录。审查结束时会用系统默认程序自动打开这份报告,对话里的报告末尾也有一行可点击的 `file://` 链接指向它。
 
 - 不想自动打开:设置 `CROSSCHECK_OPEN=0`。
@@ -192,9 +203,21 @@ minor 最多报 3 条,其余的在末尾说明还有几条。
 ## 依赖
 
 - `git`、POSIX `sh`
-- GitHub PR:`gh`(已登录)
-- GitLab MR:`glab`(已登录),以及 `jq` 或 `python3`
+- GitHub PR:`gh`(已登录)。没有或未登录时改用 git 直接拉取,见下
+- GitLab MR:`glab`(已登录),以及 `jq` 或 `python3`。没有或未登录时改用 git 直接拉取,见下
 - 只读拦截:`jq` 或 `python3`
+
+## 前置条件和常见情况
+
+- **必须有本地仓库。** 审查要读代码,只给一个 MR 链接而没有本地克隆是不行的。不在仓库目录里时,告诉它仓库在哪,它会用 `--repo <目录>` 运行。
+- **没有 `gh` / `glab`,或没有登录。** 仍然可以审查 PR/MR:脚本会用 git 直接把它的代码拉下来,用的是仓库自己已经配置好的凭证。代价是拿不到标题和描述,对比基准按默认分支计算;目标分支不是默认分支时,说明一下目标分支(对应 `--base <分支>`)。
+- **连不上代码托管的地址。** 内网的 GitLab 在沙箱里经常解析不了。这是运行环境的限制,脚本会直接说明拉取失败的可能原因;放开网络或换个环境后再试,或者改审已经在本地的分支。
+- **明明登录了,却提示没登录。** 常见原因是登录用的环境变量(如 `GITLAB_TOKEN`、`GLAB_CONFIG_DIR`)写在 `~/.zshrc` 里,而 agent 的终端是非交互的,不读这个文件。脚本会识别这种情况并告诉你是哪个文件里的哪几个变量:
+  - 它只检查变量名有没有出现、当前环境里有没有值,不读取也不输出任何值。
+  - 识别到之后,会借你自己的登录 shell 再调用一次 `glab`;那个 shell 的输出全部丢弃,只有 `glab` 返回的 MR 信息被写进临时文件。超过 20 秒就放弃。不想要这个行为设置 `CR_USER_SHELL=0`。
+  - 一劳永逸的办法:把这几个变量的设置挪到 `~/.zshenv`(zsh 的所有终端都会读),或配置到宿主的环境变量里。
+- **凭证。** 远程地址里嵌着 token 的仓库很常见。脚本显示和保存的远程地址都去掉了账号和凭证;agent 被要求不打印远程地址、不读取任何凭证。审查期间,会显示凭证的操作会被直接拦截:打印环境变量、查看或 `source` shell 配置文件、读取 `.netrc` 和 gh/glab 的配置、`git remote -v`、`gh auth token` 等。
+- **报告在哪。** 以报告末尾 `记录:` 一行的链接为准,位置固定在 `~/.crosscheck/reviews/` 下。
 
 ## 结构
 
@@ -203,7 +226,7 @@ skills/cr/
 ├── SKILL.md        编排流程
 ├── roles/          bug-hunter / security-reviewer / rules-auditor / simplifier / verifier
 ├── references/     发现结构、评分标准、误报清单
-└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / save-review.sh / guard.sh
+└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / snippet.sh / save-review.sh / guard.sh
 hooks/
 ├── hooks.json          Claude Code 和 Codex 的 hook 注册
 └── cursor-hooks.json   Cursor 的 hook 注册

@@ -2,7 +2,10 @@
 # collect-diff.sh — 把待审查的改动收集到一个由纯文本文件组成的目录中。
 #
 # 用法: collect-diff.sh [target] [--depth quick|standard|deep] [--only LIST] [--full]
-#                        [--platform github|gitlab] [--out DIR]
+#                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
+#
+#   --repo DIR   仓库所在的目录(默认:当前目录)
+#   --base REF   PR/MR 的目标分支,只在无法通过 gh/glab 读取时使用(默认:默认分支)
 #
 #   省略 target        当前分支相对其与默认分支的 merge-base 的改动,
 #                      加上未提交和未跟踪的改动
@@ -44,6 +47,12 @@ only=all
 full=no
 local_path=""
 ref_key=""
+repo_arg=""
+base_override=""
+pr_source=""
+gap_vars=""
+gap_file=""
+auth_via=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
@@ -51,7 +60,9 @@ while [ $# -gt 0 ]; do
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
     --full) full=yes; shift ;;
-    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
+    --base) [ $# -ge 2 ] || die "--base 需要一个值"; base_override=$2; shift 2 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -63,8 +74,10 @@ case ",$only," in
   ,all,|,bug,rules,security,simplify,) only=all ;;
 esac
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前不在 git 仓库中"
 script_dir=$(cd "$(dirname "$0")" && pwd)
+if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的目录不存在: $repo_arg"; fi
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "$(pwd) 不是 git 仓库。审查需要本地仓库:请在仓库目录里运行,或用 --repo <目录> 指定。不知道仓库在哪里时问用户,不要在磁盘上到处找"
 prefix=$(git rev-parse --show-prefix)
 root=$(git rev-parse --show-toplevel)
 
@@ -168,13 +181,88 @@ collect_range() {
   code_ref=$head_sha
 }
 
+# origin 的地址,去掉协议、账号和凭证。任何要显示或保存远程地址的地方都用它,不要用原始地址。
+origin_id() {
+  u=$(git remote get-url origin 2>/dev/null || true)
+  [ -n "$u" ] || return 1
+  printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##'
+}
+
+# gh/glab 不可用或没登录时,只用 git 把 PR/MR 拉下来。git 会用仓库自己配置好的凭证,
+# 不需要任何人去读取或传递它。拿不到标题、描述和目标分支,对比基准按 --base 或默认分支计算。
+collect_via_git() { # 远端 ref,给人看的名称
+  oid=$(origin_id) || die "当前仓库没有 origin 远程,无法拉取 $2"
+  if [ -n "$repo" ]; then
+    case "$oid" in
+      */"$repo") ;;
+      *) die "$2 属于 $repo,但当前仓库的 origin 是 ${oid}。请在对应的本地仓库里运行,或用 --repo 指定它的目录" ;;
+    esac
+  fi
+  if ! git fetch -q origin "$1" >/dev/null 2>&1; then
+    [ -z "$gap_vars" ] || printf 'collect-diff: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把它们挪到 ~/.zshenv 或宿主的环境变量配置里;不要为了排查去打印这些变量或查看这个文件\n' "$gap_file" "$gap_vars" >&2
+    die "无法从 origin(${oid})拉取 $2。可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
+  fi
+  head_sha=$(git rev-parse FETCH_HEAD)
+  if [ -n "$base_override" ]; then
+    base_ref=$base_override
+    git rev-parse -q --verify "$base_ref^{commit}" >/dev/null 2>&1 || base_ref="origin/$base_override"
+    git fetch -q origin "${base_ref#origin/}" >/dev/null 2>&1 || true
+    git rev-parse -q --verify "$base_ref^{commit}" >/dev/null 2>&1 || die "找不到 --base 指定的分支: $base_override"
+  else
+    base_ref=$(default_branch_ref) || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支"
+    git fetch -q origin "${base_ref#origin/}" >/dev/null 2>&1 || true
+  fi
+  base_sha=$(git merge-base "$base_ref" "$head_sha" 2>/dev/null) || die "$2 与 $base_ref 没有共同的祖先,请用 --base 指定正确的目标分支"
+  $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+  printf '(未能读取 %s 的标题和描述:gh/glab 不可用或未登录,本次只用 git 拉取了代码。)\n' "$2" > "$out/description.md"
+  pr_source="git;base=$base_ref"
+}
+
+# 登录配置写在 shell 的 rc 文件里、而当前终端没有加载它的情况:非交互终端(很多 agent 的终端
+# 都是)不读 .zshrc / .bashrc,于是 gh/glab 明明登录过却读不到 token 或配置目录。
+# 这里只判断变量名有没有出现、当前环境里有没有值,绝不读取、保存或输出任何值。
+env_gap() { # 空格分隔的变量名
+  gap_vars=""; gap_file=""
+  for v in $1; do
+    if eval "[ -n \"\${$v:-}\" ]"; then continue; fi
+    for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
+      [ -f "$rc" ] || continue
+      if grep -qE "(^|[[:space:];])$v=" "$rc" 2>/dev/null; then
+        gap_vars="${gap_vars:+$gap_vars、}$v"
+        gap_file="~/${rc##*/}"
+        break
+      fi
+    done
+  done
+}
+
+# 在用户自己的交互 shell 里运行一条命令,让它带上 rc 文件里的登录配置。
+# 命令必须自己把结果写进文件;这个 shell 的标准输出和标准错误全部丢弃,
+# 所以 rc 里的任何内容、任何环境变量都到不了终端。超过 20 秒就放弃。
+via_user_shell() { # 命令串,参数...
+  [ "${CR_USER_SHELL:-auto}" != 0 ] || return 1
+  sh_bin=${SHELL:-}
+  case "${sh_bin##*/}" in zsh|bash) ;; *) return 1 ;; esac
+  cmd_str=$1; shift
+  "$sh_bin" -ic "$cmd_str" cr-shell "$@" </dev/null >/dev/null 2>&1 &
+  shell_pid=$!
+  # 交互 shell 会忽略 TERM,所以超时后直接 KILL,连同它启动的子进程。
+  ( sleep 20; pkill -9 -P "$shell_pid" 2>/dev/null; kill -9 "$shell_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  watch_pid=$!
+  if wait "$shell_pid" 2>/dev/null; then shell_rc=0; else shell_rc=$?; fi
+  pkill -P "$watch_pid" 2>/dev/null || true
+  kill "$watch_pid" 2>/dev/null || true
+  wait "$watch_pid" 2>/dev/null || true
+  return "$shell_rc"
+}
+
 detect_platform() {
   [ -n "$platform" ] && return 0
   case "$target" in
     *"/pull/"*) platform=github; return 0 ;;
     *"/merge_requests/"*) platform=gitlab; return 0 ;;
   esac
-  remote=$(git remote get-url origin 2>/dev/null || true)
+  remote=$(origin_id || true)
   case "$remote" in
     *github.com*) platform=github ;;
     *gitlab*) platform=gitlab ;;
@@ -183,7 +271,6 @@ detect_platform() {
 }
 
 collect_github() {
-  need gh "GitHub pull request"
   mode=pr
   case "$target" in
     http*://*/pull/*)
@@ -191,11 +278,14 @@ collect_github() {
       repo=${url_path%%/pull/*}
       number=${target##*/pull/}; number=${number%%[!0-9]*}
       ;;
-    *)
-      number=$target
-      repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || die "gh 无法解析仓库"
-      ;;
+    *) number=$target ;;
   esac
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    env_gap "GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GH_CONFIG_DIR XDG_CONFIG_HOME"
+    collect_via_git "pull/$number/head" "PR #$number"
+    return 0
+  fi
+  [ -n "$repo" ] || repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || die "gh 无法解析仓库"
   info=$(gh pr view "$number" -R "$repo" --json title,url,baseRefOid,headRefOid \
     --jq '[.title, .url, .baseRefOid, .headRefOid] | @tsv') || die "gh 无法读取 ${repo} 中的 PR #${number}"
   tab=$(printf '\t')
@@ -209,7 +299,6 @@ collect_github() {
 }
 
 collect_gitlab() {
-  need glab "GitLab merge request"
   mode=pr
   proj=":id"
   case "$target" in
@@ -223,7 +312,22 @@ collect_gitlab() {
       ;;
     *) number=$target ;;
   esac
-  glab api "projects/$proj/merge_requests/$number" > "$out/mr.json" || die "glab 无法读取 MR !${number}"
+  mr_api="projects/$proj/merge_requests/$number"
+  mr_ok() { [ -s "$out/mr.json" ] && [ -n "$(json_get "$out/mr.json" .diff_refs.head_sha 2>/dev/null)" ]; }
+  if command -v glab >/dev/null 2>&1 && glab api "$mr_api" > "$out/mr.json" 2>/dev/null && mr_ok; then :
+  else
+    rm -f "$out/mr.json"
+    env_gap "GITLAB_TOKEN GITLAB_ACCESS_TOKEN OAUTH_TOKEN GLAB_CONFIG_DIR XDG_CONFIG_HOME"
+    # 只有确认 rc 文件里有相关配置、而当前环境没有时,才借用户的 shell 再试一次。
+    if { [ -n "$gap_vars" ] || [ "${CR_USER_SHELL:-auto}" = always ]; } \
+      && via_user_shell 'glab api "$1" > "$2" 2>/dev/null' "$mr_api" "$out/mr.json" && mr_ok; then
+      auth_via=shell
+    else
+      rm -f "$out/mr.json"
+      collect_via_git "merge-requests/$number/head" "MR !$number"
+      return 0
+    fi
+  fi
   title=$(json_get "$out/mr.json" .title)
   url=$(json_get "$out/mr.json" .web_url)
   base_sha=$(json_get "$out/mr.json" .diff_refs.base_sha)
@@ -334,9 +438,7 @@ esac
 target_key=$(printf '%s' "$target_key" | sed 's/[^A-Za-z0-9._-]/_/g')
 # 记录按项目名存放。项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;
 # 两者在同一仓库的各个 worktree 里都一样,所以它们共用一份记录。
-remote_url=$(git remote get-url origin 2>/dev/null || true)
-if [ -n "$remote_url" ]; then
-  repo_id=$(printf '%s' "$remote_url" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+if repo_id=$(origin_id); then :
 else
   common=$(git rev-parse --git-common-dir)
   repo_id=$(dirname "$(cd "$common" && pwd)")
@@ -471,6 +573,9 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   if [ -n "$prev_review" ] && [ -f "$store_dir/$prev_review/report.md" ]; then printf 'prev_report=%s\n' "$store_dir/$prev_review/report.md"; fi
   printf 'unchanged_files=%s\n' "$unchanged_count"
   printf 'repo_id=%s\n' "$repo_id"
+  printf 'pr_source=%s\n' "${pr_source:-api}"
+  printf 'auth_via=%s\n' "${auth_via:-direct}"
+  printf 'env_gap=%s\n' "$gap_vars"
   printf 'target_key=%s\n' "$target_key"
   printf 'store_dir=%s\n' "$store_dir"
   printf 'started_at=%s\n' "$(date '+%Y-%m-%d %H:%M')"
@@ -480,6 +585,17 @@ sh "$script_dir/check-state.sh" --save "$out"
 
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
+case "$pr_source" in
+  git*) printf 'NOTE: 没有通过 gh/glab 读到这个 PR/MR 的信息,已改用 git 直接拉取代码。标题和描述不可用;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "${pr_source#git;base=}" ;;
+esac
+if [ -n "$gap_vars" ]; then
+  if [ "$auth_via" = shell ]; then
+    printf 'NOTE: 当前终端没有加载你的 shell 配置:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。已改为通过你的登录 shell 调用 glab,读取成功。\n' "$gap_file" "$gap_vars"
+  else
+    printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。\n' "$gap_file" "$gap_vars"
+  fi
+  printf 'NOTE: 想一劳永逸,把这几个变量的设置从 %s 挪到 ~/.zshenv(zsh 的所有终端都会读)或宿主的环境变量配置里。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file"
+fi
 if [ "$file_count" -eq 0 ]; then
   if [ "$unchanged_count" -gt 0 ]; then printf 'UNCHANGED: 自上次审查(%s)以来没有变化\n' "$prev_review"
   else printf 'EMPTY: 没有可审查的内容\n'; fi

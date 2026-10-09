@@ -1,9 +1,9 @@
 {
-  "description": "cr 审查进行期间,拦截会改变仓库状态的 git/gh/glab 命令和对仓库文件的编辑",
+  "description": "cr 审查进行期间,拦截会改变仓库状态的命令、对仓库文件的编辑,以及可能暴露凭证的命令和读取",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|apply_patch",
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|apply_patch",
         "hooks": [
           {
             "type": "command",

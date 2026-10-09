@@ -2,13 +2,25 @@
   "version": 1,
   "hooks": {
     "beforeShellExecution": [
-      { "command": "sh ./skills/cr/scripts/guard.sh" }
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh"
+      }
     ],
     "preToolUse": [
-      { "command": "sh ./skills/cr/scripts/guard.sh", "matcher": "Write|Edit|Delete" }
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh",
+        "matcher": "Write|Edit|Delete"
+      }
     ],
     "beforeSubmitPrompt": [
-      { "command": "sh ./skills/cr/scripts/guard.sh" }
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh"
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh"
+      }
     ]
   }
 }

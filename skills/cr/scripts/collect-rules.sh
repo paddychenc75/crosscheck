@@ -24,7 +24,12 @@ seen="$tmp/seen"
 : > "$seen"
 if [ "$list" = "-" ]; then cat > "$changed"; else cat "$list" > "$changed"; fi
 
-root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# 仓库根目录:优先取 collect-diff.sh 记在 meta.txt 里的,这样不要求从仓库目录里运行。
+root=""
+if [ "$list" != "-" ] && [ -f "$(dirname "$list")/meta.txt" ]; then
+  root=$(sed -n 's/^repo_root=//p' "$(dirname "$list")/meta.txt" | head -n 1)
+fi
+[ -n "$root" ] && [ -d "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$root"
 
 # 某个 frontmatter key 的值,每行一个。支持标量、逗号列表、

@@ -13,7 +13,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 本 skill 自包含。`skill_dir` 是本文件所在的目录:
 
-- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`、`save-review.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
+- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`、`snippet.sh`、`save-review.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
 - `roles/` — 每个 reviewer 角色一份说明
 - `references/` — 发现结构、评分标准、误报清单
 
@@ -40,6 +40,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 - **只有用户明确要求修改时才修。** "review 一下""看看有什么问题""这个该怎么修"都不是修改的请求:报告问题和修复建议,然后停下。只有用户带了 `--fix`,或明确说了"修掉""帮我改"之类的话,才进入第 7 步。拿不准时不改,在报告末尾问一句。
 - **不往外发任何内容。** 报告只输出给用户。不往 PR/MR 发评论,不 approve、request changes、merge 或 close,即使用户要求也一样 — 告诉用户本插件不做这些,由他自己操作。
 - **除了脚本自己的输出目录,不在仓库里创建文件。** 中间结果写在 `review_dir` 里。
+- **不接触凭证。** 凭证绝对不能出现在终端输出或对话里。远程地址里可能嵌着 token:不要运行 `git remote -v`、`git remote get-url`、`git config --get remote.origin.url` 这类会把远程地址打印出来的命令。也不要打印环境变量(`env`、`printenv`、`echo $XXX_TOKEN`),不要查看或 `source` shell 的配置文件(`.zshrc`、`.bashrc` 等),不要读取 `.netrc`、credential helper、gh/glab 的配置文件,不要运行 `gh auth token` 或带 `--show-token` 的命令。判断有没有登录,只看命令成功还是失败,不看凭证本身。需要知道远程是哪里时,看 `meta.txt` 里的 `repo_id`,它已经去掉了账号和凭证。更不要把凭证取出来自己去调 API:读不到 PR/MR 信息时脚本会自己改用 git 拉取(见第 1 步)。
 
 这些约束有两层保障,你不需要做额外的事,但要知道它们存在:
 
@@ -53,8 +54,10 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 ### 1. 收集改动
 
 ```
-sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [--only <list>] [--full]
+sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [--only <list>] [--full] [--repo <目录>]
 ```
+
+**需要本地仓库。** 审查要读代码,必须有本地的 git 仓库。当前目录不是仓库时脚本会报错:知道仓库在哪就加 `--repo <目录>` 重新运行(之后的脚本都只需要 `review_dir`,不要求切换目录);不知道就问用户仓库在哪里,不要在磁盘上到处找。读代码时以 `meta.txt` 里的 `repo_root` 为准。
 
 `--depth` 和 `--only` 照用户的要求传,脚本用它们判断以前的审查记录能不能复用。输出的最后一行是 `review_dir`。其中包含 `diff.patch`、`files.txt`、`ranges.txt`、`skipped.txt`、`batches.txt`、`batch-<n>.patch`、`hashes.txt`、`state.txt`、`meta.txt` 和 `description.md`。lock 文件、生成代码、vendored 代码和二进制文件已被过滤,列在 `skipped.txt` 中。
 
@@ -69,6 +72,12 @@ sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [-
 如果输出里有 `UNCHANGED`,说明上次审过之后改动没有变化。运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>`,告诉用户没有新的改动需要审查,把 `prev-findings.json` 里的发现作为"上次遗留"简要列出,给出上次报告的链接(`meta.txt` 中的 `prev_report` 是它的路径,写成 `[路径](file://路径)`),并说明可以用 `--full` 全量重审,然后停止。
 
 如果输出里有 `EMPTY`,运行 `sh <skill_dir>/scripts/check-state.sh <review_dir>` 结束只读阶段,告诉用户没有可审查的内容,然后停止。任何其他提前结束审查的情况也一样,先运行这条命令。
+
+如果输出里有 `NOTE:` 开头的一行,说明 gh/glab 不可用或没有登录,脚本改用 git 直接拉取了 PR/MR 的代码。审查照常进行,但没有标题和描述,对比基准是按默认分支算的。在报告的 `已检查:` 一行后面如实注明这一点;用户说过目标分支不是默认分支时,加 `--base <分支>` 重新运行。不要为了补全这些信息去想别的办法登录或取凭证。
+
+如果 `NOTE:` 说的是"当前终端没有加载你的 shell 配置",意思是用户其实登录过,只是登录用的环境变量写在 `.zshrc` 这类文件里,而你所在的终端是非交互的、不读这个文件。脚本已经自己处理了(能读到时会说明"读取成功",读不到时退回 git)。你要做的只有一件事:把这条 NOTE 的内容原样转告用户,包括它给出的一劳永逸的办法。不要说用户"没有登录",也不要自己去验证:不要查看那个文件、不要打印那些变量、不要 `source` 它。
+
+如果脚本报错说无法从 origin 拉取,原因通常在环境:没有访问权限,或者当前环境(比如沙箱)连不上那个地址。把脚本的原话告诉用户,由用户决定是放开网络、换个环境还是改审本地分支,然后停止。不要换别的命令反复尝试。
 
 如果脚本无法判断是 GitHub 还是 GitLab,看项目的 `REVIEW.md` 是否注明了平台,然后带上 `--platform github|gitlab` 重新运行;否则询问用户。
 
@@ -165,15 +174,53 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 严重程度显示为:`critical` → 严重,`major` → 重要,`minor` → 轻微。维度沿用 `bug` / `security` / `rules` / `simplify`。
 
-全量审查(`review_scope=full`)的报告:
+报告由四部分组成,按这个顺序:标题和概览表、逐条发现、可简化、末尾的说明行。
 
+**每条发现的写法**(新发现和遗留问题都用这个格式):
+
+``````
+### 1. [重要 · bug] <摘要>
+
+**位置**:`path/to/file.ts:42`
+
+**问题代码**
+
+```ts
+   41 |   const total = rows.length;
+>  42 |   const pageCount = Math.floor(total / pageSize);
+   43 |   return rows.slice(0, pageCount * pageSize);
 ```
+
+**问题**:<失败场景:具体的输入或状态 → 错误的结果>
+
+**修复建议**
+
+```diff
+-   const pageCount = Math.floor(total / pageSize);
++   const pageCount = Math.ceil(total / pageSize);
+```
+``````
+
+- **问题代码**必须是原文,不要凭记忆写。用下面的命令摘,把输出原样放进代码块,语言标记按文件类型写:
+  ```
+  sh <skill_dir>/scripts/snippet.sh <review_dir> <file> <line> [前面带几行] [后面带几行]
+  ```
+  默认前后各带 3 行,出问题的那一行以 `>` 标出。只带看懂问题所需的上下文,一般不超过 12 行;问题涉及相隔较远的两处时,摘两段。命令报错说代码不在本地时,从 `diff.patch` 里摘对应的行。
+- **修复建议**:发现的 `suggestion` 里有确切的替换代码时,写成 `diff` 代码块,`-` 行与问题代码中的原文一致,`+` 行是替换后的代码。只有文字描述时照文字写,不要自己编代码。没有 `suggestion` 时写"修复方式需要结合上下文判断",并说明需要考虑什么。
+- `rules` 发现在**问题**里逐字引用规则原文和它所在的文件。
+
+**全量审查**(`review_scope=full`)的报告:
+
+``````
 ## 审查:<target 描述> — <N> 条发现
 
+| # | 严重程度 | 维度 | 位置 | 摘要 |
+|---|---|---|---|---|
+| 1 | 重要 | bug | `path/to/file.ts:42` | <摘要> |
+| 2 | 轻微 | rules | `path/to/other.ts:17` | <摘要> |
+
 ### 1. [重要 · bug] <摘要>
-`path/to/file.ts:42`
-<失败场景>
-修复:<建议>
+<按上面的格式>
 
 ### 2. ...
 
@@ -183,28 +230,29 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:全量
 跳过文件:<n>(lock/生成/vendored)
 记录:[<报告路径>](<file:// 链接>)
-```
+``````
 
-增量审查(`review_scope=incremental`)的报告,在标题下说明范围,并把发现分成三段:
+**增量审查**(`review_scope=incremental`)的报告,在标题下说明范围,概览表多一列"状态",发现分成三段:
 
-```
+``````
 ## 审查:<target 描述> — <N> 条发现(新增 <a> · 遗留 <b> · 已解决 <c>)
 
 增量审查:上次(<prev_review 的日期时间>)审过的 <unchanged_files> 个文件没有变化,本次只看了有变化的 <files> 个。全量重审请说"重新审"或加 `--full`。
 
+| # | 状态 | 严重程度 | 维度 | 位置 | 摘要 |
+|---|---|---|---|---|---|
+| 1 | 新增 | 重要 | bug | `path/to/file.ts:42` | <摘要> |
+| 2 | 遗留 | 重要 | security | `path/to/other.ts:17` | <摘要> |
+
 ### 新发现
 
 #### 1. [重要 · bug] <摘要>
-`path/to/file.ts:42`
-<失败场景>
-修复:<建议>
+<按上面的格式>
 
 ### 上次遗留(仍然存在)
 
 #### 2. [重要 · security] <摘要> · 首次报告于 <since>
-`path/to/other.ts:17`
-<失败场景>
-修复:<建议>
+<按上面的格式>
 
 ### 已解决(<c>)
 - `path:line` — <摘要>
@@ -215,10 +263,11 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:增量
 跳过文件:<n>(lock/生成/vendored)
 记录:[<报告路径>](<file:// 链接>)
-```
+``````
 
-某一段没有内容时省略该段。`<N>` 是新增加遗留的条数,不含已解决的。
+某一段没有内容时省略该段。`<N>` 是新增加遗留的条数,不含已解决的。没有发现时不要概览表。
 
+- 概览表里的编号和下面逐条发现的编号一致,按严重程度排序。
 - 每条发现以 `path:line` 给出文件和行号。
 - 简化建议与缺陷分开,视觉上居于次要位置。
 - 如果同一层级的规则文件互相矛盾,在末尾用一行说明。
@@ -247,7 +296,7 @@ hint=<怎么更换打开报告的程序>
 
 `hint` 一行只在第一次自动打开时出现。出现时,把它的内容原样作为报告的最后一行(放在 `记录:` 之后),让用户知道怎么改默认的打开程序;没有这一行就不要提。
 
-把报告末尾的 `记录:` 一行写成 Markdown 链接:`记录:[<report 的路径>](<link 的值>)`,路径和链接都原样照抄,不要自己拼。`opened=no` 时在这一行后面用括号注明没有自动打开及原因;`opened=yes` 时不用多说。不要自己再去运行 `open` 之类的命令。
+把报告末尾的 `记录:` 一行写成 Markdown 链接:`记录:[<report 的路径>](<link 的值>)`,路径和链接都原样照抄,不要自己拼。这就是报告的正式位置:不要把报告再复制到别的目录,也不要用别的路径代替这个链接。宿主要求把产出放进它自己的输出目录时,可以另存一份,但展示时仍以这个链接为主,并说明另一份只是副本。`opened=no` 时在这一行后面用括号注明没有自动打开及原因;`opened=yes` 时不用多说。不要自己再去运行 `open` 之类的命令。
 
 保存失败不影响报告:照常展示报告,并说明记录没有存下来以及原因。
 
