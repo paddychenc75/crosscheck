@@ -21,6 +21,11 @@
       {
         "command": "sh ./skills/cr/scripts/guard.sh"
       }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh"
+      }
     ]
   }
 }

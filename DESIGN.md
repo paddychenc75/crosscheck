@@ -167,7 +167,11 @@ diff、PR 描述、已有评论、规则文件都可能包含写给 reviewer 的
 
 拦截的几个设计点:
 
-- **只在审查期间生效。** 插件的 hook 一旦启用,会在每个会话的每次命令前运行。如果无条件拦截 `git commit`,用户平时让 agent 提交代码也会被挡住。所以 `guard.sh` 用一个按会话 ID 命名的标记文件:看到运行 `collect-diff.sh` 时创建,看到运行 `check-state.sh` 时删除。没有标记就直接放行。
+- **只在审查期间生效,宁可漏拦也不误伤。** 插件的 hook 一旦启用,会在每个会话的每次命令前运行。如果无条件拦截 `git commit`,用户平时让 agent 提交代码也会被挡住。所以 `guard.sh` 用一个按会话 ID 命名的标记文件,没有标记就直接放行。标记的创建和删除都往"不误伤"的方向收紧:
+  - **创建**:只在真正执行 `collect-diff.sh` 时。命令里只是提到这个文件名(`cat`、`grep`、`sh -n`、`git add`)不算,否则开发这个插件本身就会触发拦截。
+  - **删除**:运行 `check-state.sh` 或 `save-review.sh` 时;`collect-diff.sh` 执行失败、输出 `EMPTY` 或 `UNCHANGED` 时(由命令执行后的 hook 判断,这时根本没有进行中的审查)。
+  - **判断不了时保持原状**:读不到命令输出就不提前解除,仍由其余的条件兜底。
+- **凭证文件按位置认,不按名字认。** 只拦用户主目录下的 shell 配置和凭证文件,以及 gh/glab 的配置目录。最初按文件名拦,结果 dotfiles 仓库里的 `.zshrc`、项目里的 `.env.example`、Ansible 的 `hosts.yml` 都读不了,而它们正是审查对象。
 - **不会把用户锁住。** 审查被打断、agent 忘了收尾时,标记可能残留。三种情况会清除它:用户发来新消息、超过一小时、运行 `check-state.sh`。代价是用户在审查中途发消息会提前解除拦截,这时用户本人在场,可以接受。
 - **按会话隔离。** 同一仓库里的另一个会话不受影响。子代理和主 agent 共用会话 ID(Claude Code 和 Codex 的文档如此说明),所以子代理同样受限。
 - **一个脚本适配三个宿主。** 三家的 hook 输入字段和拒绝格式不同:Claude Code 和 Codex 用 `session_id`、`tool_input.command`,拒绝时输出 `hookSpecificOutput`;Cursor 用 `conversation_id`、顶层的 `command`,拒绝时输出 `permission: deny`,并且放行时也必须输出合法 JSON。`guard.sh` 按输入字段判断宿主。注册文件分两份,因为两种格式都默认叫 `hooks/hooks.json`:Claude Code 和 Codex 共用 `hooks/hooks.json`,Cursor 在清单里指向 `hooks/cursor-hooks.json`。

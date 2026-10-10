@@ -5,8 +5,9 @@
 #   Claude Code / Codex   hooks/hooks.json         PreToolUse、UserPromptSubmit
 #   Cursor                hooks/cursor-hooks.json  beforeShellExecution、preToolUse、beforeSubmitPrompt
 #
-#   开始  看到运行 collect-diff.sh 的命令时,为当前会话记下"审查进行中"
-#   结束  看到运行 check-state.sh 的命令、用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
+#   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),为当前会话记下"审查进行中"
+#   结束  collect-diff.sh 报错或没有可审查的内容、运行 check-state.sh 或 save-review.sh、
+#         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
 #
@@ -41,7 +42,7 @@ print("" if d is None else d)' "$1" 2>/dev/null
 
 event=$(get .hook_event_name) || exit 0
 case "$event" in
-  beforeShellExecution|beforeSubmitPrompt|preToolUse) host=cursor ;;
+  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse) host=cursor ;;
   *) if [ -n "$(get .cursor_version)" ]; then host=cursor; else host=claude; fi ;;
 esac
 
@@ -65,7 +66,7 @@ case "$event" in
 esac
 
 tool=$(get .tool_name)
-[ "$event" = beforeShellExecution ] && tool=Shell
+case "$event" in beforeShellExecution|afterShellExecution) tool=Shell ;; esac
 [ "$event" = beforeReadFile ] && tool=Read
 case "$tool" in
   Bash|Shell|shell) kind=shell; cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command) ;;
@@ -73,12 +74,51 @@ case "$tool" in
   *) kind=file; cmd="" ;;
 esac
 
+# 命令里是否真的执行了名为 $1 的脚本。cat、grep、编辑器、sh -n 这类只是提到它的不算,
+# 这样开发或排查这个插件时不会被当成开始了一次审查。
+runs() {
+  printf '%s\n' "$cmd" | awk -v name="$1" '
+  function base(s) { gsub(/["\047]/, "", s); sub(/^.*\//, "", s); return s }
+  function check(a, b,   k, w) {
+    while (a <= b && (t[a] == "" || t[a] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) a++
+    if (a > b) return
+    for (k = a; k <= b; k++) if (t[k] == "--help" || t[k] == "-h") return
+    w = base(t[a])
+    if (w == name) { found = 1; return }
+    if (w !~ /^(sh|bash|zsh|dash|ksh)$/) return
+    for (k = a + 1; k <= b; k++) {
+      if (t[k] ~ /^-/) { if (t[k] ~ /^-[A-Za-z]*[nc]/) return; continue }
+      if (base(t[k]) == name) { found = 1; return }
+    }
+  }
+  {
+    gsub(/[;|&()`]/, " ; ")
+    n = split($0, t, /[ \t]+/)
+    start = 1
+    for (i = 1; i <= n + 1; i++)
+      if (i == n + 1 || t[i] == ";") { check(start, i - 1); start = i + 1 }
+  }
+  END { exit found ? 0 : 1 }'
+}
+
+# 命令执行之后:collect-diff.sh 失败了,或者说没有可审查的内容,就不存在进行中的审查,立刻解除。
+case "$event" in
+  PostToolUse|PostToolUseFailure|afterShellExecution)
+    if [ -f "$marker" ] && [ "$kind" = shell ] && runs collect-diff.sh; then
+      result=$(get .tool_response); [ -n "$result" ] || result=$(get .output); [ -n "$result" ] || result=$(get .error)
+      case "$event:$result" in
+        PostToolUseFailure:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" ;;
+      esac
+    fi
+    exit 0 ;;
+esac
+
 if [ "$kind" = shell ]; then
   case "$cmd" in
     *check-state.sh*--save*) ;;
-    *check-state.sh*) rm -f "$marker"; allow ;;
-    *collect-diff.sh*) mkdir -p "$dir" && date +%s > "$marker"; allow ;;
+    *check-state.sh*|*save-review.sh*) rm -f "$marker"; allow ;;
   esac
+  if runs collect-diff.sh; then mkdir -p "$dir" && date +%s > "$marker"; allow; fi
 fi
 
 [ -f "$marker" ] || allow
@@ -117,11 +157,15 @@ in_repo() { # 路径是否在当前仓库内;相对路径按 cwd 解析
   return 1
 }
 
-secret_file() { # 路径的文件名是否属于 shell 配置或凭证文件
-  case "${1##*/}" in
-    .zshrc|.zshenv|.zprofile|.zlogin|.bashrc|.bash_profile|.bash_login|.profile|.netrc|.git-credentials|.npmrc|.pypirc|hosts.yml|.env|.env.*) return 0 ;;
+# 只认用户主目录下的 shell 配置和凭证文件,以及 gh/glab 自己的配置。
+# 仓库里同名的文件(比如 dotfiles 仓库里的 .zshrc、项目里的 .env.example)是正常的审查对象,不拦。
+secret_file() {
+  h=${HOME:-/nonexistent}
+  case "$1" in
+    "$h"/.zshrc|"$h"/.zshenv|"$h"/.zprofile|"$h"/.zlogin|"$h"/.bashrc|"$h"/.bash_profile|"$h"/.bash_login|"$h"/.profile|"$h"/.netrc|"$h"/.git-credentials) return 0 ;;
+    "~"/.zshrc|"~"/.zshenv|"~"/.zprofile|"~"/.zlogin|"~"/.bashrc|"~"/.bash_profile|"~"/.bash_login|"~"/.profile|"~"/.netrc|"~"/.git-credentials) return 0 ;;
+    */glab-cli/config.yml|*/glab-cli/hosts.yml|*/gh/config.yml|*/gh/hosts.yml) return 0 ;;
   esac
-  case "$1" in */glab-cli/config.yml|*/gh/config.yml) return 0 ;; esac
   return 1
 }
 
@@ -153,15 +197,29 @@ if [ "$kind" = patch ]; then
   allow
 fi
 
-hit=$(printf '%s\n' "$cmd" | awk '
+hit=$(printf '%s\n' "$cmd" | awk -v home="${HOME:-/nonexistent}" '
 function bad(s) { print s; found = 1; exit }
-function api(tool, k,   m, w) {
-  m = ""; w = 0
+function secret(full,   np, pre, i2, rest) { # 主目录下的 shell 配置和凭证文件,或 gh/glab 的配置
+  gsub(/["\047]/, "", full)
+  if (full ~ /\/(glab-cli|gh)\/(config|hosts)\.yml$/) return 1
+  pre[1] = "~/"; pre[2] = "$HOME/"; pre[3] = "${HOME}/"; pre[4] = home "/"
+  for (i2 = 1; i2 <= 4; i2++)
+    if (index(full, pre[i2]) == 1) {
+      rest = substr(full, length(pre[i2]) + 1)
+      if (rest ~ /^\.(zshrc|zshenv|zprofile|zlogin|bashrc|bash_profile|bash_login|profile|netrc|git-credentials)$/) return 1
+    }
+  return 0
+}
+function api(tool, k,   m, w, gq, mut) {
+  m = ""; w = 0; gq = 0; mut = 0
   for (; k <= n && t[k] != ";"; k++) {
+    if (t[k] == "graphql") gq = 1
+    if (t[k] ~ /mutation/) mut = 1
     if (t[k] == "--method" || t[k] == "-X") m = toupper(t[k + 1])
     else if (t[k] ~ /^--method=/) m = toupper(substr(t[k], 10))
     else if (t[k] ~ /^(-f|-F|--field|--raw-field|--input)$/) w = 1
   }
+  if (gq && !mut) return   # GraphQL 的查询也是 POST 加字段,不含 mutation 时只是读取
   if ((m != "" && m != "GET") || (m == "" && w)) bad(tool " api 写请求")
 }
 {
@@ -169,8 +227,7 @@ function api(tool, k,   m, w) {
   n = split($0, t, /[ \t]+/)
   for (i = 1; i <= n; i++) {
     w = t[i]; sub(/^.*\//, "", w)
-    q = w; gsub(/["\047]/, "", q)
-    if (q ~ /^(\.zshrc|\.zshenv|\.zprofile|\.zlogin|\.bashrc|\.bash_profile|\.bash_login|\.profile|\.netrc|\.git-credentials|hosts\.yml)$/) bad("!访问 " q)
+    if (secret(t[i])) { q = t[i]; gsub(/["\047]/, "", q); sub(/^.*\//, "", q); bad("!访问 " q) }
     if (w == "git") {
       j = i + 1
       while (j <= n && t[j] ~ /^-/) {
