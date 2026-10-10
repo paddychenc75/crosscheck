@@ -43,7 +43,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 也可以直接用自然语言:"review 一下这个分支"、"deep review MR 128"。
 
 ```
-cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fix]
+cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--with-tests] [--fix]
 ```
 
 | 参数 | 说明 |
@@ -54,8 +54,9 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fi
 | 路径 | 只看该路径下的本地改动 |
 | 数字或 URL | GitHub PR / GitLab MR |
 | `--quick` | 单次扫描,只查 bug 和安全,最多 5 条 |
-| `--deep` | 额外从调用方/影响面再查一遍;verifier 可以跑项目已有的类型检查和测试来复现 |
+| `--deep` | 把改动按不同顺序多查几遍并从调用方/影响面再查一遍,减少遗漏;verifier 会尝试写最小的脚本复现 bug,也可以跑项目已有的类型检查和测试。成本和耗时明显更高 |
 | `--only` | 只查指定维度 |
+| `--with-tests` | 测试文件也一起审。默认不审测试 |
 | `--full` | 忽略以前的审查记录,全量重审。说"重新审""全量""忽略之前的"也一样 |
 | `--fix` | 报告之后,把核实过的问题改到工作区,并跑相关检查 |
 
@@ -138,6 +139,59 @@ cr [target] [--quick|--deep] [--only bug,security,rules,simplify] [--full] [--fi
 
 否定某条发现后,它会从记录里删掉,下次不会再作为遗留问题出现。
 
+## 只审有效代码
+
+审查只针对真正会在产品路径上执行、并且改变了行为的代码。
+
+**整个文件不审的**(由脚本过滤,报告末尾会列出各类跳过了多少):
+
+| 类别 | 例子 |
+|---|---|
+| 测试 | `tests/`、`__tests__/`、`e2e/`、`testdata/` 目录;`*_test.go`、`test_*.py`、`*.test.ts`、`*.spec.tsx`、`*Test.java`、`*_spec.rb` 等 |
+| 日志 | `*.log`、`logs/` 目录、`nohup.out` |
+| 产物 | 覆盖率报告、`*.bak` / `*.tmp` / `*.pyc`、`.idea/`、`.vscode/` |
+| 原本就过滤的 | lock 文件、生成代码、vendored 代码、二进制文件 |
+
+想连测试一起审,加 `--with-tests` 或直接说"测试也看一下"。测试不审,但审查时仍会读它来了解代码的预期行为。
+
+**文件里不当作问题的**:
+
+- 只改了注释、文档字符串、空行或排版的地方(缩进有语义的语言除外)。
+- 原样移动或重命名的代码。
+- 被注释掉的代码、遗留的调试代码。
+- 没有被用上的代码里的"bug":没有调用方、没被注册或导出、所在条件恒为假。这类代码会作为"新增了但没用上"出现在可简化一节。
+
+## 审查效果统计
+
+说"看看 review 的统计"或"有多少被采纳了",会从保存的记录里算出每个维度报告了多少、后来被解决了多少、被否定了多少、还有多少没处理,以及连续多次审查都没人处理的发现。
+
+- **已解决**:下一次增量审查里这条发现不在了。这是近似值,代码改了不等于是因为这条发现改的。
+- **被否定**:你说过它不对或不值得报。
+- **采纳率** = 已解决 /(已解决 + 被否定)。
+
+采纳率明显偏低的维度、一直没人处理的发现,适合写进项目的 `REVIEW.md` 调低或跳过。统计需要 `python3`。
+
+## 审查的成本
+
+每次审查结束,报告末尾会有一行"消耗",同时记进这次审查的记录里:
+
+- **用时、启动的查找角色和 verifier 数、候选条数和通过条数。** 三个宿主都有。
+- **token 用量。** 由宿主的 hook 从会话记录里读取,所以只有以插件方式安装(带 hook)时才有,拷贝安装没有:
+
+  | 宿主 | 来源 | 范围 |
+  |---|---|---|
+  | Claude Code | 会话记录里每次模型调用的用量,加上子代理的记录 | 审查开始到保存之间,包含子代理 |
+  | Codex | 会话文件里的用量记录 | 审查开始到保存之间;是否包含子代理未知 |
+  | Cursor | 一轮结束时 hook 给出的合计 | 整轮对话,不只是审查;命令行版不提供 |
+
+数据都存在本机,不上传:
+
+- 最终结果在 `~/.crosscheck/reviews/<项目名>/<目标>/<时间>/meta.txt` 里,是 `duration_s`、`run_*`、`usage_*` 这些行,和报告、发现放在一起。
+- 审查进行中有一个临时的状态文件在系统临时目录的 `cr-guard/` 下,只记会话记录的路径和起始位置,保存时删除。
+- 只读取会话记录里的用量数字,不读取、不保存对话内容。
+
+说"看看 review 的统计"时,会按深度给出平均用时和平均 token。这些字段没有写进各宿主的正式文档,版本变化后可能读不到;读不到时这一项留空,不影响审查。
+
 ## 审查维度
 
 | 维度 | 查什么 |
@@ -212,6 +266,7 @@ minor 最多报 3 条,其余的在末尾说明还有几条。
 - GitHub PR:`gh`(已登录)。没有或未登录时改用 git 直接拉取,见下
 - GitLab MR:`glab`(已登录),以及 `jq` 或 `python3`。没有或未登录时改用 git 直接拉取,见下
 - 只读拦截:`jq` 或 `python3`
+- 统计、否定发现、token 用量:`python3`
 
 ## 前置条件和常见情况
 
@@ -232,7 +287,7 @@ skills/cr/
 ├── SKILL.md        编排流程
 ├── roles/          bug-hunter / security-reviewer / rules-auditor / simplifier / verifier
 ├── references/     发现结构、评分标准、误报清单
-└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / snippet.sh / save-review.sh / guard.sh
+└── scripts/        collect-diff.sh / collect-rules.sh / check-state.sh / snippet.sh / save-review.sh / dismiss.sh / stats.sh / guard.sh / usage.sh
 hooks/
 ├── hooks.json          Claude Code 和 Codex 的 hook 注册
 └── cursor-hooks.json   Cursor 的 hook 注册

@@ -26,6 +26,11 @@
       {
         "command": "sh ./skills/cr/scripts/guard.sh"
       }
+    ],
+    "stop": [
+      {
+        "command": "sh ./skills/cr/scripts/guard.sh"
+      }
     ]
   }
 }

@@ -9,6 +9,7 @@
 #   结束  collect-diff.sh 报错或没有可审查的内容、运行 check-state.sh 或 save-review.sh、
 #         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
+#   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
@@ -42,7 +43,7 @@ print("" if d is None else d)' "$1" 2>/dev/null
 
 event=$(get .hook_event_name) || exit 0
 case "$event" in
-  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse) host=cursor ;;
+  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse|stop) host=cursor ;;
   *) if [ -n "$(get .cursor_version)" ]; then host=cursor; else host=claude; fi ;;
 esac
 
@@ -61,8 +62,17 @@ sid=$(printf '%s' "$sid" | tr -cd 'A-Za-z0-9_-')
 dir="${TMPDIR:-/tmp}/cr-guard"
 marker="$dir/$sid"
 
+script_dir=$(cd "$(dirname "$0")" && pwd)
+
 case "$event" in
   UserPromptSubmit|beforeSubmitPrompt) rm -f "$marker"; allow ;;
+  stop)
+    # Cursor 只在一轮结束时给出 token 用量:补记到刚保存的那次审查上。
+    if [ -f "$dir/$sid.last" ]; then
+      last_review=$(head -n 1 "$dir/$sid.last"); rm -f "$dir/$sid.last"
+      sh "$script_dir/usage.sh" cursor "$last_review" "$(get .input_tokens)" "$(get .output_tokens)" "$(get .cache_read_tokens)" "$(get .cache_write_tokens)" >/dev/null 2>&1 || true
+    fi
+    printf '{}\n'; exit 0 ;;
 esac
 
 tool=$(get .tool_name)
@@ -116,9 +126,31 @@ esac
 if [ "$kind" = shell ]; then
   case "$cmd" in
     *check-state.sh*--save*) ;;
-    *check-state.sh*|*save-review.sh*) rm -f "$marker"; allow ;;
+    *check-state.sh*) rm -f "$marker"; allow ;;
+    *save-review.sh*)
+      rm -f "$marker"
+      if runs save-review.sh; then
+        # 保存之前把这次审查的 token 用量写进 review_dir,由 save-review.sh 一并存下。
+        review_dir=$(printf '%s\n' "$cmd" | awk '{
+          n = split($0, t, /[ \t]+/)
+          for (i = 1; i < n; i++) { w = t[i]; gsub(/["\047]/, "", w); if (w ~ /(^|\/)save-review\.sh$/) { d = t[i + 1]; gsub(/["\047]/, "", d); print d; exit } }
+        }')
+        if [ -n "$review_dir" ] && [ -f "$review_dir/meta.txt" ]; then
+          sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
+          # Cursor 的用量要等这一轮结束(stop)才有,先记下是哪次审查。
+          if [ "$host" = cursor ]; then printf '%s\n' "$review_dir" > "$dir/$sid.last" 2>/dev/null || true; fi
+        fi
+        rm -f "$dir/$sid.usage"
+      fi
+      allow ;;
   esac
-  if runs collect-diff.sh; then mkdir -p "$dir" && date +%s > "$marker"; allow; fi
+  if runs collect-diff.sh; then
+    mkdir -p "$dir" && date +%s > "$marker"
+    transcript=$(get .transcript_path)
+    rm -f "$dir/$sid.usage" "$dir/$sid.last"
+    [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true
+    allow
+  fi
 fi
 
 [ -f "$marker" ] || allow
@@ -129,7 +161,6 @@ if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
   allow
 fi
 
-script_dir=$(cd "$(dirname "$0")" && pwd)
 deny() {
   case "$1" in
     "!"*) msg="cr 审查进行中,已拦截: ${1#!}。这类操作可能把凭证显示出来。登录状态和远程地址由脚本自己判断:看 collect-diff.sh 输出的 NOTE 和 meta.txt 里的 repo_id,不要自己去查环境变量、shell 配置或凭证文件。" ;;

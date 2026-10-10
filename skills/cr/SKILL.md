@@ -13,7 +13,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 本 skill 自包含。`skill_dir` 是本文件所在的目录:
 
-- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`、`snippet.sh`、`save-review.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
+- `scripts/` — `collect-diff.sh`、`collect-rules.sh`、`check-state.sh`、`snippet.sh`、`save-review.sh`、`dismiss.sh`、`stats.sh`(POSIX sh,用 `sh` 运行);`guard.sh` 是宿主的 hook,不需要你运行
 - `roles/` — 每个 reviewer 角色一份说明
 - `references/` — 发现结构、评分标准、误报清单
 
@@ -26,6 +26,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 | target | 省略:当前分支相对默认分支的改动,加上未提交的工作。分支名或其他 ref:该分支相对默认分支的改动,不需要检出它。`A..B`:commit 范围。路径:该路径下的本地改动。数字或 URL:GitHub PR 或 GitLab MR。 |
 | `--quick` / `--deep` | 深度。默认为 standard。 |
 | `--only <list>` | 只查 `bug`、`security`、`rules`、`simplify` 中的若干项。 |
+| `--with-tests` | 测试文件也一起审。默认不审测试。用户说"连测试一起看""测试也 review 一下"时使用。 |
 | `--full` | 忽略以前的审查记录,全量重审。用户说"重新审""全量""忽略之前的""从头来"都是这个意思。 |
 | `--fix` | 报告之后,把核实过的发现改到工作区。 |
 
@@ -54,12 +55,12 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 ### 1. 收集改动
 
 ```
-sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [--only <list>] [--full] [--repo <目录>]
+sh <skill_dir>/scripts/collect-diff.sh [target] --depth <quick|standard|deep> [--only <list>] [--full] [--with-tests] [--repo <目录>]
 ```
 
 **需要本地仓库。** 审查要读代码,必须有本地的 git 仓库。当前目录不是仓库时脚本会报错:知道仓库在哪就加 `--repo <目录>` 重新运行(之后的脚本都只需要 `review_dir`,不要求切换目录);不知道就问用户仓库在哪里,不要在磁盘上到处找。读代码时以 `meta.txt` 里的 `repo_root` 为准。
 
-`--depth` 和 `--only` 照用户的要求传,脚本用它们判断以前的审查记录能不能复用。输出的最后一行是 `review_dir`。其中包含 `diff.patch`、`files.txt`、`ranges.txt`、`skipped.txt`、`batches.txt`、`batch-<n>.patch`、`hashes.txt`、`state.txt`、`meta.txt` 和 `description.md`。lock 文件、生成代码、vendored 代码和二进制文件已被过滤,列在 `skipped.txt` 中。
+`--depth` 和 `--only` 照用户的要求传,脚本用它们判断以前的审查记录能不能复用。输出的最后一行是 `review_dir`。其中包含 `diff.patch`、`files.txt`、`ranges.txt`、`skipped.txt`、`batches.txt`、`batch-<n>.patch`、`hashes.txt`、`state.txt`、`meta.txt` 和 `description.md`。脚本只留下有效代码:lock 文件、生成代码、vendored 代码、二进制文件、日志、测试文件和测试数据、各类产物(覆盖率报告、备份文件、IDE 配置等)都已被过滤,连同原因列在 `skipped.txt` 中。不要再去审这些被跳过的文件;需要了解预期行为时可以打开测试来读。
 
 **增量。** 每次审查结束都会存一份记录(第 6 步)。同一仓库、同一目标以前审过,且那次的深度不低于这次时,脚本自动做增量:`meta.txt` 中 `review_scope=incremental`,`diff.patch`、`files.txt`、`ranges.txt` 和各批次里只剩自上次以来 diff 发生变化的文件,后面的步骤照常进行,不需要特殊处理。另外多出:
 
@@ -115,15 +116,17 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>/files.txt > <review_dir>/ru
 |---|---|
 | quick | `bug-hunter` 和 `security-reviewer`,由你自己一次完成 |
 | standard | `bug-hunter`、`security-reviewer`、`rules-auditor`、`simplifier` |
-| deep | 上面四个,再加一个 `lens=impact` 的 `bug-hunter` |
+| deep | 上面四个,再加三遍:`order=reverse` 的 `bug-hunter`、`lens=impact` 的 `bug-hunter`、`order=reverse` 的 `security-reviewer` |
 
 `rules.txt` 中没有 `=== RULES` 块时,跳过 `rules-auditor`。
+
+查找和核实的分工是:查找阶段负责不漏,核实阶段负责不错。查找角色会提交一些还差一环没确认的候选(带 `needs_check`),这是有意的,不要在交给 verifier 之前自己把它们筛掉。deep 把同一份改动按不同顺序多查几遍,也是为了少漏:同一个问题被几遍同时发现时合并成一条即可。
 
 **分批**(仅当 `batches` 大于 1,且不是 quick):`bug-hunter`、`security-reviewer`、`rules-auditor` 每个批次各运行一次,任务里带上 `batch=<n>`,这样每次只需要读一个批次的 diff。`simplifier` 不分批,对整份 diff 运行一次。quick 始终一次看完整份 diff。
 
 **如果你能启动子代理**(standard 和 deep):每个角色启动一个,全部同时启动。给每个子代理的任务就是下面这段,不要多加:
 
-> 阅读 `<skill_dir>/roles/<role>.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。[`batch=<n>`。] [`lens=impact`。] 只回复 JSON 数组。
+> 阅读 `<skill_dir>/roles/<role>.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。[`batch=<n>`。] [`lens=impact`。] [`order=reverse`。] 只回复 JSON 数组。
 
 不要把 diff 或你自己的印象贴进任务里;每个角色自己读材料,形成自己的判断。
 
@@ -228,7 +231,8 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 - `path:line` — <摘要> → <建议>
 
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:全量
-跳过文件:<n>(lock/生成/vendored)
+跳过文件:<n>(测试 <a>、日志 <b>、lock/生成/vendored/产物 <c>)
+消耗:<用时、角色数、候选数,以及 token 用量(如果有)>
 记录:[<报告路径>](<file:// 链接>)
 ``````
 
@@ -261,7 +265,8 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 - `path:line` — <摘要> → <建议>
 
 已检查:bug、安全、项目规则(<n> 个规则文件)、简化 · 深度:standard · 范围:增量
-跳过文件:<n>(lock/生成/vendored)
+跳过文件:<n>(测试 <a>、日志 <b>、lock/生成/vendored/产物 <c>)
+消耗:<用时、角色数、候选数,以及 token 用量(如果有)>
 记录:[<报告路径>](<file:// 链接>)
 ``````
 
@@ -270,6 +275,7 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 - 概览表里的编号和下面逐条发现的编号一致,按严重程度排序。
 - 每条发现以 `path:line` 给出文件和行号。
 - 简化建议与缺陷分开,视觉上居于次要位置。
+- `跳过文件:` 一行按 `skipped.txt` 里的原因分类计数,只列数量不为零的类别。跳过了测试文件时,在这一行后面加一句"加 `--with-tests` 可以连测试一起审"。
 - 如果同一层级的规则文件互相矛盾,在末尾用一行说明。
 - 如果采用了 `REVIEW.md` 的审查设置,在 `已检查:` 一行后面注明(例如"已应用 REVIEW.md 的审查设置");如果因为它被本次 PR 修改而没有采用,同样注明。
 - 如果没有任何发现通过核实,直说没有发现问题,后面跟上 `已检查:` 那一行。不要为了填充篇幅而添加观察、表扬或泛泛的建议。
@@ -277,12 +283,14 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 
 **保存记录。** 报告定稿后,把两个文件写进 `review_dir`(它在仓库之外),再运行保存脚本:
 
-- `report.md` — 报告全文,和你展示给用户的内容一致(`记录:` 那一行除外)。
-- `findings.json` — 本次结束时仍然成立的全部发现:新发现加上遗留的,`simplify` 的也在内;因条数上限没有展示的同样要写进去,否则它们所在的文件下次不会再被审到,问题就丢了。不含已解决的。格式同发现结构,保留 `confidence` 和 `verdict`,每条带 `since`:新发现填 `meta.txt` 中的 `started_at`,遗留的沿用原值。没有发现时写 `[]`。
+- `report.md` — 报告全文,和你展示给用户的内容一致,但不要写 `消耗:` 和 `记录:` 这两行:它们的内容要等保存脚本运行后才知道,`消耗:` 一行脚本会自己补进保存的文件。
+- `findings.json` — 本次结束时仍然成立的全部发现:新发现加上遗留的,`simplify` 的也在内;因条数上限没有展示的同样要写进去,否则它们所在的文件下次不会再被审到,问题就丢了。不含已解决的。格式同发现结构,保留 `confidence` 和 `verdict`,每条带 `id` 和 `since`:新发现的 `since` 填 `meta.txt` 中的 `started_at`,`id` 用 `started_at` 去掉空格和符号后加序号(如 `202610091737-1`);遗留的两个字段都沿用原值,不要重新编号。没有发现时写 `[]`。
 
 ```
-sh <skill_dir>/scripts/save-review.sh <review_dir>
+sh <skill_dir>/scripts/save-review.sh <review_dir> --finders <n> --verifiers <n> --candidates <n> --passed <n>
 ```
+
+四个数字是这次审查的工作量:启动了多少个查找角色(分批和多遍各算一个;没有子代理、自己依次执行时填执行了几个角色)、多少个 verifier、合并去重后交给核实的候选有多少条、通过核实的有多少条。从第 3 步开始就记着这几个数,如实填写。
 
 脚本会用系统默认程序打开保存好的 `report.md`,并输出:
 
@@ -291,8 +299,11 @@ report=<报告的路径>
 link=<报告的 file:// 链接>
 opened=yes | no (<原因>)
 dir=<保存到的目录>
+cost=<这次审查的用时和消耗>
 hint=<怎么更换打开报告的程序>
 ```
+
+`cost` 一行原样写在报告末尾 `记录:` 的前面,格式为 `消耗:<cost 的值>`。其中的 token 数由宿主的 hook 统计,没有这一项时不要自己估算或补写。
 
 `hint` 一行只在第一次自动打开时出现。出现时,把它的内容原样作为报告的最后一行(放在 `记录:` 之后),让用户知道怎么改默认的打开程序;没有这一行就不要提。
 
@@ -317,4 +328,20 @@ hint=<怎么更换打开报告的程序>
 
 如果用户说某条发现是错的或不值得报告,接受即可。主动提出在仓库的 `.cr/ignore.md` 中追加一行描述该模式的条目,让以后的审查不再提它;仅在用户同意后才添加。
 
-同时把这条发现从刚保存的记录里删掉:编辑 `dir` 那个目录下的 `findings.json`,去掉对应的那一项。否则下次增量审查会把它当作"上次遗留"再列一遍。
+同时把这条发现在保存的记录里标记为被否定:
+
+```
+sh <skill_dir>/scripts/dismiss.sh <save-review.sh 输出的 dir> <file> <line> "<用户给的原因>"
+```
+
+这样下次增量审查不会再把它当作"上次遗留"列出来,统计时也会计为被否定而不是已解决。脚本报错说没有 python3 时,手动把这一项从该目录的 `findings.json` 里删掉。
+
+## 审查效果统计
+
+用户问"review 的效果怎么样""有多少被采纳了""看看统计"时,运行:
+
+```
+sh <skill_dir>/scripts/stats.sh [--all] [--days <n>] [--repo <目录>]
+```
+
+它从保存的记录里算出每个维度、每个严重程度报告了多少、后来被解决了多少、被否定了多少、还有多少没处理,以及连续多次审查都没人处理的发现。把输出原样给用户看。采纳率明显偏低的维度,或者一直没人处理的发现,可以建议用户写进 `REVIEW.md`(调低严重程度、限制条数或直接跳过)。不要根据这些数字自行改变审查的行为。
