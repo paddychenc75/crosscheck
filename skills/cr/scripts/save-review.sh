@@ -61,6 +61,73 @@ repo_marker="$(dirname "$store")/.repo"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
 
+# 给每条发现记下它指向的那一行代码,作为跨审查识别"同一个问题"的依据;
+# 增量审查时,判断上次的每条发现去哪了:代码改了、代码没变但这次没报、还是文件已不在改动里。
+if command -v python3 >/dev/null 2>&1; then
+  CR_DIR="$dir" CR_DEST="$dest" python3 - <<'PY' || true
+import hashlib, json, os, subprocess
+d, dest = os.environ["CR_DIR"], os.environ["CR_DEST"]
+meta = {}
+for line in open(os.path.join(d, "meta.txt"), encoding="utf-8"):
+    if "=" in line:
+        k, v = line.rstrip("\n").split("=", 1); meta[k] = v
+root, ref, tree = meta.get("repo_root", ""), meta.get("code_ref", ""), meta.get("head_checked_out") == "yes"
+cache = {}
+def lines_of(path):
+    if path not in cache:
+        try:
+            if tree:
+                cache[path] = open(os.path.join(root, path), encoding="utf-8", errors="replace").read().split("\n")
+            else:
+                cache[path] = subprocess.run(["git", "-C", root, "show", "%s:%s" % (ref, path)], capture_output=True, text=True, check=True).stdout.split("\n")
+        except Exception:
+            cache[path] = None
+    return cache[path]
+norm = lambda s: " ".join(str(s).split())
+def load(p):
+    try:
+        x = json.load(open(p, encoding="utf-8")); return x if isinstance(x, list) else []
+    except Exception:
+        return []
+key = lambda f: f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
+fp = os.path.join(dest, "findings.json"); fs = load(fp)
+def ctx_hash(ls, n):   # 出问题的那一行加上下各 2 行,比单独一行更能代表"这段代码"
+    return hashlib.sha1("\n".join(norm(x) for x in ls[max(0, n - 3):n + 2]).encode("utf-8")).hexdigest()[:12]
+for f in fs:
+    if f.get("context_hash"): continue
+    ls = lines_of(f.get("file", ""))
+    try: n = int(f.get("line", 0))
+    except Exception: n = 0
+    if ls and 1 <= n <= len(ls):
+        f.setdefault("code_line", ls[n - 1].strip()[:200])
+        f["context_hash"] = ctx_hash(ls, n)
+json.dump(fs, open(fp, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+prev = load(os.path.join(d, "prev-findings.json"))
+if meta.get("review_scope") == "incremental" and prev:
+    status = {}
+    try:
+        for line in open(os.path.join(d, "incremental.txt"), encoding="utf-8"):
+            s, p = line.rstrip("\n").split("\t", 1); status[p] = s
+    except Exception:
+        pass
+    cur = {key(f) for f in fs}
+    out = []
+    for p in prev:
+        if key(p) in cur: continue
+        if status.get(p.get("file")) in (None, "removed"):
+            t = "out_of_scope"
+        elif not p.get("context_hash"):
+            t = "unknown"
+        else:
+            ls = lines_of(p.get("file", "")) or []
+            same = any(ctx_hash(ls, i + 1) == p["context_hash"] for i, x in enumerate(ls) if norm(x) == norm(p.get("code_line", "")))
+            t = "not_reported_code_unchanged" if same else "code_changed"
+        out.append({k: p.get(k) for k in ("id", "file", "line", "category", "severity", "confidence", "summary", "since")} | {"transition": t})
+    json.dump(out, open(os.path.join(dest, "transitions.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+fi
+
+
 # 这次审查的成本:用时、启动的角色数、候选数,以及 hook 记到的 token 用量(如果有)。
 started_epoch=$(meta started_epoch)
 duration=""
@@ -83,7 +150,9 @@ fi
 if num "$run_finders" && num "$run_verifiers"; then cost="${cost:+$cost · }查找 ${run_finders} 个角色、核实 ${run_verifiers} 个"; fi
 if num "$run_candidates" && num "$run_passed"; then cost="${cost:+$cost · }候选 ${run_candidates} 条、通过 ${run_passed} 条"; fi
 tok=$(saved usage_total_tokens)
-if num "$tok"; then
+if ! num "$tok"; then
+  cost="${cost:+$cost · }token 未统计(没有安装 hook)"
+elif true; then
   case "$(saved usage_subagents)" in included) sub="含子代理" ;; none-seen) sub="没有发现子代理的用量" ;; *) sub="是否含子代理未知" ;; esac
   cost="${cost:+$cost · }token 约 $(human "$tok")(新输入 $(human "$(saved usage_input_tokens)")、缓存读取 $(human "$(saved usage_cache_read_tokens)")、输出 $(human "$(saved usage_output_tokens)");${sub})"
 fi

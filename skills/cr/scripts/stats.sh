@@ -1,5 +1,5 @@
 #!/bin/sh
-# stats.sh — 从保存的审查记录里统计发现的去向:多少被解决、多少被否定、多少一直没处理。
+# stats.sh — 从保存的审查记录里统计发现的效果和审查的成本。
 #
 # 用法: stats.sh [--all] [--days N] [--repo DIR]
 #
@@ -7,13 +7,12 @@
 #   --days N   只看最近 N 天的审查
 #   --repo DIR 仓库所在的目录(默认:当前目录)
 #
-# 判定方式:
-#   已解决    某次审查里还在、下一次增量审查里不在了(代码改了,或文件不再属于改动)
-#   被否定    用 dismiss.sh 标记过
-#   未处理    最近一次审查里仍然存在
-#   不计      下一次是全量重审(--full),前后对不上,不统计去向
-# 采纳率 = 已解决 /(已解决 + 被否定)。它是近似值:代码改了不等于是因为这条发现改的。
-# 需要 python3。只读取记录,不修改任何东西。
+# 三个维度分开统计,互不折算:
+#   判断   人对这条发现的结论(feedback.sh 记录):成立 / 成立但不修 / 不成立 / 有争议 / 未表态
+#   去向   代码层面发生了什么:仍在 / 代码已改 / 代码没变但不再报 / 文件已不在改动里
+#   校准   不同置信度区间里,有人判断过的发现有多少是成立的
+# "代码已改"不等于"被采纳":改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算。
+# 另外给出每种深度的平均用时和 token。需要 python3。只读取记录,不修改任何东西。
 
 set -eu
 
@@ -49,148 +48,160 @@ if [ "$all" = no ]; then
 fi
 
 CR_STATS_HOME="${CROSSCHECK_HOME:-$HOME/.crosscheck}" CR_STATS_REPO="$repo_id" CR_STATS_DAYS="$days" python3 - <<'PY'
-import datetime, json, os, re, sys
+import collections, datetime, json, os, re, sys
 
 home = os.environ["CR_STATS_HOME"]; want = os.environ.get("CR_STATS_REPO", ""); days = os.environ.get("CR_STATS_DAYS", "")
-reviews_root = os.path.join(home, "reviews")
-cutoff = None
-if days:
-    cutoff = (datetime.datetime.now() - datetime.timedelta(days=int(days))).strftime("%Y%m%d-%H%M%S")
+root = os.path.join(home, "reviews")
+cutoff = (datetime.datetime.now() - datetime.timedelta(days=int(days))).strftime("%Y%m%d-%H%M%S") if days else None
+SEV = {"critical": "严重", "major": "重要", "minor": "轻微"}
 
-def load_json(path):
+def load(path, default):
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
+        x = json.load(open(path, encoding="utf-8")); return x if isinstance(x, type(default)) else default
     except Exception:
-        return []
+        return default
 
-def load_meta(path):
-    meta = {}
+def meta_of(path):
+    m = {}
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if "=" in line:
-                    k, v = line.rstrip("\n").split("=", 1); meta[k] = v
+        for line in open(path, encoding="utf-8"):
+            if "=" in line:
+                k, v = line.rstrip("\n").split("=", 1); m[k] = v
     except Exception:
         pass
-    return meta
+    return m
 
 def key(f):
     return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
 
-projects = []
-if os.path.isdir(reviews_root):
-    for name in sorted(os.listdir(reviews_root)):
-        pdir = os.path.join(reviews_root, name)
-        if not os.path.isdir(pdir):
-            continue
-        rid = ""
-        try:
-            rid = open(os.path.join(pdir, ".repo"), encoding="utf-8").readline().strip()
-        except Exception:
-            pass
-        if want and rid != want:
-            continue
-        projects.append((name, pdir))
-
-if not projects:
-    print("还没有审查记录。" if not want else "这个项目还没有审查记录。")
-    sys.exit(0)
-
-n_reviews = n_full = n_incr = n_clean = 0
-costs = {}          # depth -> {n, dur, tok_n, tok, tok_sub}
-rows = {}          # (category, severity) -> counters
-stale = []
-def bump(f, what):
-    r = rows.setdefault((f.get("category", "?"), f.get("severity", "?")), {"reported": 0, "resolved": 0, "dismissed": 0, "open": 0, "skipped": 0})
-    r[what] += 1
-
-for pname, pdir in projects:
-    for target in sorted(os.listdir(pdir)):
-        tdir = os.path.join(pdir, target)
-        if not os.path.isdir(tdir):
-            continue
-        stamps = sorted(d for d in os.listdir(tdir) if re.fullmatch(r"\d{8}-\d{6}", d))
-        if cutoff:
-            stamps = [s for s in stamps if s >= cutoff]
-        prev = None            # 上一次(覆盖所有维度的)审查里未解决的发现
-        first_seen = {}
-        idx = 0
-        # 被否定的发现会从 findings.json 里移走,先收集起来,免得被当成"已解决"。
-        dismissed_keys = set()
-        for stamp in stamps:
-            for f in load_json(os.path.join(tdir, stamp, "dismissed.json")):
-                dismissed_keys.add(key(f))
-        counted_dismissed = set()
-        for stamp in stamps:
-            rdir = os.path.join(tdir, stamp)
-            meta = load_meta(os.path.join(rdir, "meta.txt"))
-            findings = load_json(os.path.join(rdir, "findings.json"))
-            dismissed = load_json(os.path.join(rdir, "dismissed.json"))
-            n_reviews += 1
-            c = costs.setdefault(meta.get("depth", "standard"), {"n": 0, "dur_n": 0, "dur": 0, "tok_n": 0, "tok": 0, "sub": 0})
-            c["n"] += 1
-            if meta.get("duration_s", "").isdigit():
-                c["dur_n"] += 1; c["dur"] += int(meta["duration_s"])
-            if meta.get("usage_total_tokens", "").isdigit():
-                c["tok_n"] += 1; c["tok"] += int(meta["usage_total_tokens"])
-                if meta.get("usage_subagents") == "included": c["sub"] += 1
-            scope = meta.get("review_scope", "full")
-            if scope == "incremental": n_incr += 1
-            else: n_full += 1
-            if not findings and not dismissed: n_clean += 1
-            for f in dismissed:
-                k = key(f)
-                if k in counted_dismissed:
-                    continue
-                counted_dismissed.add(k)
-                if k not in first_seen:
-                    first_seen[k] = idx; bump(f, "reported")
-                bump(f, "dismissed")
-            if meta.get("only", "all") != "all":
-                continue       # 只查部分维度的审查不参与前后对比
-            cur = {key(f): f for f in findings}
-            for k, f in cur.items():
-                if k not in first_seen:
-                    first_seen[k] = idx; bump(f, "reported")
-            if prev is not None:
-                for k, f in prev.items():
-                    if k in cur or k in dismissed_keys:
-                        continue
-                    bump(f, "resolved" if scope == "incremental" else "skipped")
-            prev = cur; idx += 1
-        if prev:
-            for k, f in prev.items():
-                bump(f, "open")
-                if idx - 1 - first_seen.get(k, idx - 1) >= 2:
-                    stale.append((pname, target, f))
-
-tot = {"reported": 0, "resolved": 0, "dismissed": 0, "open": 0, "skipped": 0}
-for r in rows.values():
-    for k in tot: tot[k] += r[k]
-def rate(r):
-    d = r["resolved"] + r["dismissed"]
-    return "%d%%" % round(100.0 * r["resolved"] / d) if d else "—"
-
-scope_txt = "全部项目" if not want else projects[0][0]
-print("## crosscheck 审查统计:%s%s" % (scope_txt, "(最近 %s 天)" % days if days else ""))
-print()
-print("审查 %d 次(全量 %d,增量 %d),其中 %d 次没有任何发现。共报告 %d 条发现。" % (n_reviews, n_full, n_incr, n_clean, tot["reported"]))
-print()
-print("| 维度 | 严重程度 | 报告 | 已解决 | 被否定 | 未处理 | 采纳率 |")
-print("|---|---|---|---|---|---|---|")
-sev_order = {"critical": 0, "major": 1, "minor": 2}
-sev_name = {"critical": "严重", "major": "重要", "minor": "轻微"}
-for (cat, sev), r in sorted(rows.items(), key=lambda kv: (kv[0][0], sev_order.get(kv[0][1], 9))):
-    print("| %s | %s | %d | %d | %d | %d | %s |" % (cat, sev_name.get(sev, sev), r["reported"], r["resolved"], r["dismissed"], r["open"], rate(r)))
-print("| **合计** | | %d | %d | %d | %d | %s |" % (tot["reported"], tot["resolved"], tot["dismissed"], tot["open"], rate(tot)))
-print()
-print("采纳率 = 已解决 /(已解决 + 被否定)。已解决指下一次增量审查里这条发现不在了,是近似值。")
-if tot["skipped"]:
-    print("另有 %d 条因为紧接着做了全量重审,去向无法对应,没有计入。" % tot["skipped"])
 def human(n):
     return "%.1fM" % (n / 1e6) if n >= 1e6 else ("%.0fK" % (n / 1e3) if n >= 1e3 else "%d" % n)
+
+projects = []
+if os.path.isdir(root):
+    for name in sorted(os.listdir(root)):
+        pdir = os.path.join(root, name)
+        if not os.path.isdir(pdir): continue
+        try: rid = open(os.path.join(pdir, ".repo"), encoding="utf-8").readline().strip()
+        except Exception: rid = ""
+        if want and rid != want: continue
+        projects.append((name, pdir))
+if not projects:
+    print("这个项目还没有审查记录。" if want else "还没有审查记录。"); sys.exit(0)
+
+findings = {}        # key -> finding (最新的版本)
+seen_n = {}          # key -> 出现在多少次审查里
+verdict = {}         # key -> 最后一次判断
+fate = {}            # key -> 去向
+open_now = set()
+costs = {}
+n_reviews = n_full = n_incr = n_clean = 0
+
+for pname, pdir in projects:
+    fb = []
+    try:
+        for line in open(os.path.join(pdir, "feedback.jsonl"), encoding="utf-8"):
+            try: fb.append(json.loads(line))
+            except Exception: pass
+    except Exception:
+        pass
+    for e in fb:
+        if cutoff and e.get("time", "").replace("-", "").replace(":", "").replace(" ", "-") < cutoff[:13]: continue
+        verdict[e.get("key") or e.get("id")] = e.get("verdict")
+    for target in sorted(os.listdir(pdir)):
+        tdir = os.path.join(pdir, target)
+        if not os.path.isdir(tdir): continue
+        stamps = sorted(d for d in os.listdir(tdir) if re.fullmatch(r"\d{8}-\d{6}", d))
+        if cutoff: stamps = [x for x in stamps if x >= cutoff]
+        for stamp in stamps:
+            rdir = os.path.join(tdir, stamp)
+            m = meta_of(os.path.join(rdir, "meta.txt"))
+            fs = load(os.path.join(rdir, "findings.json"), [])
+            ds = load(os.path.join(rdir, "dismissed.json"), [])
+            n_reviews += 1
+            if m.get("review_scope") == "incremental": n_incr += 1
+            else: n_full += 1
+            if not fs and not ds: n_clean += 1
+            c = costs.setdefault(m.get("depth", "standard"), {"n": 0, "dur_n": 0, "dur": 0, "tok_n": 0, "tok": 0, "sub": 0})
+            c["n"] += 1
+            if m.get("duration_s", "").isdigit(): c["dur_n"] += 1; c["dur"] += int(m["duration_s"])
+            if m.get("usage_total_tokens", "").isdigit():
+                c["tok_n"] += 1; c["tok"] += int(m["usage_total_tokens"])
+                if m.get("usage_subagents") == "included": c["sub"] += 1
+            for f in fs + ds:
+                k = key(f); findings[k] = f; seen_n[k] = seen_n.get(k, 0) + 1
+            for d in ds:                 # 旧版本 dismiss.sh 只写了 dismissed.json,分不清不成立和不修
+                verdict.setdefault(key(d), d.get("verdict", "invalid_legacy"))
+            for t in load(os.path.join(rdir, "transitions.json"), []):
+                fate[key(t)] = t.get("transition")
+        if stamps:
+            try: latest = open(os.path.join(tdir, "latest"), encoding="utf-8").readline().strip()
+            except Exception: latest = stamps[-1]
+            for f in load(os.path.join(tdir, latest, "findings.json"), []):
+                open_now.add(key(f))
+
+V = [("valid", "成立"), ("wontfix", "成立但不修"), ("invalid", "不成立"), ("invalid_legacy", "被否定(旧记录)"), ("disputed", "有争议"), (None, "未表态")]
+F = [("open", "仍在"), ("code_changed", "代码已改"), ("not_reported_code_unchanged", "代码没变但不再报"), ("out_of_scope", "文件已不在改动里"), ("unknown", "去向不明")]
+
+def fate_of(k):
+    if k in open_now: return "open"
+    return fate.get(k, "unknown")
+
+by_cat = collections.OrderedDict()
+for k, f in sorted(findings.items(), key=lambda kv: (kv[1].get("category", ""), kv[1].get("severity", ""))):
+    by_cat.setdefault(f.get("category", "?"), []).append(k)
+
+def rate(keys):
+    good = sum(1 for k in keys if verdict.get(k) in ("valid", "wontfix"))
+    bad = sum(1 for k in keys if verdict.get(k) in ("invalid", "invalid_legacy"))
+    n = good + bad
+    if not n: return "—"
+    return ("%d%%" % round(100.0 * good / n)) + ("" if n >= 5 else "(n=%d,样本不足)" % n)
+
+title = "全部项目" if not want else projects[0][0]
+print("## crosscheck 审查统计:%s%s" % (title, "(最近 %s 天)" % days if days else ""))
+print()
+print("审查 %d 次(全量 %d,增量 %d),其中 %d 次没有任何发现。共 %d 条不同的发现。" % (n_reviews, n_full, n_incr, n_clean, len(findings)))
+print()
+print("### 判断:人对发现的结论")
+print()
+print("| 维度 | 发现 | " + " | ".join(n for _, n in V) + " | 成立率 |")
+print("|---|---|" + "---|" * len(V) + "---|")
+allk = list(findings)
+for cat, keys in list(by_cat.items()) + [("**合计**", allk)]:
+    cells = [str(sum(1 for k in keys if verdict.get(k) == v)) for v, _ in V]
+    print("| %s | %d | %s | %s |" % (cat, len(keys), " | ".join(cells), rate(keys)))
+print()
+print("成立率 =(成立 + 成立但不修)/(成立 + 成立但不修 + 不成立),只算有人明确判断过的发现;未表态和有争议的不计入。")
+print("注意选择偏差:人更倾向于标记错的,很少专门标记对的。用 --fix 修掉、或明确说\"这条对\"的发现会自动记为成立;未表态的比例越高,成立率越不可靠。")
+print()
+print("### 去向:代码层面发生了什么")
+print()
+print("| 维度 | " + " | ".join(n for _, n in F) + " |")
+print("|---|" + "---|" * len(F))
+for cat, keys in list(by_cat.items()) + [("**合计**", allk)]:
+    print("| %s | %s |" % (cat, " | ".join(str(sum(1 for k in keys if fate_of(k) == v)) for v, _ in F)))
+print()
+print("\"代码已改\"只说明那一行后来变了,不等于是因为这条发现改的;\"代码没变但不再报\"多半说明这条发现不稳定。")
+buckets = [("100", lambda c: c == 100), ("90-99", lambda c: 90 <= c < 100), ("80-89", lambda c: 80 <= c < 90), ("无记录", lambda c: c is None)]
+judged = [k for k in allk if verdict.get(k) in ("valid", "wontfix", "invalid", "invalid_legacy")]
+if judged:
+    print()
+    print("### 校准:置信度和实际成立的比例")
+    print()
+    print("| 置信度 | 有人判断过 | 成立 | 不成立 | 成立率 |")
+    print("|---|---|---|---|---|")
+    for name, test in buckets:
+        def conf(k):
+            c = findings[k].get("confidence")
+            return int(c) if isinstance(c, (int, float)) or (isinstance(c, str) and c.isdigit()) else None
+        ks = [k for k in judged if test(conf(k))]
+        if not ks: continue
+        good = sum(1 for k in ks if verdict.get(k) in ("valid", "wontfix")); bad = len(ks) - good
+        pct = "%d%%" % round(100.0 * good / len(ks)) if len(ks) >= 5 else "样本不足"
+        print("| %s | %d | %d | %d | %s |" % (name, len(ks), good, bad, pct))
+    print()
+    print("每个区间至少 5 条有人判断过的发现才给比例。高置信度区间的成立率如果并不比低区间高,说明打分没有区分度。")
 if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
     print()
     print("### 成本")
@@ -204,17 +215,17 @@ if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
         if c["dur_n"]:
             a = c["dur"] // c["dur_n"]; dur = "%d 分 %d 秒" % (a // 60, a % 60) if a >= 60 else "%d 秒" % a
         tok = human(c["tok"] / c["tok_n"]) if c["tok_n"] else "—"
-        note = "%d" % c["tok_n"] + ("(其中 %d 次含子代理)" % c["sub"] if c["tok_n"] else "")
-        print("| %s | %d | %s | %s | %s |" % (depth, c["n"], dur, tok, note))
+        print("| %s | %d | %s | %s | %d%s |" % (depth, c["n"], dur, tok, c["tok_n"], "(其中 %d 次含子代理)" % c["sub"] if c["tok_n"] else ""))
     print()
-    print("token 用量来自宿主的会话记录,只在装了 hook 的宿主里才有,未必包含子代理的消耗,仅供参考。")
+    print("token 用量来自宿主的会话记录:装了 hook 时是准确的区间;拷贝安装时是按会话记录推断的,同一目录同时开多个会话时可能不准。")
+stale = [k for k in open_now if seen_n.get(k, 0) >= 3 and verdict.get(k) not in ("invalid", "wontfix")]
 if stale:
     print()
-    print("### 连续 3 次以上审查都没处理的发现(%d 条)" % len(stale))
-    for pname, target, f in stale[:10]:
-        print("- `%s:%s` — %s(%s,%s)" % (f.get("file", "?"), f.get("line", "?"), f.get("summary", ""), f.get("category", "?"), target))
-    if len(stale) > 10:
-        print("- ……还有 %d 条" % (len(stale) - 10))
+    print("### 连续 3 次以上审查都还在的发现(%d 条)" % len(stale))
+    for k in stale[:10]:
+        f = findings[k]
+        print("- `%s:%s` — %s(%s,%s)" % (f.get("file", "?"), f.get("line", "?"), f.get("summary", ""), f.get("category", "?"), verdict.get(k) and dict(V).get(verdict.get(k)) or "未表态"))
+    if len(stale) > 10: print("- ……还有 %d 条" % (len(stale) - 10))
     print()
-    print("一直没人处理的发现,要么是不值得报,要么是被忽略了。前者可以否定掉并写进 `.cr/ignore.md` 或 `REVIEW.md`。")
+    print("一直没人处理也没人表态的发现,值得问一下:是不成立、不打算修,还是被忽略了。")
 PY

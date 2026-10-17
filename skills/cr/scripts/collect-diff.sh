@@ -616,6 +616,11 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
 
 sh "$script_dir/check-state.sh" --save "$out"
 
+# 项目里对这些文件的历史判断(不成立、不修、有争议、成立),连同"那段代码现在变没变",
+# 写进 history.json 交给 verifier 参考。不在这里删除任何候选。
+rm -f "$out/history.json"
+sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 || true
+
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
 case "$pr_source" in
