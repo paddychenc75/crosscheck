@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0] - 2026-10-20
+
+规则、依据、团队协作和度量的一次大改。核心审查流程现在需要 python3(3.8+)。
+
+- 主推自然语言用法,参数只是简写。报告第一行写明审查范围;说「cr 帮助」可以看常用说法。
+- 新增意图:汇总 MR 描述、关联需求(GitLab Issue 用 glab 读,其他系统配 `issue_cmd`)、提交说明、MR 上的人工讨论、`--plan` 计划文件(或 `.cr/intent.md`)和 `--intent`。需求里有明确验收标准时,新增「需求核对」一节。意图只能解释改动,不能让安全问题不报。
+- 新增上下文:测试和检查被削弱的地方在报告里单列;按风险分级,没指定深度时可能建议用 deep(只建议,不强制);MR 上已有人工评论的问题不重复报。
+- 规则分层:目录级 `REVIEW.md`、项目级 `REVIEW.md`、`.cr/ignore.md`、组织规则包、外部规则(`CLAUDE.md` 等)。规则有编号(`PRJ-NNN`、`IGN-NNN`、组织包前缀),元数据写在 `<!-- cr: … -->` 里。
+- `REVIEW.md` 头部的 `extends`、`disable`(必须写原因)、`skip`、`limits`、`severity`、`risk_paths` 由脚本执行,不再靠 agent 理解。
+- 审查 PR/MR 和其他分支时,规则从 base 那一版读取,PR 改不了审查用的规则;去掉了 `changed=yes` 机制。本地审查自己的分支仍读工作区。没有任何规则也照常工作。
+- 保证规则被读到:规则原文直接写进 rules-auditor 和 verifier 的任务;hook 检查任务里有规则指纹,否则拒绝启动;rules-auditor 交检查清单,漏检的补跑一次;verifier 随机抽查「没违反」。报告写明验证状态。
+- verifier 必须给出依据。引用的代码位置不存在、或没有依据的发现,分数最高 50;规则编号和引用原文也会核对。报告里每条发现附折叠的「依据」。
+- 汇总、过滤、增量的遗留与已解决、编号全部由 `aggregate.sh` 完成。低于 80 分的候选存进 `rejected.json`,用于校准。
+- 报告之后的回复有了固定处理方式(`after-report.md`);报告末尾提示快速表态,如「1 对,2 误报:原因」。
+- 私有化 GitLab:新增配置文件 `~/.crosscheck/config`,`gitlab_hosts` 支持子路径;平台判断顺序固定。
+- 新增组织规则仓库:GitLab 上的独立仓库,配置 `rules_repo` / `rules_ref` 后用 `sync-rules.sh` 同步,仓库结构和 CI 模板在 `templates/rules-repo/`。
+- 新增规则沉淀:`mine-reviews.sh` 收集 MR 评论,`rule-miner` 提炼候选规则;`propose-rules.sh` 预览改动,可改到工作区,或在临时 worktree 里创建带 `crosscheck-rule` 标签的 MR(只创建、不合并)。
+- 新增 `rules-lint.sh`(格式检查)和 `rules-health.sh`(规则复核清单):列出每条规则、负责人和上次复核时间,超过 6 个月没复核的排在最前,并附作用域失效、引用失效、重复等检查提示;负责人确认保留用 `propose-rules.sh` 的 `confirm`,记下元数据里的 `reviewed=`。规则的去留由负责人定期复核决定,不按命中次数判断,也不读审查记录。
+- 新增 `sync-data.sh`:可选地把人的判断记录推到团队数据仓库,用户确认后才推送。
+- 统计新增采纳(MR 合并后问题是否真的解决了)、差一点通过(70–79 分)和规则检查的漏检、抽查情况;样本不足 10 条不算比例。
+- 新增评测 `eval.sh`:用例放在组织规则仓库的 `evals/cases/`,和基线比较;`judge` 角色判断是否同一问题。
+- 新增模型选择:配置里的 `model.finder` / `model.verifier` / `model.helper`,调用时可以指定核实模型。默认用宿主当前的模型。
+- 写操作边界:审查过程中从不往 GitLab 写;审查结束后只有创建规则 MR 和同步判断两种写操作,都要用户确认。
+- 新增测试:`python3 -m unittest discover -s tests`,用 `tests/bin/glab` 模拟 GitLab。
+
 ## [0.1.6] - 2026-10-17
 
 根据第一批使用反馈调整。

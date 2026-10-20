@@ -12,7 +12,8 @@
 #
 # 判断记在项目级的 ~/.crosscheck/reviews/<项目名>/feedback.jsonl,对这个项目的所有分支、MR 和范围
 # 都有效,不需要知道是哪一次审查。每条记录带着发现的身份:文件、维度、摘要、出问题的那一行,
-# 以及那一行上下各 2 行代码的哈希。
+# 以及那一行上下各 2 行代码的哈希;还记着是谁判断的(邮箱的哈希,不存人名)。
+# 团队开启共享时(sync-data.sh),同步下来的团队判断和本机的一起使用,同一条发现以时间晚的为准。
 #
 # history 由 collect-diff.sh 在每次审查开始时调用:取出这次改动涉及的文件上的历史判断,并标明
 # 那段代码现在是否原样还在(same_code),写进 OUT.json。它不删除任何候选,怎么用由 verifier 判断:
@@ -47,8 +48,11 @@ if [ "$mode" != history ]; then
   fi
 fi
 
-CR_MODE="$mode" CR_ARGS="$args" CR_REPO_ID="$repo_id" CR_HOME="${CROSSCHECK_HOME:-$HOME/.crosscheck}" python3 - <<'PY'
+CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_MODE="$mode" CR_ARGS="$args" CR_REPO_ID="$repo_id" CR_HOME="${CROSSCHECK_HOME:-$HOME/.crosscheck}" python3 - <<'PY'
 import datetime, hashlib, json, os, re, subprocess, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.environ["CR_SCRIPTS"])
+import crlib
 
 mode = os.environ["CR_MODE"]; args = [a for a in os.environ["CR_ARGS"].split("\n") if a != ""]
 home = os.environ["CR_HOME"]; reviews = os.path.join(home, "reviews")
@@ -79,16 +83,7 @@ def save(path, data):
 def key(f):
     return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
 def verdicts(pdir):
-    latest = {}
-    try:
-        for line in open(os.path.join(pdir, "feedback.jsonl"), encoding="utf-8"):
-            try:
-                e = json.loads(line); latest[e.get("key") or e.get("id")] = e      # 同一条发现以最后一次判断为准
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return list(latest.values())
+    return list(crlib.feedback_entries(pdir).values())      # 本机 + 团队,同一条发现以最后一次判断为准
 
 if mode == "history":
     if len(args) < 2: fail("用法: feedback.sh history REVIEW_DIR OUT.json")
@@ -169,6 +164,7 @@ entry = {
     "id": f.get("id"), "key": fid, "file": f.get("file"), "line": f.get("line"), "category": f.get("category"),
     "severity": f.get("severity"), "confidence": f.get("confidence"), "summary": f.get("summary"),
     "code_line": f.get("code_line", ""), "context_hash": f.get("context_hash", ""), "target": os.path.basename(tdir),
+    "rule_id": f.get("rule_id", ""), "author": crlib.author_hash(), "project": want,
 }
 with open(os.path.join(pdir, "feedback.jsonl"), "a", encoding="utf-8") as out:
     out.write(json.dumps(entry, ensure_ascii=False) + "\n")

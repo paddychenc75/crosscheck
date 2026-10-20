@@ -11,6 +11,9 @@
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
+#         启动 rules-auditor 或 verifier 子代理时(Claude Code 的 Task / Agent 工具),检查任务里
+#         有没有这次的规则指纹(RULES-FP=…,见 task-rules.md);没有就拒绝启动,要求把规则段落原样放进任务。
+#         检查通过时在 review_dir 里留下 .hook-fp-ok,报告据此写「任务含规则 ✓」
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
 # 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
@@ -81,6 +84,7 @@ case "$event" in beforeShellExecution|afterShellExecution) tool=Shell ;; esac
 case "$tool" in
   Bash|Shell|shell) kind=shell; cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command) ;;
   apply_patch) kind=patch; cmd=$(get .tool_input.command) ;;
+  Task|Agent) kind=agent; cmd="" ;;
   *) kind=file; cmd="" ;;
 esac
 
@@ -115,9 +119,17 @@ runs() {
 case "$event" in
   PostToolUse|PostToolUseFailure|afterShellExecution)
     if [ -f "$marker" ] && [ "$kind" = shell ] && runs collect-diff.sh; then
-      result=$(get .tool_response); [ -n "$result" ] || result=$(get .output); [ -n "$result" ] || result=$(get .error)
+      result=$(get .tool_response.stdout); [ -n "$result" ] || result=$(get .tool_response); [ -n "$result" ] || result=$(get .output); [ -n "$result" ] || result=$(get .error)
       case "$event:$result" in
         PostToolUseFailure:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" ;;
+        *)
+          # 记下这次审查的 review_dir(collect-diff.sh 输出的最后一行),供检查子代理的任务时使用。
+          rd=$(printf '%s\n' "$result" | awk 'NF { last = $0 } END { print last }' | sed 's/^[" ]*//; s/[" ]*$//')
+          if [ -n "$rd" ] && [ -f "$rd/meta.txt" ]; then
+            printf '%s\n' "$rd" > "$dir/$sid.review" 2>/dev/null || true
+            : > "$rd/.guard-active" 2>/dev/null || true
+          fi
+          ;;
       esac
     fi
     exit 0 ;;
@@ -154,6 +166,22 @@ if [ "$kind" = shell ]; then
 fi
 
 [ -f "$marker" ] || allow
+if [ "$kind" = agent ]; then
+  rd=$(head -n 1 "$dir/$sid.review" 2>/dev/null || true)
+  [ -n "$rd" ] && [ -f "$rd/rules-meta.txt" ] || allow
+  units=$(sed -n 's/^units=//p' "$rd/rules-meta.txt" | head -n 1)
+  case "$units" in ""|0|*[!0-9]*) allow ;; esac
+  prompt=$(get .tool_input.prompt)
+  case "$prompt" in *rules-auditor.md*|*verifier.md*) ;; *) allow ;; esac
+  fp=$(sed -n 's/^fingerprint=//p' "$rd/rules-meta.txt" | head -n 1)
+  case "$prompt" in
+    *"RULES-FP=$fp"*) : > "$rd/.hook-fp-ok" 2>/dev/null || true; allow ;;
+  esac
+  msg="任务里缺少这次审查的规则段落(规则指纹 RULES-FP=$fp)。请把 $rd/task-rules.md 的全部内容原样放进 rules-auditor 和 verifier 的任务里再启动。"
+  esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  ')
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  exit 0
+fi
 started=$(cat "$marker" 2>/dev/null || echo 0)
 case "$started" in ""|*[!0-9]*) started=0 ;; esac
 if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then

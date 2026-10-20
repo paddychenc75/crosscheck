@@ -7,11 +7,14 @@
 #   --days N   只看最近 N 天的审查
 #   --repo DIR 仓库所在的目录(默认:当前目录)
 #
-# 三个维度分开统计,互不折算:
-#   判断   人对这条发现的结论(feedback.sh 记录):成立 / 成立但不修 / 不成立 / 有争议 / 未表态
-#   去向   代码层面发生了什么:仍在 / 代码已改 / 代码没变但不再报 / 文件已不在改动里
-#   校准   不同置信度区间里,有人判断过的发现有多少是成立的
-# "代码已改"不等于"被采纳":改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算。
+# 几个维度分开统计,互不折算:
+#   判断     人对这条发现的结论(feedback.sh 记录,含同步下来的团队判断):成立 / 不修 / 不成立 / 有争议 / 未表态
+#   采纳     MR 合并后,报过的问题在最终代码里是否真的解决了(adoption.sh 记录)
+#   去向     代码层面发生了什么:仍在 / 代码已改 / 代码没变但不再报 / 文件已不在改动里
+#   校准     不同置信度区间里,有人判断过的发现有多少是成立的
+#   差一点   没通过核实的候选的分数分布,尤其是 70–79 分那批(rejected.json),用来判断 80 分门槛是否合适
+#   规则检查 rules-auditor 漏检和抽查的情况(规则本身的去留由负责人定期复核,见 rules-health.sh)
+# "代码已改"不等于"被采纳":改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算,样本不足 10 条时只给数量。
 # 另外给出每种深度的平均用时和 token。需要 python3。只读取记录,不修改任何东西。
 
 set -eu
@@ -47,8 +50,11 @@ if [ "$all" = no ]; then
   fi
 fi
 
-CR_STATS_HOME="${CROSSCHECK_HOME:-$HOME/.crosscheck}" CR_STATS_REPO="$repo_id" CR_STATS_DAYS="$days" python3 - <<'PY'
+CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_STATS_HOME="${CROSSCHECK_HOME:-$HOME/.crosscheck}" CR_STATS_REPO="$repo_id" CR_STATS_DAYS="$days" python3 - <<'PY'
 import collections, datetime, json, os, re, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.environ["CR_SCRIPTS"])
+import crlib
 
 home = os.environ["CR_STATS_HOME"]; want = os.environ.get("CR_STATS_REPO", ""); days = os.environ.get("CR_STATS_DAYS", "")
 root = os.path.join(home, "reviews")
@@ -96,15 +102,15 @@ fate = {}            # key -> 去向
 open_now = set()
 costs = {}
 n_reviews = n_full = n_incr = n_clean = 0
+rejected_all = []
+rule_cov_missing = collections.Counter()
+spot_checked = spot_failed = 0
+adoption = {}
 
 for pname, pdir in projects:
-    fb = []
-    try:
-        for line in open(os.path.join(pdir, "feedback.jsonl"), encoding="utf-8"):
-            try: fb.append(json.loads(line))
-            except Exception: pass
-    except Exception:
-        pass
+    fb = list(crlib.feedback_entries(pdir).values())
+    for e in crlib._read_jsonl(os.path.join(pdir, "adoption.jsonl")):
+        adoption[e.get("id")] = e
     for e in fb:
         if cutoff and e.get("time", "").replace("-", "").replace(":", "").replace(" ", "-") < cutoff[:13]: continue
         verdict[e.get("key") or e.get("id")] = e.get("verdict")
@@ -134,6 +140,14 @@ for pname, pdir in projects:
                 verdict.setdefault(key(d), d.get("verdict", "invalid_legacy"))
             for t in load(os.path.join(rdir, "transitions.json"), []):
                 fate[key(t)] = t.get("transition")
+            for r in load(os.path.join(rdir, "rejected.json"), []):
+                rejected_all.append(r)
+            cov = load(os.path.join(rdir, "rules-coverage.json"), {})
+            for mm in cov.get("missing", []) if isinstance(cov, dict) else []:
+                rule_cov_missing[mm.get("unit")] += 1
+            fin = load(os.path.join(rdir, "final.json"), {})
+            sp = fin.get("spot", {}) if isinstance(fin, dict) else {}
+            spot_checked += int(sp.get("checked", 0) or 0); spot_failed += int(sp.get("failed", 0) or 0)
         if stamps:
             try: latest = open(os.path.join(tdir, "latest"), encoding="utf-8").readline().strip()
             except Exception: latest = stamps[-1]
@@ -156,7 +170,7 @@ def rate(keys):
     bad = sum(1 for k in keys if verdict.get(k) in ("invalid", "invalid_legacy"))
     n = good + bad
     if not n: return "—"
-    return ("%d%%" % round(100.0 * good / n)) + ("" if n >= 5 else "(n=%d,样本不足)" % n)
+    return ("%d%%(n=%d)" % (round(100.0 * good / n), n)) if n >= 10 else "%d/%d(样本不足,不算比例)" % (good, n)
 
 title = "全部项目" if not want else projects[0][0]
 print("## crosscheck 审查统计:%s%s" % (title, "(最近 %s 天)" % days if days else ""))
@@ -198,10 +212,10 @@ if judged:
         ks = [k for k in judged if test(conf(k))]
         if not ks: continue
         good = sum(1 for k in ks if verdict.get(k) in ("valid", "wontfix")); bad = len(ks) - good
-        pct = "%d%%" % round(100.0 * good / len(ks)) if len(ks) >= 5 else "样本不足"
+        pct = "%d%%" % round(100.0 * good / len(ks)) if len(ks) >= 10 else "样本不足"
         print("| %s | %d | %d | %d | %s |" % (name, len(ks), good, bad, pct))
     print()
-    print("每个区间至少 5 条有人判断过的发现才给比例。高置信度区间的成立率如果并不比低区间高,说明打分没有区分度。")
+    print("每个区间至少 10 条有人判断过的发现才给比例。高置信度区间的成立率如果并不比低区间高,说明打分没有区分度。")
 if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
     print()
     print("### 成本")
@@ -218,6 +232,48 @@ if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
         print("| %s | %d | %s | %s | %d%s |" % (depth, c["n"], dur, tok, c["tok_n"], "(其中 %d 次含子代理)" % c["sub"] if c["tok_n"] else ""))
     print()
     print("token 用量来自宿主的会话记录:装了 hook 时是准确的区间;拷贝安装时是按会话记录推断的,同一目录同时开多个会话时可能不准。")
+if adoption:
+    res = collections.Counter(e.get("result") for e in adoption.values())
+    decided = res["resolved"] + res["not_resolved"] + res["unchanged"]
+    print()
+    print("### 采纳:MR 合并后问题是否解决")
+    print()
+    print("| 已解决 | 改了但没解决 | 代码没改 | 文件已删除 | 采纳率 |")
+    print("|---|---|---|---|---|")
+    pct = ("%d%%(n=%d)" % (round(100.0 * res["resolved"] / decided), decided)) if decided >= 10 else ("%d/%d(样本不足)" % (res["resolved"], decided) if decided else "—")
+    print("| %d | %d | %d | %d | %s |" % (res["resolved"], res["not_resolved"], res["unchanged"], res["file_removed"], pct))
+    print()
+    print("采纳率 = 已解决 /(已解决 + 改了但没解决 + 代码没改)。「已解决」由 verifier 对照合并后的最终代码确认,不是「代码动过」就算。运行 adoption.sh scan 更新。")
+if rejected_all:
+    def conf_of(r):
+        try: return int(float(r.get("confidence", 0)))
+        except (TypeError, ValueError): return 0
+    b = collections.Counter()
+    for r in rejected_all:
+        c = conf_of(r)
+        b["70-79" if 70 <= c < 80 else ("50-69" if 50 <= c < 70 else "0-49")] += 1
+    print()
+    print("### 差一点通过:没通过核实的候选(%d 条)" % len(rejected_all))
+    print()
+    print("| 分数 | 条数 |")
+    print("|---|---|")
+    for k in ("70-79", "50-69", "0-49"):
+        print("| %s | %d |" % (k, b[k]))
+    near = sorted((r for r in rejected_all if 70 <= conf_of(r) < 80), key=conf_of, reverse=True)
+    if near:
+        print()
+        print("70–79 分的候选(最多列 8 条,值得抽几条人工看看,判断 80 分门槛是不是太严):")
+        for r in near[:8]:
+            print("- %d 分 `%s:%s` %s —— %s" % (conf_of(r), r.get("file", "?"), r.get("line", "?"), r.get("summary", ""), r.get("reject_reason") or r.get("verdict", "")))
+if rule_cov_missing or spot_checked:
+    print()
+    print("### 规则检查")
+    print()
+    if rule_cov_missing:
+        print("漏检(检查清单没覆盖到,补跑后仍然没有):" + "、".join("%s %d 次" % kv for kv in rule_cov_missing.most_common(10)))
+    if spot_checked:
+        print("抽查:共抽查 %d 条「没违反」,其中 %d 条其实违反了。" % (spot_checked, spot_failed))
+    print("规则本身的去留由负责人定期复核(rules-health.sh 生成复核清单)。")
 stale = [k for k in open_now if seen_n.get(k, 0) >= 3 and verdict.get(k) not in ("invalid", "wontfix")]
 if stale:
     print()

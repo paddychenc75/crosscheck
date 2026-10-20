@@ -5,7 +5,9 @@
 #
 #   DIR  collect-diff.sh 的输出目录,其中需要已经写好:
 #          report.md      给用户看的报告
-#          findings.json  本次审查结束时仍然成立的全部发现(含从上次带过来的)
+#          findings.json  本次审查结束时仍然成立的全部发现(aggregate.sh 写出,含从上次带过来的)
+#        另外会一并保存(有就存):final.json、rejected.json(没通过核实的候选)、intent.md、weakening.txt、
+#        risk.txt、settings.json、rules-index.json、rules-meta.txt、rules-coverage.json、rules-notes.json
 #
 # 写入 ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
 #   latest    最近一次审查
@@ -19,7 +21,7 @@
 #   cost=<这次审查的用时和消耗>     用时一定有;token 只在宿主的 hook 记到了用量时才有
 #
 # --finders 等四个数字是这次审查启动的查找角色数、verifier 数、候选条数、通过核实的条数,
-# 和用时、token 用量一起记进保存的 meta.txt,供 stats.sh 统计成本。
+# 和用时、token 用量一起记进保存的 meta.txt,供 stats.sh 统计成本。候选和通过的条数没给时取自 final.json。
 #
 # 环境变量:
 #   CROSSCHECK_OPEN=0        不自动打开
@@ -60,6 +62,14 @@ repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
+for f in final.json rejected.json intent.md weakening.txt risk.txt settings.json rules-index.json rules-meta.txt rules-coverage.json rules-notes.json; do
+  [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
+done
+if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ] && command -v python3 >/dev/null 2>&1; then
+  counts=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])).get("counts",{}); print(c.get("candidates",""), c.get("passed",""))' "$dir/final.json" 2>/dev/null || true)
+  [ -n "$run_candidates" ] || run_candidates=${counts% *}
+  [ -n "$run_passed" ] || run_passed=${counts#* }
+fi
 
 # 给每条发现记下它指向的那一行代码,作为跨审查识别"同一个问题"的依据;
 # 增量审查时,判断上次的每条发现去哪了:代码改了、代码没变但这次没报、还是文件已不在改动里。

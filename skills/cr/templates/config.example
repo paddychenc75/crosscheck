@@ -1,0 +1,19 @@
+# crosscheck 配置,放在 ~/.crosscheck/config(用 sh config.sh path 查实际位置)
+# 每行一个 key=value,# 开头是注释
+
+# 私有化 GitLab:域名里不含 gitlab 时写在这里,多个用逗号分隔;部署在子路径下时写全,如 company.com/gitlab
+gitlab_hosts=code.company.com
+
+# 组织规则仓库(GitLab 上的独立仓库),地址里不要带账号和 token
+rules_repo=https://code.company.com/eng/crosscheck-rules.git
+rules_ref=v1.0.0
+# rules_dir=~/.crosscheck/org-rules
+
+# 可选:共享人的判断
+# data_repo=https://code.company.com/eng/crosscheck-data.git
+
+# 可选:读取非 GitLab 需求单的命令,{key} 会替换成编号,例如 PROJ-231
+# issue_cmd=jira issue view {key} --plain
+
+# 评测用例里的仓库在本机的位置
+# repo.shop-api=~/code/shop-api

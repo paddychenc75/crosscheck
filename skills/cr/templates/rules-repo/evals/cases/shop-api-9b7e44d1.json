@@ -1,0 +1,11 @@
+{
+  "id": "shop-api-9b7e44d1",
+  "repo": "shop-api",
+  "base": "3f2a1c0",
+  "head": "9b7e44d",
+  "source": "fix-commit:a81c2d3",
+  "expect": [
+    {"file": "src/orders/paginate.ts", "lines": "40-44", "category": "bug", "severity": "major", "desc": "total 是 pageSize 的整数倍时丢掉最后一页"}
+  ],
+  "confirmed_by": ["a3f9c2e1"]
+}

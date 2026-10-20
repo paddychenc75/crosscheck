@@ -1,0 +1,16 @@
+#!/bin/sh
+# 测试用的假 glab:api 请求从 $MOCK_GLAB/api/<路径>.json 读取,mr create 记进 calls.log。
+case "$1" in
+  api)
+    key=$(printf '%s' "$2" | sed 's#[/?&=:%]#_#g')
+    f="$MOCK_GLAB/api/$key.json"
+    [ -f "$f" ] || f="$MOCK_GLAB/api/$(printf '%s' "$key" | sed -E 's/_updated_after_[0-9T_-]+Z//').json"
+    if [ -f "$f" ]; then cat "$f"; exit 0; fi
+    echo '{"message":"404 Not Found"}' >&2; exit 1 ;;
+  mr)
+    printf '%s\n' "$*" >> "$MOCK_GLAB/calls.log"
+    [ "$2" = create ] && echo "https://gitlab.example.com/eng/shop/-/merge_requests/99"
+    exit 0 ;;
+  auth) exit 0 ;;
+esac
+exit 0
