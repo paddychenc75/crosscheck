@@ -7,6 +7,8 @@
 #   改动.json 是一个数组,每项是下面三种之一:
 #     {"op": "add", "text": "一句能对照代码检查的话", "reason": "原因", "scope": "src/**", "severity": "major",
 #      "src": "!301,!317", "file": "src/orders/REVIEW.md"}         file 可选,默认根目录 REVIEW.md
+#      组织规则包(pack:)还要给正反例:"bad": "违反的代码", "good": "正确的代码", "ext": "ts",
+#      写成 packs/<包名>/examples/<编号>.bad.ts / .good.ts
 #     {"op": "remove", "id": "PRJ-004"}
 #     {"op": "replace", "id": "PRJ-009", "text": "改写后的规则", "reason": "原因"}
 #     {"op": "confirm", "id": "PRJ-003"}        负责人复核后确认保留:记下 reviewed=<本月>
@@ -101,7 +103,7 @@ def get(path):
 
 def render(text, reason, meta):
     text = text.strip().rstrip("。.")
-    line = "- %s。" % text + (" 原因:%s。" % reason.strip().rstrip("。.") if reason and reason.strip() else "")
+    line = "- %s。" % text + ("原因:%s。" % reason.strip().rstrip("。.") if reason and reason.strip() else "")
     m = " ".join("%s=%s" % (k, v) for k, v in meta.items() if v)
     return line + "\n  <!-- cr: %s -->" % m
 
@@ -134,7 +136,12 @@ for op in ops:
             head = ""
             if not body.strip():
                 head = "# Review 约定\n\n## 每次都要检查\n\n" if target == "project" else ("# 不想再被提醒的模式\n\n" if target == "ignore" else "")
-            changed[path] = (body.rstrip("\n") + "\n\n" if body.strip() else head) + block + "\n"
+            changed[path] = (body.rstrip("\n") + "\n" if body.strip() else head) + block + "\n"
+        if target.startswith("pack:"):
+            # 组织规则必须带正反例(rules-lint 会检查)
+            for k in ("bad", "good"):
+                if op.get(k):
+                    changed["packs/%s/examples/%s.%s.%s" % (pack, rid, k, op.get("ext") or "txt")] = op[k]
     elif kind in ("remove", "replace", "confirm"):
         rid = op.get("id")
         hit = None
@@ -211,5 +218,8 @@ else
   while IFS= read -r spec; do [ -n "$spec" ] && set -- "$@" --put "$spec"; done < "$tmp/manifest"
   name="crosscheck/rules-$(date +%Y%m%d-%H%M%S)"
   printf '由 crosscheck 根据评审反馈提出的规则改动%s。\n\n请审查每条规则:能否对照代码检查、作用域是否合适、原因是否写清楚。被关闭时请在 MR 里写明原因,下次提炼就不会再提同样的规则。\n' "${assigned:+,新规则编号 $assigned}" > "$tmp/body.md"
-  sh "$here/open-mr.sh" --repo "$repo" --branch "$name" --title "${title:-crosscheck: 更新审查规则}" --label crosscheck-rule --body "$tmp/body.md" --yes "$@"
+  lint_target="--repo"
+  [ "${target#pack:}" = "$target" ] || lint_target="--rules-repo"
+  sh "$here/open-mr.sh" --repo "$repo" --branch "$name" --title "${title:-crosscheck: 更新审查规则}" --label crosscheck-rule --body "$tmp/body.md" \
+    --check "sh '$here/rules-lint.sh' $lint_target \"\$1\"" --yes "$@"
 fi

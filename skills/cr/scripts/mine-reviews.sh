@@ -6,10 +6,12 @@
 #   --since Nd   最近 N 天合并的 MR(默认 30d);--mr 指定编号
 #   需要 glab(公网 GitLab 或私有化 GitLab 都可以,私有化的域名写在配置的 gitlab_hosts 里)。
 #
-# 写入输出目录(默认 ~/.crosscheck/knowledge/<项目>/mined-<日期>/):
+# 写入输出目录(默认 ~/.crosscheck/rule-work/<项目>/mined-<日期>/,规则维护的中间材料,可以随时删除):
 #   comments.jsonl          挂在 diff 行上的人工评论:去掉系统消息、机器人、「LGTM」「+1」这类没有信息量的;
 #                           每条带 MR 编号、文件、行号、评论人(只存哈希)、是否已解决、之后那几行代码是否被改过
-#                           (code_changed_after),以及 crosscheck 当时有没有报过这里(matched_finding)
+#                           (code_changed_after),以及 crosscheck 当时有没有报过这里(matched_finding:发现编号;
+#                           suppressed:discussions = 看到了但因为人已评论而没报;rejected:<分数> = 没通过核实)
+#                           和那条的摘要(matched_summary,位置相近不等于说的是同一件事,由 rule-miner 判断)
 #   misses.json             crosscheck 审过这个 MR、人工指出了、但当时没报的——候选的漏报,确认后可以进评测集
 #   feedback-summary.json   这个项目的判断记录汇总:反复出现的「不成立」原因、反复被判为成立的同类问题
 #   closed-candidates.json  被关闭的 crosscheck-rule MR(标题、说明、最后一条评论),提炼时不要再提同样的规则
@@ -38,7 +40,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 g
 root=$(git rev-parse --show-toplevel)
 u=$(git remote get-url origin 2>/dev/null || true)
 [ -n "$u" ] || die "仓库没有 origin 远程"
-repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ROOT=$root CR_REPO_ID=$repo_id CR_SINCE=$since CR_MRS=$mrs CR_OUT=$out python3 - <<'PY'
 import collections, datetime, json, os, re, subprocess, sys
@@ -50,16 +52,19 @@ root, repo_id = os.environ["CR_ROOT"], os.environ["CR_REPO_ID"]
 cfg = crlib.config()
 host = None
 for h in (cfg.get("gitlab_hosts", "") or "").split(","):
-    h = re.sub(r"^[A-Za-z]+://", "", h.strip()).rstrip("/")
+    h = re.sub(r"^([^/:]*):\d+", r"\1", re.sub(r"^[A-Za-z]+://", "", h.strip()).rstrip("/"))
     if h and (repo_id == h or repo_id.startswith(h + "/")):
         if host is None or len(h) > len(host):
             host = h
 env = dict(os.environ)
-if host:
-    env["GITLAB_HOST"] = ("https://" + host) if "/" in host else host
-    proj_path = repo_id[len(host) + 1:]
-else:
-    proj_path = repo_id.split("/", 1)[1] if "/" in repo_id else repo_id
+prefix = host.split("/", 1)[1] if host and "/" in host else ""
+proj_path = repo_id[len(host) + 1:] if host else (repo_id.split("/", 1)[1] if "/" in repo_id else repo_id)
+if prefix:
+    # 部署在子路径下:glab 需要完整的地址(协议、端口、子路径),从 origin 地址里取,不输出它
+    raw = subprocess.run(["git", "-C", root, "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+    m = re.match(r"^(https?)://(?:[^@/]*@)?([^/]+)/", raw)
+    if m:
+        env["GITLAB_HOST"] = "%s://%s/%s" % (m.group(1), m.group(2), prefix)
 proj = proj_path.replace("/", "%2F")
 
 def api(path):
@@ -86,7 +91,7 @@ for name in os.listdir(reviews) if os.path.isdir(reviews) else []:
             pdir, pname = os.path.join(reviews, name), name; break
     except OSError:
         pass
-out = os.environ["CR_OUT"] or os.path.join(crlib.home(), "knowledge", pname, "mined-" + datetime.date.today().strftime("%Y%m%d"))
+out = os.environ["CR_OUT"] or os.path.join(crlib.home(), "rule-work", pname, "mined-" + datetime.date.today().strftime("%Y%m%d"))
 os.makedirs(out, exist_ok=True)
 
 # 要看的 MR
@@ -157,17 +162,29 @@ for mr in mr_list:
                     else:
                         h = crlib.ctx_hash(old, int(line))
                         changed_after = not any(crlib.ctx_hash(new, i + 1) == h for i in range(len(new)))
-            match = None
+            # 同一文件 ±3 行内取最近的一条;距离相同时优先通过的发现。
+            # 因为人已经评论过而被压下的候选(suppressed_by)记为 suppressed:…,crosscheck 其实看到了,不算漏报。
+            match, match_summary, best = None, "", None
             for kind, f in known:
                 try:
-                    if f.get("file") == path and abs(int(f.get("line", 0)) - int(line or 0)) <= 3:
-                        match = f.get("id") if kind == "finding" else "rejected:%s" % f.get("confidence")
-                        if kind == "finding":
-                            break
+                    dist = abs(int(f.get("line", 0)) - int(line or 0))
                 except (TypeError, ValueError):
-                    pass
+                    continue
+                if f.get("file") != path or dist > 3:
+                    continue
+                rank = (dist, kind != "finding")
+                if best is not None and rank >= best:
+                    continue
+                best = rank
+                if kind == "finding":
+                    match = f.get("id")
+                elif f.get("suppressed_by"):
+                    match = "suppressed:%s" % f.get("suppressed_by")
+                else:
+                    match = "rejected:%s" % f.get("confidence")
+                match_summary = str(f.get("summary", ""))[:200]
             c = {"mr": iid, "file": path, "line": line, "body": body[:1500], "reviewer_hash": crlib.short_hash(uname),
-                 "resolved": bool(n.get("resolved")), "code_changed_after": changed_after, "matched_finding": match,
+                 "resolved": bool(n.get("resolved")), "code_changed_after": changed_after, "matched_finding": match, "matched_summary": match_summary,
                  "reviewed_by_crosscheck": bool(reviewed), "created_at": n.get("created_at", ""), "url": mr.get("web_url", "")}
             comments.append(c)
             if reviewed and (match is None or str(match).startswith("rejected:")):

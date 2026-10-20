@@ -42,7 +42,7 @@ if [ "$mode" != history ]; then
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 git 仓库,请用 --repo 指定发现所属的仓库"
   u=$(git remote get-url origin 2>/dev/null || true)
   if [ -n "$u" ]; then
-    repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+    repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
   else
     repo_id=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")
   fi

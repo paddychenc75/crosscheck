@@ -9,6 +9,7 @@
 #     MISSING: <单位>(<文件>…);…                        有漏掉的,同时写出 rerun-rules.md,编排者据此补跑一次
 #     NONCE: 核对码不一致或缺失                          规则可能没读到底
 #   有漏检或核对码不对时以 1 退出。没有适用的规则时直接输出 OK。
+#   核对码不对的那次回复,检查清单不计入覆盖;核对码以最后一次回复为准(补跑一次完整的、对上了就通过)。
 # 另外把 rules-auditor 给出的「规则可能过时:」「规则冲突:」说明收进 rules-notes.json。
 
 set -eu
@@ -17,7 +18,7 @@ command -v python3 >/dev/null 2>&1 || { echo "check-rules: 需要 python3" >&2; 
 [ -f "${1:-}/meta.txt" ] || { echo "check-rules: 需要 collect-diff.sh 的输出目录" >&2; exit 2; }
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR=$(cd "$1" && pwd) python3 - <<'PY'
-import glob, json, os, sys
+import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
@@ -31,15 +32,17 @@ except OSError:
 ranges = crlib.ranges_of(d)
 
 outputs, checked, notes, nonces = [], [], [], []
-for p in sorted(glob.glob(os.path.join(d, "rules-auditor-*.json"))):
+for p in sorted(glob.glob(os.path.join(d, "rules-auditor-*.json")), key=lambda s: int(re.sub(r"\D", "", os.path.basename(s)) or 0)):
     try:
         x = json.load(open(p, encoding="utf-8"))
     except (OSError, ValueError):
         x = None
     outputs.append(os.path.basename(p))
     if isinstance(x, dict):
-        nonces.append(str(x.get("nonce", "")).strip())
-        for c in x.get("checked") or []:
+        n = str(x.get("nonce", "")).strip()
+        nonces.append(n)
+        # 核对码不对的那次没有读完规则,它的检查清单不算覆盖
+        for c in (x.get("checked") or []) if (not want_nonce or n == want_nonce) else []:
             if isinstance(c, dict):
                 checked.append(c)
         fs = x.get("findings") or []
@@ -83,11 +86,12 @@ for u in units:
     if lost:
         missing.append({"unit": u["unit"], "files": lost, "layer": u.get("layer")})
 
-nonce_ok = bool(want_nonce) and bool(nonces) and all(n == want_nonce for n in nonces)
+# 以最后一次为准:核对码错了之后补跑一次完整的、核对码对上,就算通过
+nonce_ok = bool(want_nonce) and bool(nonces) and nonces[-1] == want_nonce
 if not units:
     nonce_ok = True
 cov = {"units": len(units), "required_pairs": required, "covered_pairs": covered, "missing": missing,
-       "nonce_ok": nonce_ok, "outputs": outputs, "ok_without_lines": ok_without_lines, "bad_lines": bad_lines,
+       "nonce_ok": nonce_ok, "outputs": outputs, "nonce_mismatch": [o for o, n in zip(outputs, nonces) if n != want_nonce], "ok_without_lines": ok_without_lines, "bad_lines": bad_lines,
        "na_without_note": na_without_note, "checked_ok": ok_entries}
 crlib.save_json(os.path.join(d, "rules-coverage.json"), cov)
 crlib.save_json(os.path.join(d, "rules-notes.json"), notes)

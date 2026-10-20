@@ -40,7 +40,7 @@ def run(cmd, timeout=30, env=None):
 genv = dict(os.environ)
 host = meta.get("gitlab_host", "")
 if host:
-    genv["GITLAB_HOST"] = ("https://" + host) if "/" in host else host
+    genv["GITLAB_HOST"] = host if "://" in host else (("https://" + host) if "/" in host else host)
 have_glab = meta.get("platform") == "gitlab" and shutil.which("glab") is not None and meta.get("pr_source", "api") == "api"
 proj = meta.get("api_project") or ":id"
 
@@ -228,6 +228,15 @@ for c in chunks(os.path.join(d, "skipped.patch")) + chunks(os.path.join(d, "diff
     ra = sum(1 for x in c["rem"] if ASSERT.search(x)); aa = sum(1 for x in c["add"] if ASSERT.search(x))
     if ra > aa:
         weak.append(("assertions-removed", p, "断言减少 %d 处(删 %d、加 %d)" % (ra - aa, ra, aa)))
+    # 断言被改了期望值:同一个断言的写法还在,只是期望的结果变了(常见于把测试改成迎合新行为)
+    olds = [x.strip() for x in c["rem"] if ASSERT.search(x)]
+    news = [x.strip() for x in c["add"] if ASSERT.search(x)]
+    # 把数字和字符串字面量换掉后一样、原文不一样,就是同一个断言改了值(适用于 expect(...).toBe(0)、assert x == 0 等写法)
+    key = lambda x: re.sub(r"\d+(?:\.\d+)?|'[^']*'|\"[^\"]*\"|\b(?:true|false|True|False|nil|None|null)\b", "#", x)
+    for o in olds:
+        n = next((x for x in news if x != o and key(x) == key(o)), None)
+        if n:
+            weak.append(("assertion-changed", p, "断言改了值:%s → %s" % (o[:80], n[:80])))
     for x in c["add"]:
         if SKIP.search(x):
             weak.append(("skip-added", p, "新增跳过:" + x.strip()[:120]))

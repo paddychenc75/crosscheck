@@ -213,7 +213,7 @@ collect_range() {
 origin_id() {
   u=$(git remote get-url origin 2>/dev/null || true)
   [ -n "$u" ] || return 1
-  printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##'
+  printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##'
 }
 
 # gh/glab 不可用或没登录时,只用 git 把 PR/MR 拉下来。git 会用仓库自己配置好的凭证,
@@ -285,11 +285,12 @@ via_user_shell() { # 命令串,参数...
   return "$shell_rc"
 }
 
-# ~/.crosscheck/config 里 gitlab_hosts 列出的、能对上 $1(去掉协议的地址)的那一项,如 company.com/gitlab。
+# ~/.crosscheck/config 里 gitlab_hosts 列出的、能对上 $1(去掉协议和端口的地址)的那一项,如 company.com/gitlab。
+# 配置里的端口会被忽略:同一个 GitLab 用 http 和 ssh 克隆时端口不同,但应该认成同一个。
 gitlab_host_entry() {
   hosts=$(sh "$script_dir/config.sh" get gitlab_hosts 2>/dev/null || true)
   [ -n "$hosts" ] || return 1
-  printf '%s\n' "$hosts" | tr ',' '\n' | sed 's#^[ ]*##; s#[ ]*$##; s#^[A-Za-z]*://##; s#/*$##' | awk -v u="$1" '
+  printf '%s\n' "$hosts" | tr ',' '\n' | sed 's#^[ ]*##; s#[ ]*$##; s#^[A-Za-z]*://##; s#/*$##; s#^\([^/:]*\):[0-9][0-9]*#\1#' | awk -v u="$1" '
     $0 != "" && (u == $0 || index(u, $0 "/") == 1) { if (length($0) > length(best)) best = $0 }
     END { if (best == "") exit 1; print best }'
 }
@@ -352,18 +353,23 @@ collect_gitlab() {
     http*://*/merge_requests/*)
       scheme=${target%%://*}
       addr=${target#*://}
+      hostport=${addr%%/*}
+      host=${hostport%%:*}
+      rest=${addr#*/}
       # 部署在子路径下时(如 company.com/gitlab),在 gitlab_hosts 里写全,这里先去掉这段前缀再取项目路径。
-      if entry=$(gitlab_host_entry "$addr" 2>/dev/null); then :; else entry=${addr%%/*}; fi
-      url_path=${addr#"$entry"/}
+      prefix=""
+      if entry=$(gitlab_host_entry "$host/$rest" 2>/dev/null); then
+        case "$entry" in */*) prefix=${entry#*/} ;; esac
+      fi
+      url_path=${rest#"$prefix"/}
+      [ -n "$prefix" ] || url_path=$rest
       repo=${url_path%%/-/merge_requests/*}; repo=${repo%%/merge_requests/*}
       number=${target##*/merge_requests/}; number=${number%%[!0-9]*}
       proj=$(printf '%s' "$repo" | sed 's#/#%2F#g')
-      case "$entry" in
-        */*) GITLAB_HOST="$scheme://$entry" ;;
-        *) GITLAB_HOST=$entry ;;
-      esac
+      # glab 要的是能访问到 API 的地址:协议、端口、子路径都要带上
+      GITLAB_HOST="$scheme://$hostport${prefix:+/$prefix}"
       export GITLAB_HOST
-      gitlab_host=$entry
+      gitlab_host=$GITLAB_HOST
       ;;
     *) number=$target ;;
   esac

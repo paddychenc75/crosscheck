@@ -116,6 +116,7 @@ else:
             W("CODEOWNERS", 0, "没有为 packs/%s/ 指定负责人" % pack)
         if not owners:
             W("CODEOWNERS", 0, "规则仓库没有 CODEOWNERS 文件")
+        off = len(text.split("\n")) - len(crlib.parse_frontmatter(text)[1].split("\n"))
         ex = os.path.join(os.path.dirname(p), "examples")
         names = os.listdir(ex) if os.path.isdir(ex) else []
         for r in rules:
@@ -123,7 +124,7 @@ else:
                 continue
             for kind in ("bad", "good"):
                 if not any(n.startswith("%s.%s." % (r["id"], kind)) for n in names):
-                    E(rel, r["start"], "%s 缺少%s例 examples/%s.%s.<扩展名>" % (r["id"], "反" if kind == "bad" else "正", r["id"], kind))
+                    E(rel, r["start"] + off, "%s 缺少%s例 examples/%s.%s.<扩展名>" % (r["id"], "反" if kind == "bad" else "正", r["id"], kind))
     for p in sorted(glob.glob(os.path.join(root, "evals", "cases", "*.json"))):
         rel = os.path.relpath(p, root)
         try:
@@ -133,6 +134,8 @@ else:
         for k in ("id", "repo", "base", "head", "expect", "source"):
             if k not in c:
                 E(rel, 0, "缺少字段 %s" % k)
+        if str(c.get("source", "")).split(":")[0] not in ("fix-commit", "clean", "missed"):
+            E(rel, 0, "source 应为 fix-commit、clean 或 missed(可以加 :说明)")
         for i, x in enumerate(c.get("expect") or []):
             for k in ("file", "lines", "category", "desc"):
                 if k not in x:

@@ -22,7 +22,7 @@
    ```
    sh <skill_dir>/scripts/propose-rules.sh --ops <改动.json> --target project --mr --yes --title "crosscheck: 新增规则 …"
    ```
-   建议放进组织规则包的(`level: org`),告诉用户这需要组织规则包的负责人审批;用户同意后用 `--target pack:<包名>`,MR 会提到组织规则仓库。
+   建议放进组织规则包的(`level: org`),告诉用户这需要组织规则包的负责人审批;用户同意后用 `--target pack:<包名>`,MR 会提到组织规则仓库。组织规则必须带正反例:在这一项里加上 `"ext"`、`"bad"`(违反的代码)和 `"good"`(正确的代码),和用户一起写好;缺了的话 rules-lint 不通过,MR 不会创建。
 
 ## 规则复核(负责人定期做)
 

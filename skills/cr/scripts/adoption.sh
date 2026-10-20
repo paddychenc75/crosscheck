@@ -5,10 +5,10 @@
 #         找出这个项目里已经合并的 PR/MR,只读拉取合并后的代码,对照每条报过的发现:
 #           那段代码原样还在          → 记为「代码没改」(没有采纳)
 #           文件已经不在了            → 记为「文件已删除」(不计入采纳率)
-#           那段代码改了              → 列进 adoption-pending.json,交给 verifier 判断问题是否真的解决
+#           那段代码改了              → 列进 adoption-pending.json,交给 judge 角色(mode=adoption)判断问题是否真的解决
 #         判断合并:有 glab / gh 时读平台的状态;没有时看 MR 的最后一个提交是否已经进了目标分支。
 #       adoption.sh record ID resolved|not_resolved [说明] [--repo DIR]
-#         记下 verifier 的判断。
+#         记下 judge 的判断。
 # 结果记在 ~/.crosscheck/reviews/<项目>/adoption.jsonl,stats.sh 据此算采纳率。需要 python3。
 # 只做只读的 git fetch,不改工作区和本地分支。
 
@@ -30,7 +30,7 @@ if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的�
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 git 仓库,请用 --repo 指定"
 u=$(git remote get-url origin 2>/dev/null || true)
 if [ -n "$u" ]; then
-  repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+  repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
 else
   repo_id=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")
 fi
@@ -64,7 +64,7 @@ def append(e):
 if cmd == "record":
     if len(args) < 2 or args[1] not in ("resolved", "not_resolved"):
         print("adoption: 用法 adoption.sh record ID resolved|not_resolved [说明]", file=sys.stderr); sys.exit(2)
-    append({"id": args[0], "result": args[1], "note": args[2] if len(args) > 2 else "", "time": now, "by": "verifier"})
+    append({"id": args[0], "result": args[1], "note": args[2] if len(args) > 2 else "", "time": now, "by": "judge"})
     print("已记录:%s → %s" % (args[0], "已解决" if args[1] == "resolved" else "改了但没解决"))
     sys.exit(0)
 
@@ -95,7 +95,7 @@ for tname in sorted(os.listdir(pdir)):
     if m.group(1) == "mr" and shutil.which("glab"):
         env_host = meta.get("gitlab_host", "")
         if env_host:
-            os.environ["GITLAB_HOST"] = ("https://" + env_host) if "/" in env_host else env_host
+            os.environ["GITLAB_HOST"] = env_host if "://" in env_host else (("https://" + env_host) if "/" in env_host else env_host)
         out = run(["glab", "api", "projects/%s/merge_requests/%s" % (meta.get("api_project") or ":id", num)])
         try:
             mr = json.loads(out) if out else {}
@@ -140,7 +140,7 @@ for tname in sorted(os.listdir(pdir)):
                         "summary": f.get("summary"), "failure_scenario": f.get("failure_scenario"), "final_ref": final,
                         "final_excerpt": "\n".join("%5d | %s" % (i, ls[i - 1]) for i in range(lo, hi + 1))})
 crlib.save_json(os.path.join(pdir, "adoption-pending.json"), pending)
-print("自动判定 %d 条(代码没改或文件已删除);需要 verifier 确认的 %d 条:%s" % (decided, len(pending), os.path.join(pdir, "adoption-pending.json")))
+print("自动判定 %d 条(代码没改或文件已删除);需要 judge 确认的 %d 条:%s" % (decided, len(pending), os.path.join(pdir, "adoption-pending.json")))
 if skipped:
     print("跳过:" + "、".join(skipped))
 PY

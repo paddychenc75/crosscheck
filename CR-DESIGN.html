@@ -697,17 +697,21 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="layer">
           <div class="layer-head"><b>多角色审查</b><span>由主 agent 编排，每个角色是一个独立的 agent</span></div>
           <div class="subrow"><div class="label">① 查找<br>4 个角色并行<br>尽量不漏</div><div class="roles">
-            <div class="role"><b>bug-hunter</b><span>找逻辑错误、边界、空值、并发、错误处理；从改动处往外看，也从调用方往回看</span></div>
+            <div class="role"><b>bug-hunter</b><span>找逻辑错误、边界、空值、并发、错误处理；从改动处往外看，也从调用方往回看；有验收标准时逐条对照，没做到的报为「意图」类问题</span></div>
             <div class="role"><b>security-reviewer</b><span>找安全漏洞，含 AI 调用相关的风险；要说清攻击路径</span></div>
             <div class="role"><b>rules-auditor</b><span>先读审查设置和抑制规则，再按目录 → 项目 → 组织 → 外部规则的顺序，只取作用域覆盖改动文件、能对照代码检查的条目（命名、必须用或禁止用的 API、错误处理约定、必须同步修改的地方）；改动行明显违反字面才报，带规则编号和原文</span></div>
             <div class="role"><b>simplifier</b><span>找可复用的已有代码、重复和多余的写法</span></div>
           </div></div>
-          <div class="subrow"><div class="label"></div><div class="role-note">deep 模式下，bug-hunter 和 security-reviewer 换个文件顺序再各查一遍</div></div>
+          <div class="subrow"><div class="label"></div><div class="role-note">deep 模式下，bug-hunter 和 security-reviewer 换个文件顺序再各查一遍。测试削弱、风险分级由脚本先算好放进 review_dir，供各角色参考，不单设角色</div></div>
           <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
             <div class="role"><b>verifier</b><span>逐条复查候选，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分；deep 模式下写脚本实际跑一下。模型可以在调用时指定，所有打分都存档</span></div>
           </div></div>
           <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
             <div class="role"><b>主 agent（编排者）</b><span>合并重复，低于 80 分不报，只报改动的行，限制条数，按严重程度排序，然后出报告</span></div>
+          </div></div>
+          <div class="subrow"><div class="label">审查之外</div><div class="roles">
+            <div class="role"><b>rule-miner</b><span>从人工评论和人的判断里提炼候选规则；只在「提炼规则」时运行，见反馈沉淀</span></div>
+            <div class="role"><b>judge</b><span>评测时判断发现是否对上答案；MR 合并后判断报过的问题是否真的改了（采纳）</span></div>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -861,12 +865,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>角色</th><th>负责</th><th>什么时候运行</th><th>交出什么</th></tr>
         <tr><td>主 agent（编排者）</td><td>解析参数、运行脚本、启动其他角色、汇总过滤、出报告、记录人的判断</td><td>每次</td><td>报告和审查记录</td></tr>
-        <tr><td><code>bug-hunter</code></td><td>找正确性问题</td><td>每次（quick 由主 agent 兼任）</td><td>候选发现</td></tr>
+        <tr><td><code>bug-hunter</code></td><td>找正确性问题，并对照验收标准</td><td>每次（quick 由主 agent 兼任）</td><td>候选发现</td></tr>
         <tr><td><code>security-reviewer</code></td><td>找安全问题</td><td>每次（quick 由主 agent 兼任）</td><td>候选发现</td></tr>
         <tr><td><code>rules-auditor</code></td><td>对照团队规则</td><td>standard、deep，且有适用的规则时</td><td>候选发现</td></tr>
         <tr><td><code>simplifier</code></td><td>找可以简化的地方</td><td>standard、deep</td><td>简化建议</td></tr>
         <tr><td><code>verifier</code></td><td>独立核实每条候选并打分</td><td>每次有候选时；每批最多 5 条，一批一个</td><td>带分数和理由的候选</td></tr>
         <tr><td><code>rule-miner</code></td><td>从人工评论和判断记录里提炼候选规则</td><td>只在 <code>/cr 提炼规则</code> 时</td><td>候选规则</td></tr>
+        <tr><td><code>judge</code></td><td>评测时判断发现是否对上答案；MR 合并后判断报过的问题在最终代码里是否解决</td><td>只在跑评测、统计采纳时</td><td>对上 / 没对上、已解决 / 未解决，附理由</td></tr>
       </table></div>
       <p><b>查找角色的细节</b>：</p>
       <div class="table-wrap"><table>
@@ -1394,44 +1399,55 @@ severity: { PRJ-002: critical }        # 按规则编号指定严重程度
 
     <section id="storage">
       <h2>八、存储布局</h2>
-      <p>没有服务端，用私有化 GitLab 上的仓库代替。按数据类型分开存：需要团队共用、需要评审的放 GitLab；只对个人有用、含有未提交内容的留在本机。</p>
-      <div class="table-wrap"><table>
-        <tr><th>数据</th><th>放在哪</th><th>理由</th></tr>
-        <tr><td>规则</td><td>项目仓库 + 组织规则仓库</td><td>需要评审、需要版本</td></tr>
-        <tr><td>评测集和基线</td><td>组织规则仓库的 <code>evals/</code></td><td>团队共用同一个基线；用例的增删走 MR 评审</td></tr>
-        <tr><td>候选规则</td><td>不单独存，直接是一个带 <code>crosscheck-rule</code> 标签的 MR</td><td>MR 本身就是审批流程</td></tr>
-        <tr><td>人的判断</td><td>默认本机；可选同步到数据仓库 <code>crosscheck-data</code></td><td>共享后，一个人判过的误报对所有人生效，统计能按团队汇总</td></tr>
-        <tr><td>审查记录（报告、发现、被否决的候选）、评测的完整结果</td><td>只在本机</td><td>含代码片段、未提交的内容和增量哈希，只对个人有用</td></tr>
-      </table></div>
-<pre><code>项目仓库(GitLab)
-  REVIEW.md · &lt;子目录&gt;/REVIEW.md · .cr/ignore.md          项目级 / 目录级 / 抑制
+      <p>按「谁需要看到」分成三处:<b>本机目录</b>、<b>GitLab 上的仓库</b>、<b>GitLab 本身</b>。没有服务端,也不往任何外部服务上传。原则是:需要团队共用、需要有人审的放 GitLab,只通过 MR 改;只对自己有用、或者含有未提交代码的留在本机。审查记录里有代码片段,从不上传。</p>
 
-规则仓库 crosscheck-rules(GitLab)
-  packs/&lt;包&gt;/rules.md · examples/                        组织级规则和正反例
-  evals/cases/ · evals/baseline.json                     评测用例和当前基线
-
-数据仓库 crosscheck-data(GitLab,可选)
-  feedback/&lt;项目&gt;/&lt;年-月&gt;/&lt;人的哈希&gt;.jsonl              共享的人的判断
-
-本机 ~/.crosscheck/
-├── config                    GitLab 域名、规则仓库和数据仓库的地址
-├── org-rules/                规则仓库的本地克隆(含评测用例和基线)
-├── data/                     数据仓库的本地克隆(开启共享时)
-├── reviews/&lt;项目&gt;/
-│   ├── feedback.jsonl        人的判断(开启共享时同步到数据仓库)
-│   └── &lt;目标&gt;/&lt;时间&gt;/          report.md · findings.json · rejected.json · meta.txt …
-├── knowledge/&lt;项目&gt;/
-│   ├── mined/&lt;日期&gt;.jsonl     人工评论的缓存
+      <h3>1. 本机:<code>~/.crosscheck/</code>(只有自己能看到)</h3>
+<pre><code>~/.crosscheck/
+├── config                         配置:GitLab 域名、规则仓库和数据仓库的地址、各角色用的模型
+├── org-rules/                     组织规则仓库的本地克隆(sync-rules.sh 拉下来,只读使用)
+├── data/                          团队数据仓库的本地克隆(可选,开启共享才有)
+├── reviews/&lt;项目&gt;/                审查记录,按项目分
+│   ├── .repo                      项目身份(去掉账号的远程地址)
+│   ├── feedback.jsonl             自己对发现的判断(成立 / 不成立 / 不修 + 原因)
+│   ├── adoption.jsonl             MR 合并后问题是否真的解决
+│   └── &lt;目标&gt;/                    branch-xxx、mr-12、range-xxx,每个审查目标一个目录
+│       ├── latest / baseline      最近一次 / 增量审查的基准是哪一次
+│       └── &lt;时间&gt;/                一次审查的完整记录
+│           ├── report.md          报告
+│           ├── findings.json      通过核实的发现(下次增量要用)
+│           ├── rejected.json      没通过核实的候选和分数
+│           ├── meta.txt           目标、提交、深度、用时、token
+│           └── intent.md、rules-index.json、rules-coverage.json 等  这次用到的上下文
+├── rule-work/&lt;项目&gt;/              规则维护的中间材料(可以随时删掉,重新生成)
+│   ├── mined-&lt;日期&gt;/              从 MR 评论里收集的材料(提炼规则用)
 │   └── review-checklist-&lt;日期&gt;.json  规则复核清单
-└── eval/runs/&lt;时间&gt;/          每次评测的完整结果</code></pre>
-      <p><b>共享人的判断时的约束</b>：</p>
+└── eval/                          评测的运行结果、待提交的用例</code></pre>
+      <p class="muted">每次审查运行时还有一个临时工作目录(系统临时目录下的 <code>cr.XXXX/</code>),结束时需要留的内容复制进 <code>reviews/</code>。</p>
+
+      <h3>2. GitLab 上的仓库(团队共用,改动走 MR)</h3>
+      <div class="table-wrap"><table>
+        <tr><th>仓库</th><th>放什么</th><th>谁写</th></tr>
+        <tr><td><b>项目仓库</b>(如 <code>eng/shop</code>)</td><td><code>REVIEW.md</code>(项目规则和审查设置)、子目录的 <code>REVIEW.md</code>、<code>.cr/ignore.md</code>(不想再被提醒的模式)、<code>.cr/retired-ids</code>(删过的规则编号)</td><td>项目维护者,走 MR</td></tr>
+        <tr><td><b>组织规则仓库</b>(如 <code>eng/crosscheck-rules</code>)</td><td><code>packs/</code>(规则包和正反例)、<code>evals/</code>(评测用例和基线)、<code>CODEOWNERS</code>、<code>CHANGELOG</code></td><td>规则包负责人、插件维护者,走 MR、打 tag</td></tr>
+        <tr><td><b>团队数据仓库</b>(可选,如 <code>eng/crosscheck-data</code>)</td><td><code>feedback/&lt;项目&gt;/&lt;年-月&gt;/&lt;人的哈希&gt;.jsonl</code>:大家对发现的判断</td><td>各人说「同步一下 review 数据」时推送,推送前要确认</td></tr>
+      </table></div>
+
+      <h3>3. GitLab 本身(不是文件)</h3>
       <ul>
-        <li><b>只由人发起同步。</b>说「同步一下 review 数据」时，先拉取团队的记录，再提交并推送自己新增的记录，推送前列出要推送的条数让你确认。审查过程中从不自动推送。</li>
-        <li><b>按项目、月份、人分文件，只追加不修改。</b>多人同时同步也不会冲突；撤回一条判断是追加一条新记录，不改旧记录。</li>
-        <li><b>访问权限和代码仓库一致。</b>判断记录里有代码片段和原因；人名只存哈希，不存任何凭证。</li>
-        <li><b>不开启也能用。</b>团队可以只靠把常见误报写成 <code>.cr/ignore.md</code> 规则来共享。</li>
+        <li><b>MR 和 Issue 的描述、MR 上的人工评论</b>:只读取,用来收集意图和提炼规则。</li>
+        <li><b>规则改动的 MR</b>(带 <code>crosscheck-rule</code> 标签):候选规则不单独存,审批就在 MR 里;被关闭的 MR 写明原因,下次提炼时不再提同样的规则。</li>
       </ul>
-      <p class="muted">本机的记录不进仓库；报告里引用了代码片段，注意目录的访问权限。</p>
+
+      <h3>4. 什么时候写到哪里</h3>
+      <div class="table-wrap"><table>
+        <tr><th>时机</th><th>写到哪</th></tr>
+        <tr><td>审查一次</td><td>本机 <code>reviews/&lt;项目&gt;/&lt;目标&gt;/&lt;时间&gt;/</code></td></tr>
+        <tr><td>对发现表态</td><td>本机 <code>feedback.jsonl</code></td></tr>
+        <tr><td>同步 review 数据(可选)</td><td>团队数据仓库(推送前列出条数,要确认)</td></tr>
+        <tr><td>每月提炼规则</td><td>读 GitLab 上的 MR 评论;材料存本机 <code>rule-work/</code>;结果变成一个规则 MR</td></tr>
+        <tr><td>定期复核规则</td><td>读规则文件生成清单,存本机 <code>rule-work/</code>;改动变成一个规则 MR</td></tr>
+        <tr><td>跑评测</td><td>本机 <code>eval/</code>;更新基线时向组织规则仓库提 MR</td></tr>
+      </table></div>
     </section>
 
     <section id="flows">

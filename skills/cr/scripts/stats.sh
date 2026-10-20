@@ -41,7 +41,7 @@ if [ "$all" = no ]; then
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     u=$(git remote get-url origin 2>/dev/null || true)
     if [ -n "$u" ]; then
-      repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
+      repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
     else
       repo_id=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd)")
     fi
@@ -243,7 +243,7 @@ if adoption:
     pct = ("%d%%(n=%d)" % (round(100.0 * res["resolved"] / decided), decided)) if decided >= 10 else ("%d/%d(样本不足)" % (res["resolved"], decided) if decided else "—")
     print("| %d | %d | %d | %d | %s |" % (res["resolved"], res["not_resolved"], res["unchanged"], res["file_removed"], pct))
     print()
-    print("采纳率 = 已解决 /(已解决 + 改了但没解决 + 代码没改)。「已解决」由 verifier 对照合并后的最终代码确认,不是「代码动过」就算。运行 adoption.sh scan 更新。")
+    print("采纳率 = 已解决 /(已解决 + 改了但没解决 + 代码没改)。「已解决」由 judge 对照合并后的最终代码确认,不是「代码动过」就算。运行 adoption.sh scan 更新。")
 if rejected_all:
     def conf_of(r):
         try: return int(float(r.get("confidence", 0)))

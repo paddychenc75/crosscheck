@@ -275,6 +275,20 @@ class TestPipeline(ProjectFixture):
         r = self.run_script("check-rules.sh", rd)
         self.assertIn("OK", r.stdout)
 
+    def test_check_rules_rerun_after_bad_nonce(self):
+        rd, _ = self.collect("feature")
+        good = open(os.path.join(rd, ".rules-nonce")).read().strip()
+        for n, nonce in ((1, "XXXX"), (2, good)):
+            with open(os.path.join(rd, "rules-auditor-%d.json" % n), "w") as f:
+                json.dump({"nonce": nonce, "findings": [], "checked": self.all_checked(rd) if n == 1 else []}, f)
+        r = self.run_script("check-rules.sh", rd, check=False)
+        self.assertIn("MISSING", r.stdout, "核对码错的那次,检查清单不算覆盖")
+        self.assertNotIn("NONCE", r.stdout, "以最后一次的核对码为准")
+        with open(os.path.join(rd, "rules-auditor-2.json"), "w") as f:
+            json.dump({"nonce": good, "findings": [], "checked": self.all_checked(rd)}, f)
+        self.assertIn("OK", self.run_script("check-rules.sh", rd).stdout)
+        self.assertEqual(self.load(os.path.join(rd, "rules-coverage.json"))["nonce_mismatch"], ["rules-auditor-1.json"])
+
     def run_pipeline(self, rd, candidates, scores, spot_score=0):
         with open(os.path.join(rd, "candidates.json"), "w") as f:
             json.dump(candidates, f, ensure_ascii=False)
@@ -313,13 +327,16 @@ class TestPipeline(ProjectFixture):
             {"file": L, "line": 2, "category": "bug", "severity": "minor", "summary": "小问题3", "failure_scenario": "x"},
             {"file": P, "line": 9, "category": "bug", "severity": "major", "summary": "不在改动行", "failure_scenario": "x"},
             {"file": "REVIEW.md", "line": 1, "category": "rules", "rule_id": "PRJ-002", "summary": "规则可能过时:日志", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "intent", "severity": "major", "summary": "没满足验收标准", "failure_scenario": "x"},
         ]
         scores = {"整页丢最后一页": (96, ev), "依据不存在": (90, [{"file": L, "lines": "50-60"}]), "日志有邮箱": (90, ev),
                   "编造的规则": (90, ev), "引用不对": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
-                  "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev)}
+                  "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev),
+                  "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}])}
         final, out = self.run_pipeline(rd, cands, scores, spot_score=90)
         shown = {x["summary"]: x for g in final["groups"].values() for x in g}
         self.assertIn("整页丢最后一页", shown)
+        self.assertIn("没满足验收标准", shown, "引用 review_dir 里的 intent.md 作依据是有效的")
         self.assertEqual(shown["整页丢最后一页"]["found_by"], ["bug-hunter"])
         self.assertEqual(shown["日志有邮箱"]["severity"], "critical", "REVIEW.md 的 severity 设置应生效")
         rejected = {x["summary"]: x for x in self.load(os.path.join(rd, "rejected.json"))}
@@ -455,7 +472,16 @@ class TestGitLab(Base):
         self.config("gitlab_hosts=company.com/gitlab\n")
         r = self.run_script("collect-diff.sh", "https://company.com/gitlab/eng/shop/-/merge_requests/12", cwd=self.repo)
         meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
-        self.assertEqual((meta["repo"], meta["gitlab_host"], meta["number"]), ("eng/shop", "company.com/gitlab", "12"))
+        self.assertEqual((meta["repo"], meta["gitlab_host"], meta["number"]), ("eng/shop", "https://company.com/gitlab", "12"))
+
+    def test_port_in_url_and_remote(self):
+        self.git(self.repo, "remote", "set-url", "origin", "http://code.example.com:8929/eng/shop.git")
+        self.config("gitlab_hosts=code.example.com:8929\n")
+        r = self.run_script("collect-diff.sh", "http://code.example.com:8929/eng/shop/-/merge_requests/12", cwd=self.repo)
+        meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
+        self.assertEqual((meta["repo"], meta["gitlab_host"], meta["repo_id"]), ("eng/shop", "http://code.example.com:8929", "code.example.com/eng/shop"))
+        r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
+        self.assertEqual(self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))["platform"], "gitlab")
 
     def test_mine_reviews(self):
         self.config("gitlab_hosts=code.example.com\n")
@@ -464,6 +490,7 @@ class TestGitLab(Base):
             {"body": "整页时会丢最后一页的数据", "author": {"username": "alice"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 1, "head_sha": self.head}, "resolved": True},
             {"body": "LGTM", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 1, "head_sha": self.head}},
             {"body": "这个常量应该放进配置中心", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 40, "head_sha": self.head}},
+            {"body": "日志里打印了用户邮箱", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 3, "head_sha": self.head}},
         ]}]
         self.mock_api("projects/eng%2Fshop/merge_requests/12/discussions?per_page=100", notes)
         self.mock_api("projects/eng%2Fshop/merge_requests?state=closed&labels=crosscheck-rule&per_page=50", [])
@@ -473,11 +500,14 @@ class TestGitLab(Base):
             f.write("code.example.com/eng/shop\n")
         with open(os.path.join(pdir, "mr-12", "20261020-100000", "findings.json"), "w") as f:
             json.dump([{"id": "f1", "file": "src/p.ts", "line": 1, "summary": "丢数据"}], f)
+        with open(os.path.join(pdir, "mr-12", "20261020-100000", "rejected.json"), "w") as f:
+            json.dump([{"file": "src/p.ts", "line": 3, "summary": "日志有邮箱", "confidence": 0, "suppressed_by": "discussions"}], f, ensure_ascii=False)
         out = self.run_script("mine-reviews.sh", "--since", "30d", cwd=self.repo).stdout
         d = out.strip().splitlines()[-1]
         comments = [json.loads(x) for x in open(os.path.join(d, "comments.jsonl"), encoding="utf-8")]
-        self.assertEqual(len(comments), 2)
+        self.assertEqual(len(comments), 3)
         self.assertEqual(comments[0]["matched_finding"], "f1")
+        self.assertEqual(comments[2]["matched_finding"], "suppressed:discussions", "取最近的一条;因人工已评论而压下的不算漏报")
         self.assertFalse(comments[0]["code_changed_after"])
         self.assertEqual([m["body"] for m in self.load(os.path.join(d, "misses.json"))], ["这个常量应该放进配置中心"])
         self.assertNotIn("alice", open(os.path.join(d, "comments.jsonl"), encoding="utf-8").read())
@@ -559,6 +589,36 @@ class TestRules(Base):
         self.assertEqual(self.git(repo, "status", "--short"), "", "不应碰用户的工作区")
         self.assertNotIn("crosscheck/rules-", self.git(repo, "branch", "--list"))
 
+    def test_pack_rule_mr_needs_examples(self):
+        remote = self.bare("rules")
+        rules = os.path.join(self.home, "org-rules")
+        shutil.move(self.make_repo("org-rules", {"packs/platform/rpc/rules.md": PACK}, remote=remote), rules)
+        self.write(rules, {"packs/platform/rpc/examples/ORG-RPC-001.bad.go": "x\n", "packs/platform/rpc/examples/ORG-RPC-001.good.go": "x\n",
+                           "packs/platform/rpc/examples/ORG-RPC-004.bad.go": "x\n", "packs/platform/rpc/examples/ORG-RPC-004.good.go": "x\n",
+                           "CODEOWNERS": "packs/platform/rpc/ @rpc-team\n"})
+        self.git(rules, "add", "-A")
+        self.git(rules, "commit", "-q", "-m", "examples")
+        self.git(rules, "push", "-q", "origin", "main")
+        self.git(rules, "remote", "set-head", "origin", "main")
+        self.use_mock_glab()
+        ops = os.path.join(self.tmp, "ops.json")
+        op = {"op": "add", "text": "RPC 重试要带幂等键", "reason": "避免重复扣款", "severity": "major"}
+        with open(ops, "w") as f:
+            json.dump([op], f, ensure_ascii=False)
+        r = self.run_script("propose-rules.sh", "--ops", ops, "--target", "pack:platform/rpc", "--mr", "--yes", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("ORG-RPC-006 缺少反例", r.stdout)
+        self.assertNotIn("crosscheck/rules-", self.git(remote, "branch", "--list"), "lint 没过不应推送")
+        with open(ops, "w") as f:
+            json.dump([dict(op, ext="go", bad="retry(call)\n", good="retry(call, key)\n")], f, ensure_ascii=False)
+        self.assertIn("已创建 MR", self.run_script("propose-rules.sh", "--ops", ops, "--target", "pack:platform/rpc", "--mr", "--yes").stdout)
+        branch = next(b for b in self.git(remote, "branch", "--list").split() if b.startswith("crosscheck/rules-"))
+        files = self.git(remote, "ls-tree", "-r", "--name-only", branch)
+        self.assertIn("packs/platform/rpc/examples/ORG-RPC-006.bad.go", files)
+        text = self.git(remote, "show", "%s:packs/platform/rpc/rules.md" % branch)
+        self.assertIn("- RPC 重试要带幂等键。原因:避免重复扣款。", text)
+        self.assertNotIn("\n\n- RPC 重试", text)
+
     def test_review_checklist_and_confirm(self):
         repo = self.make_repo("p", {
             "REVIEW.md": "".join([
@@ -606,7 +666,7 @@ class TestEvalAdoptionStats(Base):
         run = os.path.join(self.tmp, "run")
         plan = self.load(os.path.join(run, "plan.json"))
         self.assertEqual(sorted(p["case"] for p in plan), ["c1", "c2", "rule-ORG-RPC-001-bad", "rule-ORG-RPC-001-good"])
-        fake = {"c1": [{"id": "x1", "file": "src/a.ts", "line": 1, "summary": "坏了"}],
+        fake = {"c1": [{"id": "x1", "file": "src/a.ts", "line": 1, "summary": "坏了"}, {"id": "x4", "file": "src/a.ts", "line": 2, "summary": "另一件事"}],
                 "c2": [{"id": "x2", "file": "src/a.ts", "line": 1, "summary": "误报"}],
                 "rule-ORG-RPC-001-bad": [{"id": "x3", "file": "src/example.go", "line": 1, "category": "rules", "rule_id": "ORG-RPC-001"}],
                 "rule-ORG-RPC-001-good": []}
@@ -619,10 +679,17 @@ class TestEvalAdoptionStats(Base):
             with open(os.path.join(rv, "meta.txt"), "w") as f:
                 f.write("started_epoch=1\ndepth=standard\n")
             self.run_script("eval.sh", "done", run, cid)
-        self.assertIn("配对 1 组", self.run_script("eval.sh", "match", run).stdout)
+        self.assertIn("配对 2 组", self.run_script("eval.sh", "match", run).stdout)
+        judged = {"pairs": [{"case": "c1", "expect_index": 0, "finding_id": "x1", "same": True},
+                            {"case": "c1", "expect_index": 0, "finding_id": "x4", "same": False}],
+                  "extras": [{"case": "c2", "finding_id": "x2", "valid": False}]}
         with open(os.path.join(run, "judgments.json"), "w") as f:
-            json.dump({"pairs": [{"case": "c1", "expect_index": 0, "finding_id": "x1", "same": True}],
-                       "extras": [{"case": "c2", "finding_id": "x2", "valid": False}]}, f)
+            json.dump(judged, f)
+        self.run_script("eval.sh", "score", run)
+        self.assertEqual(self.load(os.path.join(run, "score.json"))["unjudged"], 1, "配对都不成立的发现要判断站不站得住")
+        judged["extras"].append({"case": "c1", "finding_id": "x4", "valid": True})
+        with open(os.path.join(run, "judgments.json"), "w") as f:
+            json.dump(judged, f)
         base_file = os.path.join(self.tmp, "baseline.json")
         with open(base_file, "w") as f:
             json.dump({"time": "old", "recall": {"hit": 1, "expected": 2}, "fp_per_clean": 1.0, "precision": {"valid": 1, "invalid": 1},
@@ -631,6 +698,8 @@ class TestEvalAdoptionStats(Base):
         self.assertIn("| 召回 | 1/2 | 2/2 |", out)
         self.assertIn("新抓到:c1", out)
         self.assertIn("可以合入", out)
+        r = self.run_script("eval.sh", "add-case", "--repo-name", "shop", "--base", base, "--head", head, "--source", "随便写", check=False)
+        self.assertEqual(r.returncode, 2)
 
     def test_adoption_and_stats(self):
         remote = self.bare("shop")

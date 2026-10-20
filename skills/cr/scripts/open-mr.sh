@@ -2,18 +2,19 @@
 # open-mr.sh — 在临时 worktree 里改几个文件,推送到新分支并创建 MR。不碰你当前的工作区和分支。
 #
 # 用法: open-mr.sh --repo DIR --branch NAME --title 标题 --put 相对路径=来源文件 [--put ...]
-#                  [--base 目标分支] [--body 说明文件] [--label 标签] [--yes]
+#                  [--base 目标分支] [--body 说明文件] [--label 标签] [--check 命令] [--yes]
 #
 #   不带 --yes 时只打印将要做的改动(diff)和操作,什么都不推送。
 #   带 --yes 时:从 origin/<目标分支> 建一个临时 worktree → 写入文件 → 提交到新分支 → 推送 →
 #   有 glab 时创建 MR(GitHub 仓库有 gh 时创建 PR),只创建、不合并;没有 glab/gh 时只推送分支,
 #   提示你去 GitLab 页面上创建。最后删除临时 worktree 和本地的临时分支。
+#   --check 命令  写入文件之后、提交之前在临时 worktree 上运行(worktree 路径作为 $1),失败就不推送。
 #   目标分支默认是 origin 的默认分支。推送用的是本机已经配置好的 git 凭证。
 
 set -eu
 
 die() { printf 'open-mr: %s\n' "$*" >&2; exit 1; }
-repo=""; branch=""; title=""; base=""; body=""; label=""; yes=no; puts=""
+repo=""; branch=""; title=""; base=""; body=""; label=""; check=""; yes=no; puts=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=${2:-}; shift 2 ;;
@@ -22,10 +23,11 @@ while [ $# -gt 0 ]; do
     --base) base=${2:-}; shift 2 ;;
     --body) body=${2:-}; shift 2 ;;
     --label) label=${2:-}; shift 2 ;;
+    --check) check=${2:-}; shift 2 ;;
     --put) puts="${puts}${2:-}
 "; shift 2 ;;
     --yes) yes=yes; shift ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "未知参数: $1" ;;
   esac
 done
@@ -56,6 +58,9 @@ while IFS= read -r spec; do
 done < "$tmp/puts"
 if git -C "$wt" diff --quiet && [ -z "$(git -C "$wt" ls-files --others --exclude-standard)" ]; then
   echo "没有改动,不需要创建 MR"; exit 0
+fi
+if [ -n "$check" ]; then
+  sh -c "$check" sh "$wt" || die "检查没通过,没有推送任何东西"
 fi
 git -C "$wt" add -A
 if [ "$yes" != yes ]; then

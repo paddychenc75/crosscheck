@@ -8,7 +8,7 @@
 
 `mine-reviews.sh` 的输出目录:
 
-- `comments.jsonl`:挂在 diff 行上的人工评论(已去掉系统消息、机器人和没有信息量的),带 MR 编号、文件、行号、评论人的哈希、是否已解决、之后那几行代码是否被改过(`code_changed_after`)。被改过的通常说明评论被采纳了,更有分量。
+- `comments.jsonl`:挂在 diff 行上的人工评论(已去掉系统消息、机器人和没有信息量的),带 MR 编号、文件、行号、评论人的哈希、是否已解决、之后那几行代码是否被改过(`code_changed_after`)。被改过的通常说明评论被采纳了,更有分量。`matched_finding` 是 crosscheck 当时在附近报过的发现编号(`suppressed:…` 表示看到了、因为人已评论而没报;`rejected:<分数>` 表示没通过核实),`matched_summary` 是它的摘要;位置相近不等于说的是同一件事,要对照评论内容判断。
 - `feedback-summary.json`:团队对 crosscheck 发现的判断。`not_valid` 是反复出现的「不成立 / 不修」原因;`valid` 是被判为成立的同类问题。
 - `misses.json`:crosscheck 审过、人工指出了、当时没报的问题。
 - `closed-candidates.json`:以前提过、被关闭的规则 MR,以及关闭的原因。**同样的规则不要再提**,除非出现了新的证据并且你能说清和上次的区别。

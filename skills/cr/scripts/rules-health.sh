@@ -122,7 +122,7 @@ crowded = ["%s 有 %d 条规则,超过 20 条" % (f, n) for f, n in sorted(per_f
 
 rows.sort(key=lambda x: (not x["due"], -(x["months"] if x["months"] is not None else 999), x["file"], x["line"]))
 pname = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(root))
-kdir = os.path.join(crlib.home(), "knowledge", pname)
+kdir = os.path.join(crlib.home(), "rule-work", pname)
 os.makedirs(kdir, exist_ok=True)
 out = os.path.join(kdir, "review-checklist-%s.json" % now.strftime("%Y%m%d"))
 crlib.save_json(out, {"months": limit, "rules": rows, "crowded": crowded})

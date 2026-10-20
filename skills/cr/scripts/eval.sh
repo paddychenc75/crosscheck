@@ -20,7 +20,7 @@
 #   eval.sh find-cases [--repo DIR] [--since 365d] [--limit 20] [--clean]
 #       找候选用例:提交说明含 fix / 修复 的小提交,用 git blame 找到当初引入那几行的提交;
 #       --clean 找合并后 30 天内没有相关修复的提交。结果给人确认,不会自动加入评测集。
-#   eval.sh add-case --repo-name NAME --base SHA --head SHA --source 来源 [--expect file:行-行:类别:严重程度:描述]...
+#   eval.sh add-case --repo-name NAME --base SHA --head SHA --source fix-commit|clean|missed[:说明] [--expect file:行-行:类别:严重程度:描述]...
 #       写一个用例到 ~/.crosscheck/eval/cases-pending/,确认人写在 --confirmed-by(会存哈希)。
 #   eval.sh submit-cases [--yes]
 #       把 cases-pending 里的用例通过 MR 提交到组织规则仓库的 evals/cases/。
@@ -45,13 +45,15 @@ if [ "$cmd" = baseline ] || [ "$cmd" = submit-cases ]; then
   if [ "$cmd" = baseline ]; then
     [ -f "$run/score.json" ] || die "$run 里没有 score.json,先运行 eval.sh score"
     exec sh "$here/open-mr.sh" --repo "$rd" --branch "crosscheck/eval-baseline-$(date +%Y%m%d-%H%M%S)" \
-      --title "crosscheck: 更新评测基线" --put "evals/baseline.json=$run/score.json" $yes
+      --title "crosscheck: 更新评测基线" --put "evals/baseline.json=$run/score.json" \
+      --check "sh '$here/rules-lint.sh' --rules-repo \"\$1\"" $yes
   fi
   pend="${CROSSCHECK_HOME:-$HOME/.crosscheck}/eval/cases-pending"
   set --
   for f in "$pend"/*.json; do [ -f "$f" ] && set -- "$@" --put "evals/cases/$(basename "$f")=$f"; done
   [ $# -gt 0 ] || die "cases-pending 里没有用例"
-  sh "$here/open-mr.sh" --repo "$rd" --branch "crosscheck/eval-cases-$(date +%Y%m%d-%H%M%S)" --title "crosscheck: 新增评测用例" "$@" $yes
+  sh "$here/open-mr.sh" --repo "$rd" --branch "crosscheck/eval-cases-$(date +%Y%m%d-%H%M%S)" --title "crosscheck: 新增评测用例" \
+    --check "sh '$here/rules-lint.sh' --rules-repo \"\$1\"" "$@" $yes
   [ -z "$yes" ] || rm -f "$pend"/*.json
   exit 0
 fi
@@ -184,13 +186,17 @@ if cmd == "match":
                     pairs.append({"case": c["case"], "expect_index": i, "expect": e,
                                   "finding": {k: f.get(k) for k in ("id", "file", "line", "category", "severity", "summary", "failure_scenario")}})
                     used.add(f.get("id"))
+        # 配对过的发现也列进来(paired):如果它的配对都判为不是同一个问题,它就是答案之外的发现,同样要判断站不站得住
         for f in fs:
-            if f.get("id") not in used:
-                extras.append({"case": c["case"], "case_kind": c["kind"],
-                               "finding": {k: f.get(k) for k in ("id", "file", "line", "category", "severity", "summary", "failure_scenario", "rule_id")}})
+            x = {"case": c["case"], "case_kind": c["kind"],
+                 "finding": {k: f.get(k) for k in ("id", "file", "line", "category", "severity", "summary", "failure_scenario", "rule_id")}}
+            if f.get("id") in used:
+                x["paired"] = True
+            extras.append(x)
     crlib.save_json(os.path.join(run, "judge.json"), {"pairs": pairs, "extras": extras})
     crlib.save_json(os.path.join(run, "auto.json"), auto)
-    print("配对 %d 组需要判断「是不是同一个问题」,答案之外的发现 %d 条需要判断「站不站得住」;规则正反例 %d 个已自动判定。" % (len(pairs), len(extras), len(auto)))
+    print("配对 %d 组需要判断「是不是同一个问题」,答案之外的发现 %d 条需要判断「站不站得住」(另有 %d 条配对过的,配对都不成立时也要判断);规则正反例 %d 个已自动判定。" % (
+        len(pairs), sum(1 for x in extras if not x.get("paired")), sum(1 for x in extras if x.get("paired")), len(auto)))
     if missing:
         print("还没跑完的用例:" + "、".join(missing))
     print("由 judge 角色(mode=eval)读 %s/judge.json,把结论写进 %s/judgments.json,人工抽查几条后运行 eval.sh score。" % (run, run))
@@ -228,7 +234,7 @@ if cmd == "score":
                 by_cat[cat]["hit"] += 1
         r["hit"] = len(hit_idx); r["valid"] = len(valid_ids)
         for x in judge.get("extras", []):
-            if x["case"] != c["case"]:
+            if x["case"] != c["case"] or x["finding"]["id"] in valid_ids:
                 continue
             v = je.get((x["case"], x["finding"]["id"]))
             if v is None: r["unjudged"] += 1
@@ -382,6 +388,8 @@ if cmd == "find-cases":
 if cmd == "add-case":
     name, base, head, source = opt("--repo-name"), opt("--base"), opt("--head"), opt("--source", "fix-commit")
     who = multi("--confirmed-by")
+    if source.split(":")[0] not in ("fix-commit", "clean", "missed"):
+        print("eval: --source 应为 fix-commit、clean 或 missed(可以加说明,如 missed:MR !128 人工指出)", file=sys.stderr); sys.exit(2)
     exps = []
     for e in multi("--expect"):
         p = e.split(":", 4)
