@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|apply_patch|Task|Agent",
+        "matcher": "Bash|Shell|shell|exec_command|functions.exec_command|Read|Edit|Write|MultiEdit|NotebookEdit|apply_patch|functions.apply_patch|Task|Agent",
         "hooks": [
           {
             "type": "command",
@@ -26,7 +26,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Shell|shell|exec_command|functions.exec_command",
         "hooks": [
           {
             "type": "command",
@@ -38,7 +38,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Shell|shell|exec_command|functions.exec_command",
         "hooks": [
           {
             "type": "command",

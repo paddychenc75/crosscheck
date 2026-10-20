@@ -32,7 +32,7 @@ notes = []
 
 def run(cmd, timeout=30, env=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env, cwd=root or None)
         return r.stdout if r.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -78,7 +78,7 @@ if desc:
 commits = ""
 base, head = meta.get("base_sha", ""), meta.get("head_sha", "")
 if base and head and base != head:
-    commits = run(["git", "-C", root, "log", "--no-merges", "--max-count=30", "--format=- %s", "%s..%s" % (base, head)]) or ""
+    commits = run(["git", "-C", root, "log", "--no-merges", "--max-count=30", "--format=- %s%n%b", "%s..%s" % (base, head)]) or ""
     if commits.strip():
         if mode == "local":
             commits += "\n(另外可能还有尚未提交的改动,没有对应的说明。)\n"
@@ -115,7 +115,11 @@ for iid in sorted(issue_iids, key=int)[:5]:
         sources.append("#%s" % iid)
         take_acceptance("#%s" % iid, body)
     else:
-        notes.append("关联需求 #%s 没有读到(需要 glab 登录)" % iid)
+        reason = ("未识别为 GitLab,可用 --platform gitlab" if meta.get("platform") != "gitlab"
+                  else "未找到 glab" if shutil.which("glab") is None
+                  else "本次使用 git 回退,未请求 API" if meta.get("pr_source", "api") != "api"
+                  else "API 请求失败或返回内容不完整;请检查服务连接、访问权限与需求编号")
+        notes.append("关联需求 #%s 没有读到(%s);可用 --intent 或 --plan 补充" % (iid, reason))
 
 issue_cmd = cfg.get("issue_cmd", "")
 for key in keys[:5]:

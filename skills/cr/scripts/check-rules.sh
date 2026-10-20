@@ -44,7 +44,7 @@ for p in sorted(glob.glob(os.path.join(d, "rules-auditor-*.json")), key=lambda s
         # 核对码不对的那次没有读完规则,它的检查清单不算覆盖
         for c in (x.get("checked") or []) if (not want_nonce or n == want_nonce) else []:
             if isinstance(c, dict):
-                checked.append(c)
+                checked.append((c, x.get("findings") or []))
         fs = x.get("findings") or []
     elif isinstance(x, list):
         nonces.append("")
@@ -62,24 +62,43 @@ required, covered, missing = 0, 0, []
 ok_entries, bad_lines, ok_without_lines, na_without_note = [], [], 0, 0
 for u in units:
     files = u.get("applies_files") or []
-    hits = [c for c in checked if str(c.get("rule_id", "")).strip() == u["unit"]]
+    hits = [(c, fs) for c, fs in checked if str(c.get("rule_id", "")).strip() == u["unit"]]
+    # 补查的同一规则/文件以最后一次为准;无效项不能贡献覆盖或抽查池。
+    latest = {}
+    for c, fs in hits:
+        cf = c.get("files") or ([c["file"]] if c.get("file") else [])
+        if not isinstance(cf, list):
+            continue
+        for f in cf:
+            if isinstance(f, str) and f in files:
+                latest[f] = (c, fs)
     seen = set()
-    for c in hits:
-        cf = c.get("files") or ([c["file"]] if c.get("file") else files)
-        seen.update(cf)
+    for f, (c, fs) in latest.items():
         res = str(c.get("result", "")).strip()
         if res == "ok":
-            for f in cf:
+            try:
                 rg = crlib.parse_lines(c.get("lines"))
-                if rg is None:
-                    ok_without_lines += 1
-                    continue
-                if f in ranges and not crlib.in_ranges(ranges, f, rg[0], rg[1]):
-                    bad_lines.append({"unit": u["unit"], "file": f, "lines": c.get("lines")})
-                    continue
-                ok_entries.append({"unit": u["unit"], "file": f, "lines": "%d-%d" % rg, "text": u.get("text", "")[:300]})
-        elif res in ("n/a", "na", "不适用") and not str(c.get("note", "")).strip():
-            na_without_note += 1
+            except (TypeError, ValueError):
+                rg = None
+            if rg is None:
+                ok_without_lines += 1
+                continue
+            if f not in ranges or rg[0] < 1 or rg[1] < rg[0] or not any(a <= rg[0] <= rg[1] <= b for a, b in ranges[f]):
+                bad_lines.append({"unit": u["unit"], "file": f, "lines": c.get("lines")})
+                continue
+            ok_entries.append({"unit": u["unit"], "file": f, "lines": "%d-%d" % rg, "text": u.get("text", "")[:300]})
+        elif res in ("n/a", "na", "不适用"):
+            if not str(c.get("note", "")).strip():
+                na_without_note += 1
+                continue
+        elif res == "violated":
+            if not any(isinstance(x, dict) and x.get("category") == "rules"
+                       and x.get("rule_id") == u["unit"] and x.get("file") == f
+                       and not str(x.get("summary", "")).startswith(("规则冲突", "规则可能过时")) for x in fs):
+                continue
+        else:
+            continue
+        seen.add(f)
     lost = [f for f in files if f not in seen]
     required += len(files)
     covered += len(files) - len(lost)
@@ -104,7 +123,7 @@ if missing:
     bad = True
     print("MISSING: " + ";".join("%s(%s)" % (m["unit"], "、".join(m["files"][:5])) for m in missing))
     with open(os.path.join(d, "rerun-rules.md"), "w", encoding="utf-8") as f:
-        f.write("上一次的检查清单漏掉了下面这些规则。只检查这些,检查清单照常交,核对码不变。\n\n")
+        f.write("上一次的检查清单漏掉了下面这些规则,或结果/行号/理由/对应发现无效。只检查这些,检查清单照常交,核对码不变。\n\n")
         for m in missing:
             f.write("- %s:%s\n" % (m["unit"], "、".join(m["files"])))
 if not nonce_ok:

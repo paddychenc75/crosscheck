@@ -7,6 +7,7 @@
 """
 
 import json
+from pathlib import Path
 import os
 import re
 import shutil
@@ -202,7 +203,7 @@ class TestCollect(ProjectFixture):
         settings = self.load(os.path.join(rd, "settings.json"))
         self.assertTrue(settings["source"].startswith("base:"))
         self.assertEqual(settings["severity"]["PRJ-002"], "critical")
-        skipped = open(os.path.join(rd, "skipped.txt")).read()
+        skipped = Path(os.path.join(rd, "skipped.txt")).read_text(encoding="utf-8")
         self.assertIn("src/gen/x.ts\treview-skip", skipped)
         self.assertIn("tests/page.test.ts\ttest", skipped)
         units = {u["unit"] for u in self.load(os.path.join(rd, "rules-index.json"))}
@@ -213,21 +214,21 @@ class TestCollect(ProjectFixture):
         meta = self.kv(os.path.join(rd, "rules-meta.txt"))
         self.assertIn("ORG-RPC-004", meta["disabled"])
         self.assertEqual(meta["deprecated"], "ORG-RPC-005")
-        task = open(os.path.join(rd, "task-rules.md"), encoding="utf-8").read()
+        task = Path(os.path.join(rd, "task-rules.md")).read_text(encoding="utf-8")
         self.assertIn("RULES-FP=" + meta["fingerprint"], task)
-        nonce = open(os.path.join(rd, ".rules-nonce")).read().strip()
+        nonce = Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
         self.assertTrue(task.rstrip().splitlines()[-1].startswith("核对码:" + nonce))
 
     def test_context_weakening_risk_and_intent(self):
         rd, out = self.collect("feature")
-        kinds = {line.split("\t")[0] for line in open(os.path.join(rd, "weakening.txt"), encoding="utf-8")}
+        kinds = {line.split("\t")[0] for line in Path(os.path.join(rd, "weakening.txt")).read_text(encoding="utf-8").splitlines(keepends=True)}
         self.assertTrue({"assertions-removed", "skip-added", "ci-check-removed", "suppression-added"} <= kinds, kinds)
         self.assertIn("SUGGEST:", out)
         meta = self.kv(os.path.join(rd, "meta.txt"))
         self.assertEqual(meta["risk_level"], "high")
         self.assertEqual(meta["depth_source"], "default")
         self.assertIn("提交说明", meta["intent_sources"])
-        intent = open(os.path.join(rd, "intent.md"), encoding="utf-8").read()
+        intent = Path(os.path.join(rd, "intent.md")).read_text(encoding="utf-8")
         self.assertIn("feat: 修复分页", intent)
 
     def test_local_review_reads_worktree_rules(self):
@@ -250,14 +251,24 @@ class TestCollect(ProjectFixture):
 
 class TestPipeline(ProjectFixture):
     def auditor(self, rd, checked, nonce=None):
-        nonce = nonce if nonce is not None else open(os.path.join(rd, ".rules-nonce")).read().strip()
+        nonce = nonce if nonce is not None else Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
         with open(os.path.join(rd, "rules-auditor-1.json"), "w") as f:
             json.dump({"nonce": nonce, "findings": [], "checked": checked}, f)
 
     def all_checked(self, rd):
         out = []
+        ranges = {}
+        for line in Path(rd, "ranges.txt").read_text().splitlines():
+            file, start, end = line.split("\t")
+            ranges.setdefault(file, start)
         for u in self.load(os.path.join(rd, "rules-index.json")):
-            out.append({"rule_id": u["unit"], "files": u["applies_files"], "result": "ok", "lines": "1"})
+            for file in u["applies_files"]:
+                c = {"rule_id": u["unit"], "files": [file]}
+                if file in ranges:
+                    c.update(result="ok", lines=ranges[file])
+                else:
+                    c.update(result="n/a", note="没有可检查的改动行")
+                out.append(c)
         return out
 
     def test_check_rules_detects_missing_and_bad_nonce(self):
@@ -277,7 +288,7 @@ class TestPipeline(ProjectFixture):
 
     def test_check_rules_rerun_after_bad_nonce(self):
         rd, _ = self.collect("feature")
-        good = open(os.path.join(rd, ".rules-nonce")).read().strip()
+        good = Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
         for n, nonce in ((1, "XXXX"), (2, good)):
             with open(os.path.join(rd, "rules-auditor-%d.json" % n), "w") as f:
                 json.dump({"nonce": nonce, "findings": [], "checked": self.all_checked(rd) if n == 1 else []}, f)
@@ -407,9 +418,9 @@ class TestDependents(Base):
         self.run_script("save-review.sh", rd)
         self.commit(repo, {"src/a.ts": "export function computeTotal(x) {\n  return x * 2\n}\n"}, "f2")
         rd2 = self.review_dir(self.run_script("collect-diff.sh", cwd=repo).stdout)
-        st = dict(l.rstrip("\n").split("\t")[::-1] for l in open(os.path.join(rd2, "incremental.txt")))
+        st = dict(l.rstrip("\n").split("\t")[::-1] for l in Path(os.path.join(rd2, "incremental.txt")).read_text(encoding="utf-8").splitlines(keepends=True))
         self.assertEqual((st["src/a.ts"], st["src/b.ts"], st["src/c.ts"]), ("changed", "dependent", "unchanged"))
-        files = open(os.path.join(rd2, "files.txt")).read().split()
+        files = Path(os.path.join(rd2, "files.txt")).read_text(encoding="utf-8").split()
         self.assertEqual(sorted(files), ["src/a.ts", "src/b.ts"])
 
 
@@ -428,7 +439,7 @@ class TestGuard(ProjectFixture):
         fp = self.kv(os.path.join(rd, "rules-meta.txt"))["fingerprint"]
         out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Agent", "tool_input": {"prompt": "阅读 roles/verifier.md"}})
         self.assertIn('"permissionDecision":"deny"', out)
-        out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Agent", "tool_input": {"prompt": "阅读 roles/rules-auditor.md RULES-FP=%s" % fp}})
+        out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Agent", "tool_input": {"prompt": "阅读 roles/rules-auditor.md\n" + Path(rd, "task-rules.md").read_text(encoding="utf-8")}})
         self.assertEqual(out.strip(), "")
         self.assertTrue(os.path.exists(os.path.join(rd, ".hook-fp-ok")))
         out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}, "cwd": self.repo})
@@ -468,7 +479,7 @@ class TestGitLab(Base):
         rd = self.review_dir(r.stdout)
         meta = self.kv(os.path.join(rd, "meta.txt"))
         self.assertEqual((meta["platform"], meta["mode"], meta["target_branch"], meta["source_branch"]), ("gitlab", "pr", "main", "feature/pay"))
-        intent = open(os.path.join(rd, "intent.md"), encoding="utf-8").read()
+        intent = Path(os.path.join(rd, "intent.md")).read_text(encoding="utf-8")
         self.assertIn("1. total 是整数倍时返回全部数据", intent)
         self.assertEqual(meta["intent_acceptance"], "2")
         self.assertEqual(len(self.load(os.path.join(rd, "discussions.json"))), 1)
@@ -510,13 +521,13 @@ class TestGitLab(Base):
             json.dump([{"file": "src/p.ts", "line": 3, "summary": "日志有邮箱", "confidence": 0, "suppressed_by": "discussions"}], f, ensure_ascii=False)
         out = self.run_script("mine-reviews.sh", "--since", "30d", cwd=self.repo).stdout
         d = out.strip().splitlines()[-1]
-        comments = [json.loads(x) for x in open(os.path.join(d, "comments.jsonl"), encoding="utf-8")]
+        comments = [json.loads(x) for x in Path(os.path.join(d, "comments.jsonl")).read_text(encoding="utf-8").splitlines(keepends=True)]
         self.assertEqual(len(comments), 3)
         self.assertEqual(comments[0]["matched_finding"], "f1")
         self.assertEqual(comments[2]["matched_finding"], "suppressed:discussions", "取最近的一条;因人工已评论而压下的不算漏报")
         self.assertFalse(comments[0]["code_changed_after"])
         self.assertEqual([m["body"] for m in self.load(os.path.join(d, "misses.json"))], ["这个常量应该放进配置中心"])
-        self.assertNotIn("alice", open(os.path.join(d, "comments.jsonl"), encoding="utf-8").read())
+        self.assertNotIn("alice", Path(os.path.join(d, "comments.jsonl")).read_text(encoding="utf-8"))
 
 
 class TestSync(Base):
@@ -580,16 +591,16 @@ class TestRules(Base):
         self.assertIn("+  <!-- cr: id=PRJ-002", r.stdout)
         self.assertIn("确认后加 --yes", r.stdout)
         self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--worktree", "--yes")
-        text = open(os.path.join(repo, "REVIEW.md"), encoding="utf-8").read()
+        text = Path(os.path.join(repo, "REVIEW.md")).read_text(encoding="utf-8")
         self.assertIn("id=PRJ-002", text)
         self.assertNotIn("id=PRJ-001", text)
-        self.assertIn("PRJ-001", open(os.path.join(repo, ".cr", "retired-ids")).read())
+        self.assertIn("PRJ-001", Path(os.path.join(repo, ".cr", "retired-ids")).read_text(encoding="utf-8"))
         self.git(repo, "checkout", "-q", "--", "REVIEW.md")
         shutil.rmtree(os.path.join(repo, ".cr"))
         self.use_mock_glab()
         r = self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--mr", "--yes")
         self.assertIn("已创建 MR", r.stdout)
-        self.assertIn("--label crosscheck-rule", open(os.path.join(self.mock, "calls.log")).read())
+        self.assertIn("--label crosscheck-rule", Path(os.path.join(self.mock, "calls.log")).read_text(encoding="utf-8"))
         branches = self.git(remote, "branch", "--list")
         self.assertIn("crosscheck/rules-", branches)
         self.assertEqual(self.git(repo, "status", "--short"), "", "不应碰用户的工作区")
@@ -650,7 +661,7 @@ class TestRules(Base):
         self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--worktree", "--yes")
         import datetime
         self.assertIn("id=PRJ-001 added=2020-01 reviewed=%s" % datetime.date.today().strftime("%Y-%m"),
-                      open(os.path.join(repo, "REVIEW.md"), encoding="utf-8").read())
+                      Path(os.path.join(repo, "REVIEW.md")).read_text(encoding="utf-8"))
 
 
 class TestEvalAdoptionStats(Base):
@@ -674,7 +685,7 @@ class TestEvalAdoptionStats(Base):
         plan = self.load(os.path.join(run, "plan.json"))
         self.assertEqual(sorted(p["case"] for p in plan), ["c1", "c2", "rule-ORG-RPC-001-bad", "rule-ORG-RPC-001-good"])
         c1 = next(p for p in plan if p["case"] == "c1")
-        self.assertIn("空列表返回 0 页", open(c1["plan_file"], encoding="utf-8").read(), "用例的需求材料作为 --plan 传入")
+        self.assertIn("空列表返回 0 页", Path(c1["plan_file"]).read_text(encoding="utf-8"), "用例的需求材料作为 --plan 传入")
         self.assertNotIn("plan_file", next(p for p in plan if p["case"] == "c2"))
         fake = {"c1": [{"id": "x1", "file": "src/a.ts", "line": 1, "summary": "坏了"}, {"id": "x4", "file": "src/a.ts", "line": 2, "summary": "另一件事"}],
                 "c2": [{"id": "x2", "file": "src/a.ts", "line": 1, "summary": "误报"}],

@@ -144,12 +144,15 @@ dims = ["bug", "安全", "需求核对", "项目规则", "简化"] if only == "a
 if units == 0 and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
+if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
+    dims.remove("需求核对")
+    extra.append("需求核对:缺少明确验收标准,未完成")
 if os.path.exists(os.path.join(d, "settings.json")) and crlib.load_json(os.path.join(d, "settings.json"), {}).get("found"):
     extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % crlib.load_json(os.path.join(d, "settings.json"), {}).get("source", ""))
 if m.get("finder_model"):
-    extra.append("查找模型:%s" % m["finder_model"])
+    extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
 if m.get("verifier_model", "host") not in ("", "host"):
-    extra.append("核实模型:%s" % m["verifier_model"])
+    extra.append("核实模型配置:%s(实际执行模型由宿主说明)" % m["verifier_model"])
 print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), m.get("depth"), "增量" if m.get("review_scope") == "incremental" else "全量",
       " · " + " · ".join(extra) if extra else ""))
 

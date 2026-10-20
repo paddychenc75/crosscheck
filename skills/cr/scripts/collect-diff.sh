@@ -430,6 +430,11 @@ case "$target" in
   *) detect_platform; "collect_$platform" ;;
 esac
 
+# 范围/本地审查也尽力识别平台,以收集提交关联的需求;未知平台不阻止本地审查。
+if [ "$mode" != pr ] && [ -z "$platform" ]; then
+  platform=$(detect_platform 2>/dev/null && printf '%s' "$platform") || platform=""
+fi
+
 case "$platform" in github|gitlab|"") ;; *) die "未知平台 '$platform'(应为 github 或 gitlab)" ;; esac
 
 # 本地分支和范围审查没有 PR 描述,用这段范围内的提交说明代替,让审查能对照作者想做的事。

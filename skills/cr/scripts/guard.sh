@@ -6,13 +6,13 @@
 #   Cursor                hooks/cursor-hooks.json  beforeShellExecution、preToolUse、beforeSubmitPrompt
 #
 #   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),为当前会话记下"审查进行中"
-#   结束  collect-diff.sh 报错或没有可审查的内容、运行 check-state.sh 或 save-review.sh、
+#   结束  collect-diff.sh 报错或没有可审查的内容、成功执行 check-state.sh 或 save-review.sh、
 #         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
 #         启动 rules-auditor 或 verifier 子代理时(Claude Code 的 Task / Agent 工具),检查任务里
-#         有没有这次的规则指纹(RULES-FP=…,见 task-rules.md);没有就拒绝启动,要求把规则段落原样放进任务。
+#         有没有这次的规则指纹及 task-rules.md 完整内容;没有就拒绝启动,要求把规则段落原样放进任务。
 #         检查通过时在 review_dir 里留下 .hook-fp-ok,报告据此写「任务含规则 ✓」
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
@@ -82,8 +82,13 @@ tool=$(get .tool_name)
 case "$event" in beforeShellExecution|afterShellExecution) tool=Shell ;; esac
 [ "$event" = beforeReadFile ] && tool=Read
 case "$tool" in
-  Bash|Shell|shell) kind=shell; cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command) ;;
-  apply_patch) kind=patch; cmd=$(get .tool_input.command) ;;
+  Bash|Shell|shell|exec_command|functions.exec_command) kind=shell
+    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .tool_input.cmd)
+    [ -n "$cmd" ] || cmd=$(get .command) ;;
+  apply_patch|functions.apply_patch) kind=patch
+    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .tool_input.input)
+    [ -n "$cmd" ] || cmd=$(get .tool_input.patch)
+    [ -n "$cmd" ] || cmd=$(get .tool_input) ;;
   Task|Agent) kind=agent; cmd="" ;;
   *) kind=file; cmd="" ;;
 esac
@@ -118,29 +123,38 @@ runs() {
 # 命令执行之后:collect-diff.sh 失败了,或者说没有可审查的内容,就不存在进行中的审查,立刻解除。
 case "$event" in
   PostToolUse|PostToolUseFailure|afterShellExecution)
-    if [ -f "$marker" ] && [ "$kind" = shell ] && runs collect-diff.sh; then
-      result=$(get .tool_response.stdout); [ -n "$result" ] || result=$(get .tool_response); [ -n "$result" ] || result=$(get .output); [ -n "$result" ] || result=$(get .error)
-      case "$event:$result" in
-        PostToolUseFailure:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" ;;
-        *)
-          # 记下这次审查的 review_dir(collect-diff.sh 输出的最后一行),供检查子代理的任务时使用。
-          rd=$(printf '%s\n' "$result" | awk 'NF { last = $0 } END { print last }' | sed 's/^[" ]*//; s/[" ]*$//')
-          if [ -n "$rd" ] && [ -f "$rd/meta.txt" ]; then
-            printf '%s\n' "$rd" > "$dir/$sid.review" 2>/dev/null || true
-            : > "$rd/.guard-active" 2>/dev/null || true
-          fi
-          ;;
-      esac
+    result=$(get .tool_response.stdout); [ -n "$result" ] || result=$(get .output)
+    [ -n "$result" ] || result=$(get .tool_response); [ -n "$result" ] || result=$(get .error)
+    code=$(get .exit_code); [ -n "$code" ] || code=$(get .tool_response.exit_code)
+    failed=no
+    case "$event:$code" in PostToolUseFailure:*|*:0|*:) ;; *) failed=yes ;; esac
+    [ "$event" = PostToolUseFailure ] && failed=yes
+    if [ "$kind" = shell ] && [ -f "$marker" ]; then
+      if runs collect-diff.sh; then
+        case "$failed:$result" in
+          yes:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" "$dir/$sid.review" ;;
+          *)
+            rd=$(printf '%s\n' "$result" | awk 'NF { last = $0 } END { print last }' | sed 's/^[" ]*//; s/[" ]*$//')
+            if [ -n "$rd" ] && [ -f "$rd/meta.txt" ]; then
+              printf '%s\n' "$rd" > "$dir/$sid.review"
+              : > "$rd/.guard-active" 2>/dev/null || true
+            fi ;;
+        esac
+      elif [ "$failed" = no ]; then
+        # 只有真正执行完结束脚本才解除;阅读、提及、--help 和失败均不解除。
+        if runs check-state.sh && printf '%s\n' "$result" | grep -q '^OK: '; then
+          rm -f "$marker" "$dir/$sid.review"
+        elif runs save-review.sh && printf '%s\n' "$result" | grep -q '^report='; then
+          rm -f "$marker" "$dir/$sid.review"
+        fi
+      fi
     fi
     exit 0 ;;
 esac
 
 if [ "$kind" = shell ]; then
   case "$cmd" in
-    *check-state.sh*--save*) ;;
-    *check-state.sh*) rm -f "$marker"; allow ;;
     *save-review.sh*)
-      rm -f "$marker"
       if runs save-review.sh; then
         # 保存之前把这次审查的 token 用量写进 review_dir,由 save-review.sh 一并存下。
         review_dir=$(printf '%s\n' "$cmd" | awk '{
@@ -154,18 +168,25 @@ if [ "$kind" = shell ]; then
         fi
         rm -f "$dir/$sid.usage"
       fi
-      allow ;;
+      ;;
   esac
   if runs collect-diff.sh; then
     mkdir -p "$dir" && date +%s > "$marker"
+    rm -f "$dir/$sid.review"
     transcript=$(get .transcript_path)
     rm -f "$dir/$sid.usage" "$dir/$sid.last"
     [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true
-    allow
   fi
 fi
 
 [ -f "$marker" ] || allow
+started=$(cat "$marker" 2>/dev/null || echo 0)
+case "$started" in ""|*[!0-9]*) started=0 ;; esac
+if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
+  rm -f "$marker"
+  allow
+fi
+
 if [ "$kind" = agent ]; then
   rd=$(head -n 1 "$dir/$sid.review" 2>/dev/null || true)
   [ -n "$rd" ] && [ -f "$rd/rules-meta.txt" ] || allow
@@ -175,18 +196,21 @@ if [ "$kind" = agent ]; then
   case "$prompt" in *rules-auditor.md*|*verifier.md*) ;; *) allow ;; esac
   fp=$(sed -n 's/^fingerprint=//p' "$rd/rules-meta.txt" | head -n 1)
   case "$prompt" in
-    *"RULES-FP=$fp"*) : > "$rd/.hook-fp-ok" 2>/dev/null || true; allow ;;
+    *"RULES-FP=$fp"*)
+      rules_task=$(cat "$rd/task-rules.md" 2>/dev/null || true)
+      if [ -n "$rules_task" ]; then
+        case "$prompt" in *"$rules_task"*) : > "$rd/.hook-fp-ok" 2>/dev/null || true; allow ;; esac
+      fi ;;
+
   esac
   msg="任务里缺少这次审查的规则段落(规则指纹 RULES-FP=$fp)。请把 $rd/task-rules.md 的全部内容原样放进 rules-auditor 和 verifier 的任务里再启动。"
   esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  ')
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  if [ "$host" = cursor ]; then
+    printf '{"permission":"deny","user_message":"%s","agent_message":"%s"}\n' "$esc" "$esc"
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  fi
   exit 0
-fi
-started=$(cat "$marker" 2>/dev/null || echo 0)
-case "$started" in ""|*[!0-9]*) started=0 ;; esac
-if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
-  rm -f "$marker"
-  allow
 fi
 
 deny() {
@@ -212,6 +236,12 @@ in_repo() { # 路径是否在当前仓库内;相对路径按 cwd 解析
     /*) p=$1 ;;
     *) p="$cwd/$1" ;;
   esac
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os, sys
+root, path = map(os.path.realpath, sys.argv[1:])
+sys.exit(0 if path == root or path.startswith(root + os.sep) else 1)' "$root" "$p"
+    return $?
+  fi
   case "$p" in "$root"/*) return 0 ;; esac
   return 1
 }
@@ -254,6 +284,11 @@ if [ "$kind" = patch ]; then
   done < "$dir/$sid.paths"
   rm -f "$dir/$sid.paths"
   allow
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  write_path=$(printf '%s\n' "$cmd" | python3 "$script_dir/guard-paths.py" "$cwd")
+  [ -n "$write_path" ] && deny "shell 写入仓库文件 $write_path"
 fi
 
 hit=$(printf '%s\n' "$cmd" | awk -v home="${HOME:-/nonexistent}" '

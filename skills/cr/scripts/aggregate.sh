@@ -141,10 +141,8 @@ for c, r in pairs:
             if q:
                 if q not in crlib.norm(u.get("text", "")):
                     conf, reasons = 0, reasons + ["引用的规则原文对不上"]
-            elif u["unit"].startswith("FILE:"):
-                conf = min(conf, 50); reasons.append("没有引用规则原文")
             else:
-                item["rule_quote"] = u.get("text", "")
+                conf = 0; reasons.append("没有引用规则原文")
             item["severity"] = sev_override.get(u["unit"]) or u.get("severity") or "minor"
             item["rule_file"] = u.get("file")
     elif cat == "simplify":

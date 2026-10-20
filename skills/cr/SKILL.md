@@ -52,7 +52,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 - **除了脚本自己的输出目录,不在仓库里创建文件。** 中间结果写在 `review_dir` 里。
 - **不接触凭证。** 不运行 `git remote -v`、`git remote get-url` 这类会打印远程地址的命令,不打印环境变量,不查看或 `source` shell 配置文件,不读 `.netrc`、credential helper、gh/glab 的配置,不运行 `gh auth token` 或带 `--show-token` 的命令。判断有没有登录只看命令成功还是失败。需要知道远程是哪里时看 `meta.txt` 的 `repo_id`。读不到 PR/MR 信息时脚本会自己改用 git 拉取,不要把凭证取出来自己去调 API。
 
-这些约束有两层保障:宿主加载了本插件的 hook 时,从运行 `collect-diff.sh` 到运行 `check-state.sh` 之间,改变仓库状态的命令和对仓库文件的编辑会被直接拒绝(被拒绝时不要换写法绕过去);出报告前 `check-state.sh` 会核对仓库状态。
+这些约束有两层保障:宿主加载了本插件的 hook 时,从运行 `collect-diff.sh` 到运行 `check-state.sh` 之间,已适配工具中的常见 Git 写命令、文件编辑和字面路径 shell 写入会被拒绝;动态命令、变量路径和任意程序写入仍依赖宿主权限及最终状态核对(被拒绝时不要换写法绕过去);出报告前 `check-state.sh` 会核对仓库状态。
 
 ## 步骤
 
@@ -67,7 +67,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 
 **需要本地仓库。** 当前目录不是仓库时脚本会报错:知道仓库在哪就加 `--repo <目录>`;不知道就问用户,不要在磁盘上到处找。读代码时以 `meta.txt` 的 `repo_root` 为准。
 
-输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论)、`weakening.txt`(测试或检查被削弱的地方)、`risk.txt`(风险分级)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)。增量时还有 `incremental.txt`、`prev-findings.json`。
+输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论,没有时文件可能不存在)、`weakening.txt`(测试或检查被削弱的地方)、`risk.txt`(风险分级)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)。增量时还有 `incremental.txt`、`prev-findings.json`。
 
 输出里的几种提示:
 
@@ -110,7 +110,7 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 
 **模型。** `meta.txt` 里 `finder_model` 有值时(配置里的 `model.finder`),启动查找角色时使用那个模型,通常是更便宜的模型:查找阶段只负责不漏,错的由 verifier 筛掉。没有值就用宿主当前的模型。宿主不支持为子代理指定模型时照常运行。
 
-**给 `rules-auditor` 的任务,在上面那段之后,把 `<review_dir>/task-rules.md` 的全部内容原样贴进去。** 规则因此一定在它的上下文里;宿主的 hook 会检查任务里有没有规则指纹(`RULES-FP=…`),没有就拒绝启动。不要贴 diff 或你自己的印象;每个角色自己读材料。
+**给 `rules-auditor` 的任务,在上面那段之后,把 `<review_dir>/task-rules.md` 的全部内容原样贴进去。** 规则因此一定在它的上下文里;宿主的 hook 会检查任务里有没有规则指纹(`RULES-FP=…`),没有指纹或完整规则段落就拒绝启动。不要贴 diff 或你自己的印象;每个角色自己读材料。
 
 **如果你不能启动子代理**,或者是 quick:阅读每个角色的说明并自己执行,一次一个角色,写下该角色的结果后再开始下一个。
 
@@ -151,7 +151,7 @@ sh <skill_dir>/scripts/prepare-verify.sh <review_dir> [--spot 5]
 
 把每个 verifier 的回复原样写成 `<review_dir>/verify/result-<n>.json`。不要附上发现者的推理或你自己的意见 —— verifier 必须依据代码判断。
 
-**没有子代理,或者是 quick 时**:阅读 `roles/verifier.md` 并自己执行。把你在查找阶段得出的结论放到一边,对每条候选重新打开文件,先为反方辩护再打分,照样写出依据。结果同样写成 `verify/result-1.json`。
+**没有子代理,或者是 quick 时**:阅读 `roles/verifier.md` 并自己执行。对每条候选重新打开文件,先为反方辩护再打分。读完所有 `verify/batch-*.json`,按批次顺序合并输出到 `verify/result-1.json`。`may_run_checks` 同样为 deep 时 yes,其余 no。同一宿主无法清除查找阶段的上下文;报告明确写“同一宿主顺序核实”,并说明实际执行模型,不能把配置中的模型当作已调用。
 
 ### 5. 汇总
 
@@ -179,7 +179,7 @@ sh <skill_dir>/scripts/report-lines.sh <review_dir>
 
 然后按 `references/report-format.md` 写报告(读一遍再写)。报告用中文,代码、标识符、路径和规则原文保持原样。
 
-**保存记录。** 把报告全文写成 `<review_dir>/report.md`(和展示给用户的一致,但不写 `消耗:` 和 `记录:` 两行),再运行:
+**保存记录。** 用户要求只测试、只报告或不保存共享记录时,只写 `<review_dir>/report.md`,跳过 `save-review.sh`,不显示消耗和共享记录链接。其他情况把报告全文写成 `<review_dir>/report.md`(和展示给用户的一致,但不写 `消耗:` 和 `记录:` 两行),再运行:
 
 ```
 sh <skill_dir>/scripts/save-review.sh <review_dir> --finders <n> --verifiers <n>
