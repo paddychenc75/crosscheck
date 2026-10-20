@@ -21,6 +21,7 @@
 #       找候选用例:提交说明含 fix / 修复 的小提交,用 git blame 找到当初引入那几行的提交;
 #       --clean 找合并后 30 天内没有相关修复的提交。结果给人确认,不会自动加入评测集。
 #   eval.sh add-case --repo-name NAME --base SHA --head SHA --source fix-commit|clean|missed[:说明] [--expect file:行-行:类别:严重程度:描述]...
+#                    [--intent-file FILE]   来自 MR 的用例带上当时的需求材料(如审查记录里的 intent.md),评测时作为 --plan 传入
 #       写一个用例到 ~/.crosscheck/eval/cases-pending/,确认人写在 --confirmed-by(会存哈希)。
 #   eval.sh submit-cases [--yes]
 #       把 cases-pending 里的用例通过 MR 提交到组织规则仓库的 evals/cases/。
@@ -34,7 +35,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 cmd=${1:-}; [ $# -gt 0 ] && shift
 case "$cmd" in
   prepare|done|match|score|baseline|find-cases|add-case|submit-cases) ;;
-  *) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 if [ "$cmd" = baseline ] || [ "$cmd" = submit-cases ]; then
@@ -98,8 +99,16 @@ if cmd == "prepare":
             skipped.append("%s(仓库 %s 在本机的位置没有配置:repo.%s=<路径>)" % (c.get("id"), c.get("repo"), c.get("repo"))); continue
         if git(path, "cat-file", "-e", c.get("head", "") + "^{commit}").returncode != 0:
             git(path, "fetch", "-q", "origin")
-        plan.append({"case": c["id"], "kind": c.get("source", "fix-commit").split(":")[0], "repo_path": path,
-                     "target": "%s..%s" % (c["base"], c["head"]), "expect": c.get("expect", [])})
+        item = {"case": c["id"], "kind": c.get("source", "fix-commit").split(":")[0], "repo_path": path,
+                "target": "%s..%s" % (c["base"], c["head"]), "expect": c.get("expect", [])}
+        if str(c.get("intent") or "").strip():
+            # 当时的需求材料(MR 描述、验收标准):只有提交范围时意图会丢,需求核对类的期望就测不出来
+            cdir = os.path.join(run, "cases", c["id"])
+            os.makedirs(cdir, exist_ok=True)
+            with open(os.path.join(cdir, "intent.md"), "w", encoding="utf-8") as f:
+                f.write(c["intent"])
+            item["plan_file"] = os.path.join(cdir, "intent.md")
+        plan.append(item)
     # 规则包的正反例:每条建一个只有两个提交的临时仓库(base 里引用这个包,head 加入例子文件)
     for ex in sorted(glob.glob(os.path.join(rd, "packs", "**", "examples", "*.*"), recursive=True)) if rd else []:
         name = os.path.basename(ex)
@@ -135,7 +144,7 @@ if cmd == "prepare":
     print()
     print("对 plan.json 里的每个用例(先 . %s/env.sh):" % run)
     print("  1. sh collect-diff.sh <target> --repo <repo_path> --full --out %s/cases/<case>/review [--depth 和基线一致]" % run)
-    print("     规则正反例加 --only rules")
+    print("     用例有 plan_file 时加 --plan <plan_file>(当时的需求材料);规则正反例加 --only rules")
     print("  2. 照常查找、核实,跑到 aggregate.sh 为止(不写报告、不保存记录)")
     print("  3. sh eval.sh done %s <case>" % run)
     print("全部完成后:sh eval.sh match %s" % run)
@@ -403,6 +412,10 @@ if cmd == "add-case":
     cid = "%s-%s" % (re.sub(r"[^A-Za-z0-9._-]", "_", name), head[:8])
     case = {"id": cid, "repo": name, "base": base, "head": head, "source": source, "expect": exps,
             "confirmed_by": [crlib.short_hash(w) for w in who]}
+    if opt("--intent-file"):
+        # 来自 MR 的用例带上当时的需求材料,例如那次审查记录里的 intent.md
+        with open(opt("--intent-file"), encoding="utf-8") as f:
+            case["intent"] = f.read()
     crlib.save_json(os.path.join(pend, cid + ".json"), case)
     print("ok: 已写入 %s(%s,期望 %d 个问题)。攒够一批后用 eval.sh submit-cases 提交到规则仓库。" % (os.path.join(pend, cid + ".json"), "干净用例" if not exps else source, len(exps)))
 PY

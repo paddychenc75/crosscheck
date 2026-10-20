@@ -7,7 +7,7 @@
 # verifier 的回复原样存成这些文件),以及 meta.txt、ranges.txt、settings.json、rules-index.json、
 # incremental.txt、prev-findings.json。按顺序做这些事,都不需要判断:
 #   1. 依据校验:verifier 给出的 evidence 引用的文件和行在被审查的那一版里必须真实存在
-#      (review_dir 里的 intent.md、discussions.json 等材料只核对文件存在);
+#      (review_dir 里的 intent.md、rules.txt 等材料只核对文件存在;位置写成文字的,核对那段文字在文件里);
 #      引用不存在或者干脆没给依据的,置信度最高 50。
 #   2. 规则发现:rule_id 必须是这次适用的规则、作用域覆盖这个文件;rule_quote 必须逐字出现在规则原文里。
 #      对不上的置信度为 0。严重程度按 REVIEW.md 的 severity 设置 → 规则自己的 severity → 轻微。
@@ -88,10 +88,13 @@ def check_evidence(item):
         if not isinstance(e, dict):
             bad.append(str(e)); continue
         f = e.get("file") or item.get("file")
+        where = e.get("lines", e.get("line"))
         if f and "/" not in f and not file_lines(f) and os.path.isfile(os.path.join(d, f)):
-            continue  # review_dir 里的材料(intent.md、discussions.json…),位置可以是「验收标准 2」这类文字
-        rg = crlib.parse_lines(e.get("lines", e.get("line")))
+            continue  # review_dir 里的材料(intent.md、rules.txt…),位置可以是「验收标准 2」这类文字
+        rg = crlib.parse_lines(where)
         ls = file_lines(f) if f else None
+        if ls is not None and rg is None and str(where or "").strip() and str(where).strip() in "\n".join(ls):
+            continue  # 用文字定位(如 REVIEW.md 里的「PRJ-001」),那段文字在文件里就算存在
         if ls is None or rg is None or rg[0] < 1 or rg[1] > len(ls):
             bad.append("%s:%s" % (f, e.get("lines", e.get("line"))))
     if bad:

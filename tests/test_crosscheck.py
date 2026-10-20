@@ -328,19 +328,25 @@ class TestPipeline(ProjectFixture):
             {"file": P, "line": 9, "category": "bug", "severity": "major", "summary": "不在改动行", "failure_scenario": "x"},
             {"file": "REVIEW.md", "line": 1, "category": "rules", "rule_id": "PRJ-002", "summary": "规则可能过时:日志", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "intent", "severity": "major", "summary": "没满足验收标准", "failure_scenario": "x"},
+            {"file": P, "line": 1, "category": "bug", "severity": "major", "summary": "文字定位的依据", "failure_scenario": "x"},
+            {"file": P, "line": 1, "category": "bug", "severity": "major", "summary": "文字定位不存在", "failure_scenario": "x"},
         ]
         scores = {"整页丢最后一页": (96, ev), "依据不存在": (90, [{"file": L, "lines": "50-60"}]), "日志有邮箱": (90, ev),
                   "编造的规则": (90, ev), "引用不对": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
                   "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev),
-                  "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}])}
+                  "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}]),
+                  "文字定位的依据": (95, ev + [{"file": "REVIEW.md", "lines": "PRJ-002"}]),
+                  "文字定位不存在": (95, ev + [{"file": "REVIEW.md", "lines": "PRJ-999"}])}
         final, out = self.run_pipeline(rd, cands, scores, spot_score=90)
         shown = {x["summary"]: x for g in final["groups"].values() for x in g}
         self.assertIn("整页丢最后一页", shown)
         self.assertIn("没满足验收标准", shown, "引用 review_dir 里的 intent.md 作依据是有效的")
+        self.assertIn("文字定位的依据", shown, "REVIEW.md 里能找到 PRJ-002,依据有效")
         self.assertEqual(shown["整页丢最后一页"]["found_by"], ["bug-hunter"])
         self.assertEqual(shown["日志有邮箱"]["severity"], "critical", "REVIEW.md 的 severity 设置应生效")
         rejected = {x["summary"]: x for x in self.load(os.path.join(rd, "rejected.json"))}
         self.assertEqual(rejected["依据不存在"]["confidence"], 50)
+        self.assertEqual(rejected["文字定位不存在"]["confidence"], 50)
         self.assertEqual(rejected["编造的规则"]["confidence"], 0)
         self.assertEqual(rejected["引用不对"]["confidence"], 0)
         self.assertEqual(rejected["不在改动行"]["confidence"], 0)
@@ -660,12 +666,16 @@ class TestEvalAdoptionStats(Base):
         os.makedirs(cases)
         for cid, exp, src in (("c1", [{"file": "src/a.ts", "lines": "1-1", "category": "bug", "severity": "major", "desc": "坏了"}], "fix-commit"), ("c2", [], "clean")):
             with open(os.path.join(cases, cid + ".json"), "w") as f:
-                json.dump({"id": cid, "repo": "shop", "base": base, "head": head, "source": src, "expect": exp}, f, ensure_ascii=False)
+                json.dump({"id": cid, "repo": "shop", "base": base, "head": head, "source": src, "expect": exp,
+                           "intent": "## 验收标准\n\n1. 空列表返回 0 页\n" if cid == "c1" else ""}, f, ensure_ascii=False)
         self.config("repo.shop=%s\n" % repo)
         out = self.run_script("eval.sh", "prepare", "--out", os.path.join(self.tmp, "run")).stdout
         run = os.path.join(self.tmp, "run")
         plan = self.load(os.path.join(run, "plan.json"))
         self.assertEqual(sorted(p["case"] for p in plan), ["c1", "c2", "rule-ORG-RPC-001-bad", "rule-ORG-RPC-001-good"])
+        c1 = next(p for p in plan if p["case"] == "c1")
+        self.assertIn("空列表返回 0 页", open(c1["plan_file"], encoding="utf-8").read(), "用例的需求材料作为 --plan 传入")
+        self.assertNotIn("plan_file", next(p for p in plan if p["case"] == "c2"))
         fake = {"c1": [{"id": "x1", "file": "src/a.ts", "line": 1, "summary": "坏了"}, {"id": "x4", "file": "src/a.ts", "line": 2, "summary": "另一件事"}],
                 "c2": [{"id": "x2", "file": "src/a.ts", "line": 1, "summary": "误报"}],
                 "rule-ORG-RPC-001-bad": [{"id": "x3", "file": "src/example.go", "line": 1, "category": "rules", "rule_id": "ORG-RPC-001"}],

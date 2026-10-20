@@ -47,6 +47,8 @@ sh <skill_dir>/scripts/eval.sh add-case --repo-name <名字> --base <sha> --head
    --expect "src/a.ts:40-44:bug:major:整页时丢最后一页" --confirmed-by <确认人>
 ```
 
+来自 MR 的用例加 `--intent-file <那次审查记录里的 intent.md>`,把当时的 MR 描述和验收标准一起存进用例;否则评测时只有提交范围,需求核对类的期望测不出来。
+
 干净用例不带 `--expect`,`--source clean`。从漏报来的用 `--source missed`。攒够一批后 `eval.sh submit-cases`(预览)、`eval.sh submit-cases --yes`(创建 MR,提交到规则仓库的 `evals/cases/`)。
 
 选用例时照顾比例:2–3 个仓库、单个仓库不超过一半;bug 约一半,干净用例约三成;改动大小小中大都有;最近 6–12 个月的提交。期望问题少于 50 个时,评测只能发现明显的倒退。
