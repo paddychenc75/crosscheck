@@ -14,12 +14,13 @@
 set -eu
 
 die() { printf 'open-mr: %s\n' "$*" >&2; exit 1; }
-repo=""; branch=""; title=""; base=""; body=""; label=""; check=""; yes=no; puts=""
+repo=""; branch=""; title=""; base=""; body=""; label=""; check=""; yes=no; puts=""; expected_base=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo=${2:-}; shift 2 ;;
     --branch) branch=${2:-}; shift 2 ;;
     --title) title=${2:-}; shift 2 ;;
+    --expected-base) expected_base=${2:-}; shift 2 ;;
     --base) base=${2:-}; shift 2 ;;
     --body) body=${2:-}; shift 2 ;;
     --label) label=${2:-}; shift 2 ;;
@@ -39,6 +40,11 @@ if [ -z "$base" ]; then
 fi
 git -C "$repo" fetch -q origin "$base" >/dev/null 2>&1 || die "无法从 origin 拉取 $base(网络、权限或沙箱限制)"
 
+if [ -n "$expected_base" ] && [ "$(git -C "$repo" rev-parse "origin/$base")" != "$expected_base" ]; then
+  die "目标分支已改变，请重新预览并确认；没有提交或推送"
+fi
+base_sha=$(git -C "$repo" rev-parse "origin/$base")
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cr-mr.XXXXXX")
 wt="$tmp/wt"
 cleanup() {
@@ -46,13 +52,23 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
-git -C "$repo" worktree add -q --detach "$wt" "origin/$base" >/dev/null 2>&1 || die "无法创建临时 worktree"
+git -C "$repo" worktree add -q --detach "$wt" "$base_sha" >/dev/null 2>&1 || die "无法创建临时 worktree"
 
 printf '%s' "$puts" > "$tmp/puts"
 while IFS= read -r spec; do
   [ -n "$spec" ] || continue
   rel=${spec%%=*}; from=${spec#*=}
   [ -f "$from" ] || die "找不到 $from"
+  python3 - "$wt" "$rel" <<'CHECK' || die "目标路径无效"
+import os, sys
+root, path = sys.argv[1:]
+if os.path.isabs(path) or any(x in ('', '.', '..') for x in path.split('/')):
+    sys.exit(1)
+cur = root
+for part in path.split('/'):
+    cur = os.path.join(cur, part)
+    if os.path.islink(cur): sys.exit(1)
+CHECK
   mkdir -p "$wt/$(dirname "$rel")"
   cp "$from" "$wt/$rel"
 done < "$tmp/puts"

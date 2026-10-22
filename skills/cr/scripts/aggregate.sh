@@ -10,7 +10,7 @@
 #      (review_dir 里的 intent.md、rules.txt 等材料只核对文件存在;位置写成文字的,核对那段文字在文件里);
 #      引用不存在或者干脆没给依据的,置信度最高 50。
 #   2. 规则发现:rule_id 必须是这次适用的规则、作用域覆盖这个文件;rule_quote 必须逐字出现在规则原文里。
-#      对不上的置信度为 0。严重程度按 REVIEW.md 的 severity 设置 → 规则自己的 severity → 轻微。
+#      对不上的置信度为 0。严重程度按 REVIEW.md 的 severity 设置 → 规则自己的 severity → 核实后的分级 → 轻微。
 #   3. 只看改动的行;REVIEW.md 的 skip 路径不报;带 history_match 的单独列为「已按历史判断忽略」。
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
 #   5. 抽查:抽查的规则检查如果被 verifier 判定确实违反(80 分以上),直接作为规则发现报出,并记为抽查发现漏检。
@@ -36,6 +36,7 @@ import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import rule_materials
 
 d = os.environ["CR_DIR"]
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
@@ -47,7 +48,23 @@ skip = settings.get("skip") or []
 sev_override = settings.get("severity") or {}
 THRESHOLD = 80
 
-cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
+verification_errors = []
+try:
+    with open(os.path.join(d, "candidates.json"), encoding="utf-8") as f:
+        cands = json.load(f)
+    if not isinstance(cands, list) or any(not isinstance(c, dict) for c in cands):
+        raise ValueError("候选必须是对象数组")
+except (OSError, ValueError):
+    cands = []
+    verification_errors.append("候选文件缺失或格式错误")
+# 增量:上次的发现
+status = {}
+try:
+    for line in open(os.path.join(d, "incremental.txt"), encoding="utf-8"):
+        s, p = line.rstrip("\n").split("\t", 1); status[p] = s
+except (OSError, ValueError):
+    pass
+prev = crlib.load_json(os.path.join(d, "prev-findings.json"), []) if meta.get("review_scope") == "incremental" else []
 results = []
 for p in sorted(glob.glob(os.path.join(d, "verify", "result-*.json"))):
     try:
@@ -56,20 +73,96 @@ for p in sorted(glob.glob(os.path.join(d, "verify", "result-*.json"))):
         x = None
     if isinstance(x, dict):
         x = x.get("candidates") or x.get("results") or []
-    if isinstance(x, list):
-        results.extend(r for r in x if isinstance(r, dict))
+    if not isinstance(x, list) or any(not isinstance(r, dict) for r in x):
+        verification_errors.append("核实文件格式错误: " + os.path.basename(p))
+    else:
+        results.extend(x)
 by_cid = {}
 for r in results:
+    if r.get("cid") and not isinstance(r["cid"], str):
+        verification_errors.append("cid 必须是字符串")
+        continue
     if r.get("cid"):
+        if r["cid"] in by_cid:
+            verification_errors.append("重复核实 cid: " + str(r["cid"]))
         by_cid[r["cid"]] = r
 def loose_key(x):
     return (x.get("file"), str(x.get("line")), crlib.norm(x.get("summary", ""))[:60])
-by_loose = {loose_key(r): r for r in results}
+by_loose = {}
+for r in results:
+    key = loose_key(r)
+    by_loose.setdefault(key, []).append(r)
+def result_for(c):
+    if c.get("cid"):
+        return by_cid.get(c["cid"])
+    matches = by_loose.get(loose_key(c), [])
+    return matches[0] if len(matches) == 1 else None
 
+# 不完整的回复不是反证。先验证整轮，再允许生成报告或“已解决”。
+expected = []
+prepared = []
+batch_paths = sorted(glob.glob(os.path.join(d, "verify", "batch-*.json")))
+for p in batch_paths:
+    try:
+        with open(p, encoding="utf-8") as f:
+            rows = json.load(f)
+    except (OSError, ValueError):
+        rows = None
+    if not isinstance(rows, list) or any(not isinstance(x, dict) or not isinstance(x.get("cid"), str) or not x["cid"] for x in rows):
+        verification_errors.append("核实批次格式错误: " + os.path.basename(p))
+    else:
+        expected.extend(x["cid"] for x in rows)
+        prepared.extend(rows)
+if len(expected) != len(set(expected)):
+    verification_errors.append("核实批次 cid 重复")
+if batch_paths:
+    normal_ids = [x["cid"] for x in prepared if x.get("kind") != "spot"]
+    candidate_ids = [c.get("cid") for c in cands]
+    if any(not isinstance(x, str) for x in candidate_ids) or sorted(candidate_ids) != sorted(normal_ids):
+        verification_errors.append("候选与核实批次不一致")
+if expected:
+    missing, extra = set(expected) - set(by_cid), set(by_cid) - set(expected)
+    if missing: verification_errors.append("缺少核实结果: " + ",".join(sorted(missing)))
+    if extra: verification_errors.append("出现不属于本轮批次的 cid: " + ",".join(sorted(extra)))
+for c in cands:
+    r = result_for(c)
+    if r is None:
+        verification_errors.append("缺少唯一核实结果: " + str(c.get("cid") or loose_key(c)))
+    elif c.get("from_prev") and r.get("id") not in (None, c.get("id")):
+        verification_errors.append("核实结果改变历史发现身份: " + str(c.get("id")))
+for r in results:
+    try:
+        n = float(r["confidence"])
+        valid = not isinstance(r["confidence"], bool) and 0 <= n <= 100 and n.is_integer()
+    except (KeyError, ValueError, TypeError):
+        valid = False
+    if not valid:
+        verification_errors.append("核实分数缺失或无效: " + str(r.get("cid")))
+previous_candidates = {c.get("id") for c in cands if c.get("from_prev")}
+for old in prev:
+    if status.get(old.get("file")) in ("changed", "dependent") and old.get("id") not in previous_candidates:
+        verification_errors.append("遗漏待重新核实的历史发现: " + str(old.get("id")))
+error_file = os.path.join(d, "verification-errors.json")
+if verification_errors:
+    crlib.save_json(error_file, verification_errors)
+    print("aggregate: 核实未完成；不生成已解决结论。" + "；".join(verification_errors), file=sys.stderr)
+    sys.exit(2)
+if os.path.exists(error_file):
+    os.remove(error_file)
+
+materials = rule_materials.load(d)
+material_files = {x["file"] for x in materials.get("records", []) if x.get("file")}
 _lines_cache = {}
 def file_lines(path):
     if path not in _lines_cache:
-        t = src.read(path) if src else None
+        if path in material_files:
+            try:
+                with open(os.path.join(d, path), encoding="utf-8") as f:
+                    t = f.read()
+            except OSError:
+                t = None
+        else:
+            t = src.read(path) if src else None
         _lines_cache[path] = t.split("\n") if t is not None else None
     return _lines_cache[path]
 
@@ -107,8 +200,9 @@ def group_of(cat):
 passed, rejected, history, spot_ok, spot_failed = [], [], [], 0, 0
 skipped_by_settings = 0
 # (候选, 核实结果) 成对处理;抽查只存在于核实结果里。
-pairs = [(c, by_cid.get(c.get("cid")) or by_loose.get(loose_key(c))) for c in cands]
-pairs += [(r, r) for r in results if r.get("kind") == "spot"]
+pairs = [(c, result_for(c)) for c in cands]
+pairs += ([(c, by_cid.get(c["cid"])) for c in prepared if c.get("kind") == "spot"] if batch_paths
+          else [(r, r) for r in results if r.get("kind") == "spot"])
 for c, r in pairs:
     if r is None:
         rejected.append(dict(c, confidence=0, verdict="没有核实结果", reject_reason="没有核实结果"))
@@ -116,6 +210,9 @@ for c, r in pairs:
     item = dict(r)
     for k in ("found_by", "pass_hits", "from_prev", "id", "since"):
         if k in c and k not in item:
+            item[k] = c[k]
+    for k in ("from_prev", "id", "since"):
+        if k in c:
             item[k] = c[k]
     item.pop("needs_check", None)
     conf = to_int(item.get("confidence"))
@@ -143,8 +240,11 @@ for c, r in pairs:
                     conf, reasons = 0, reasons + ["引用的规则原文对不上"]
             else:
                 conf = 0; reasons.append("没有引用规则原文")
-            item["severity"] = sev_override.get(u["unit"]) or u.get("severity") or "minor"
+            item["severity"] = sev_override.get(u["unit"]) or u.get("severity") or item.get("severity") or "minor"
             item["rule_file"] = u.get("file")
+            item["rule_origin"] = u.get("origin", u.get("file"))
+            item["rule_source"] = u.get("source_name", u.get("source"))
+            item["document_rule"] = u.get("document", False)
     elif cat == "simplify":
         item["severity"] = "minor"
     if item.get("severity") not in crlib.SEV_ORDER:
@@ -175,14 +275,6 @@ for c, r in pairs:
             item["reject_reason"] = ";".join(reasons)
         rejected.append(item)
 
-# 增量:上次的发现
-status = {}
-try:
-    for line in open(os.path.join(d, "incremental.txt"), encoding="utf-8"):
-        s, p = line.rstrip("\n").split("\t", 1); status[p] = s
-except (OSError, ValueError):
-    pass
-prev = crlib.load_json(os.path.join(d, "prev-findings.json"), []) if meta.get("review_scope") == "incremental" else []
 carried, resolved = [], []
 prev_ids = {p.get("id") for p in prev}
 for p in prev:
@@ -201,6 +293,8 @@ for x in passed:
 carried.extend(again)
 
 def same(a, b):
+    if str(a.get("rule_id", "")).startswith("FILE:") and (crlib.norm(a.get("summary", "")) != crlib.norm(b.get("summary", "")) or crlib.norm(a.get("rule_quote", "")) != crlib.norm(b.get("rule_quote", ""))):
+        return False
     return (a.get("file") == b.get("file") and a.get("category") == b.get("category")
             and abs(to_int(a.get("line")) - to_int(b.get("line"))) <= 3
             and str(a.get("rule_id") or "") == str(b.get("rule_id") or ""))
@@ -217,7 +311,7 @@ new = dedup
 def merge_rules(items):
     out = []
     for x in sorted(items, key=lambda y: to_int(y.get("line"))):
-        if x.get("category") == "rules" and x.get("rule_id"):
+        if x.get("category") == "rules" and x.get("rule_id") and not x.get("document_rule") and not str(x["rule_id"]).startswith("FILE:"):
             hit = next((o for o in out if o.get("category") == "rules" and o.get("rule_id") == x["rule_id"] and o.get("file") == x.get("file")), None)
             if hit:
                 hit.setdefault("also_lines", []).append(to_int(x.get("line")))
@@ -287,7 +381,16 @@ crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
           "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings}
+unverified = []
+if materials and not materials.get("complete"):
+    prior = crlib.load_json(os.path.join(d, "previous-findings.json"), [])
+    for f in prior:
+        if f.get("category") == "rules" and not any(x.get("category") == "rules" and x.get("file") == f.get("file") and x.get("rule_id") == f.get("rule_id") and crlib.norm(x.get("summary", "")) == crlib.norm(f.get("summary", "")) and crlib.norm(x.get("rule_quote", "")) == crlib.norm(f.get("rule_quote", "")) for x in passed):
+            unverified.append(dict(f, status="unverified", status_reason="本轮外部规则材料不完整或有冲突，未能重新核实"))
+    resolved = [x for x in resolved if x.get("category") != "rules"]
+crlib.save_json(os.path.join(d, "unverified.json"), unverified)
 final = {
+    "unverified": unverified, "materials_complete": materials.get("complete", True),
     "scope": meta.get("review_scope", "full"), "depth": meta.get("depth", "standard"),
     "groups": {k: [x for x in shown[k]] for k in shown}, "resolved": resolved, "ignored_by_history": history,
     "trimmed": trimmed, "limits": limits, "counts": counts, "spot": {"checked": spot_ok + spot_failed, "failed": spot_failed},

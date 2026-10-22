@@ -17,3 +17,12 @@ rules_ref=v1.0.0
 
 # 评测用例里的仓库在本机的位置
 # repo.shop-api=~/code/shop-api
+
+# 可选:宿主通过 MCP / 文件取得的组织规范或参考材料（不含凭证）
+# materials_file=/absolute/path/materials.json
+
+# 评测与组织规则来源独立。没有配置时使用 CROSSCHECK_HOME 下的 eval/cases 和 eval/baseline.json
+# eval_cases=/absolute/path/evals/cases
+# eval_baseline=/absolute/path/evals/baseline.json
+# eval_examples=/absolute/path/legacy-rules
+# eval_rules_dir=/absolute/path/frozen-rules

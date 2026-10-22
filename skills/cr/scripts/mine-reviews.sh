@@ -1,5 +1,5 @@
 #!/bin/sh
-# mine-reviews.sh — 为每月的规则提炼收集材料(只读)。由 rule-miner 角色使用。
+# mine-reviews.sh — 为按需发起的规则提炼收集材料(只读)。由 rule-miner 角色使用。
 #
 # 用法: mine-reviews.sh [--since 30d | --mr 128,140] [--repo DIR] [--out DIR]
 #
@@ -7,7 +7,7 @@
 #   需要 glab(公网 GitLab 或私有化 GitLab 都可以,私有化的域名写在配置的 gitlab_hosts 里)。
 #
 # 写入输出目录(默认 ~/.crosscheck/rule-work/<项目>/mined-<日期>/,规则维护的中间材料,可以随时删除):
-#   comments.jsonl          挂在 diff 行上的人工评论:去掉系统消息、机器人、「LGTM」「+1」这类没有信息量的;
+#   comments.jsonl          人工行评论与一般讨论:去掉系统消息、机器人、「LGTM」「+1」这类没有信息量的;
 #                           每条带 MR 编号、文件、行号、评论人(只存哈希)、是否已解决、之后那几行代码是否被改过
 #                           (code_changed_after),以及 crosscheck 当时有没有报过这里(matched_finding:发现编号;
 #                           suppressed:discussions = 看到了但因为人已评论而没报;rejected:<分数> = 没通过核实)
@@ -15,11 +15,14 @@
 #   misses.json             crosscheck 审过这个 MR、人工指出了、但当时没报的——候选的漏报,确认后可以进评测集
 #   feedback-summary.json   这个项目的判断记录汇总:反复出现的「不成立」原因、反复被判为成立的同类问题
 #   closed-candidates.json  被关闭的 crosscheck-rule MR(标题、说明、最后一条评论),提炼时不要再提同样的规则
-#   existing-rules.md       现有的规则(REVIEW.md、.cr/ignore.md、引用的组织规则包),用于去重
+#   open-candidates.json   未合入规则提案，避免重复创建
+#   collection-status.json 日期口径、完整 / 部分 / 失败与缺失原因
+#   existing-rules.md       现有项目规则（含原生格式、范围及用途）和只读组织规则，用于去重
 #   summary.txt             计数
 # 只做只读的 API 请求和 git fetch,不改工作区。需要 python3。
 
 set -eu
+script_dir=$(cd "$(dirname "$0")" && pwd)
 
 die() { printf 'mine-reviews: %s\n' "$*" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || die "需要 python3"
@@ -42,11 +45,13 @@ u=$(git remote get-url origin 2>/dev/null || true)
 [ -n "$u" ] || die "仓库没有 origin 远程"
 repo_id=$(printf '%s\n' "$u" | sed -e 's#^[A-Za-z][A-Za-z0-9+.-]*://##' -e 's#^[^@/]*@##' -e 's#^\([^/:]*\):[0-9][0-9]*/#\1/#' -e 's#:#/#' -e 's#/*$##' -e 's#\.git$##')
 
-CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ROOT=$root CR_REPO_ID=$repo_id CR_SINCE=$since CR_MRS=$mrs CR_OUT=$out python3 - <<'PY'
+CR_SCRIPTS=$script_dir CR_ROOT=$root CR_REPO_ID=$repo_id CR_SINCE=$since CR_MRS=$mrs CR_OUT=$out python3 - <<'PY'
 import collections, datetime, json, os, re, subprocess, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import rule_materials
+import project_rules
 
 root, repo_id = os.environ["CR_ROOT"], os.environ["CR_REPO_ID"]
 cfg = crlib.config()
@@ -67,17 +72,41 @@ if prefix:
         env["GITLAB_HOST"] = "%s://%s/%s" % (m.group(1), m.group(2), prefix)
 proj = proj_path.replace("/", "%2F")
 
+collection_errors = []
+
 def api(path):
     try:
         r = subprocess.run(["glab", "api", path], capture_output=True, text=True, timeout=60, env=env, cwd=root)
     except (OSError, subprocess.TimeoutExpired):
+        collection_errors.append("API 无法读取: " + path)
         return None
     if r.returncode != 0:
+        collection_errors.append("API 失败: " + path)
         return None
     try:
         return json.loads(r.stdout)
     except ValueError:
+        collection_errors.append("API 返回非 JSON: " + path)
         return None
+
+def pages(path, per=100):
+    result, seen = [], set()
+    for page in range(1, 10001):
+        rows = api(path + ("&" if "?" in path else "?") + "per_page=%d&page=%d" % (per, page))
+        if not isinstance(rows, list):
+            collection_errors.append("列表未读全: " + path)
+            break
+        signature = json.dumps(rows, sort_keys=True)
+        if rows and signature in seen:
+            collection_errors.append("分页重复，读取中止: " + path)
+            break
+        seen.add(signature)
+        result.extend(rows)
+        if len(rows) < per:
+            break
+    else:
+        collection_errors.append("分页上限，读取未完成: " + path)
+    return result
 
 def git(*args):
     return subprocess.run(["git", "-C", root] + list(args), capture_output=True, text=True)
@@ -97,21 +126,29 @@ os.makedirs(out, exist_ok=True)
 # 要看的 MR
 mr_list = []
 if os.environ["CR_MRS"]:
-    for n in re.findall(r"\d+", os.environ["CR_MRS"]):
+    if not re.fullmatch(r"\d+(,\d+)*", os.environ["CR_MRS"]):
+        sys.exit("mine-reviews: --mr 应为逗号分隔的 MR 编号")
+    for n in os.environ["CR_MRS"].split(","):
         m = api("projects/%s/merge_requests/%s" % (proj, n))
         if isinstance(m, dict) and m.get("iid"):
             mr_list.append(m)
 else:
-    days = int(re.sub(r"\D", "", os.environ["CR_SINCE"]) or 30)
-    after = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for page in range(1, 4):
-        ms = api("projects/%s/merge_requests?state=merged&updated_after=%s&per_page=100&page=%d" % (proj, after, page))
-        if not isinstance(ms, list) or not ms:
-            break
-        mr_list.extend(ms)
-if not mr_list:
-    print("没有读到 MR。确认 glab 已登录、项目路径正确(%s),以及这段时间内有已合并的 MR。" % proj_path)
-    sys.exit(1)
+    if not re.fullmatch(r"[1-9]\d*d", os.environ["CR_SINCE"]):
+        sys.exit("mine-reviews: --since 应为正整数天数，例如 30d")
+    days = int(os.environ["CR_SINCE"][:-1])
+    start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+    after = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    ms = pages("projects/%s/merge_requests?state=merged&updated_after=%s" % (proj, after))
+    for m in ms:
+        merged = m.get("merged_at")
+        if not merged:
+            collection_errors.append("MR !%s 缺少 merged_at，未纳入日期范围" % m.get("iid"))
+        else:
+            try:
+                stamp = datetime.datetime.fromisoformat(merged.replace('Z', '+00:00'))
+                if stamp >= start: mr_list.append(m)
+            except (ValueError, TypeError):
+                collection_errors.append("MR !%s 合并时间格式无法确认" % m.get('iid'))
 
 TRIVIAL = re.compile(r"^(lgtm|\+1|👍|ok|okay|done|好的|可以|收到|已改|已修改|fixed|thanks?|谢谢|nit\.?)[!！。.\s]*$", re.I)
 BOT = re.compile(r"(^|[-_])bot$|^ghost$|^project_\d+_bot", re.I)
@@ -136,32 +173,40 @@ comments, misses = [], []
 for mr in mr_list:
     iid = mr.get("iid")
     final_head = (mr.get("diff_refs") or {}).get("head_sha") or mr.get("sha")
-    git("fetch", "-q", "origin", "merge-requests/%s/head" % iid)
+    fetched = git("fetch", "-q", "origin", "merge-requests/%s/head" % iid)
+    if fetched.returncode and (not final_head or git("cat-file", "-e", final_head + "^{commit}").returncode):
+        collection_errors.append("MR !%s 代码无法读取，不能判断评论后的修改" % iid)
     known = record_findings(iid)
     reviewed = bool(known) or (pdir and os.path.isdir(os.path.join(pdir, "mr-%s" % iid)))
-    discs = api("projects/%s/merge_requests/%s/discussions?per_page=100" % (proj, iid)) or []
+    discs = pages("projects/%s/merge_requests/%s/discussions" % (proj, iid))
     for disc in discs if isinstance(discs, list) else []:
         for n in disc.get("notes") or []:
             author = n.get("author") or {}
             uname = str(author.get("username", ""))
             body = (n.get("body") or "").strip()
             pos = n.get("position") or {}
-            if n.get("system") or author.get("bot") or BOT.search(uname) or n.get("type") != "DiffNote" or not pos:
+            if n.get("system") or author.get("bot") or BOT.search(uname) :
                 continue
             if len(body) < 6 or TRIVIAL.match(body):
                 continue
-            path = pos.get("new_path") or pos.get("old_path")
+            path = (pos.get("new_path") if pos.get("new_line") else pos.get("old_path")) or pos.get("new_path")
             line = pos.get("new_line") or pos.get("old_line")
+            comment_ref = pos.get("head_sha") if pos.get("new_line") else pos.get("base_sha")
             changed_after = None
             if path and line and final_head:
-                old = lines_at(pos.get("head_sha") or "", path) if pos.get("head_sha") else None
-                new = lines_at(final_head, path)
+                old = lines_at(comment_ref, path) if comment_ref else None
+                new = lines_at(final_head, pos.get("new_path") or path)
                 if old and 1 <= int(line) <= len(old):
                     if new is None:
-                        changed_after = True
+                        if git("cat-file", "-e", final_head + "^{commit}").returncode == 0:
+                            changed_after = True
+                        else:
+                            collection_errors.append("MR !%s 最终代码不可读: %s" % (iid, path))
                     else:
                         h = crlib.ctx_hash(old, int(line))
                         changed_after = not any(crlib.ctx_hash(new, i + 1) == h for i in range(len(new)))
+                else:
+                    collection_errors.append("MR !%s 评论所在版本不可读: %s" % (iid, path))
             # 同一文件 ±3 行内取最近的一条;距离相同时优先通过的发现。
             # 因为人已经评论过而被压下的候选(suppressed_by)记为 suppressed:…,crosscheck 其实看到了,不算漏报。
             match, match_summary, best = None, "", None
@@ -183,11 +228,14 @@ for mr in mr_list:
                 else:
                     match = "rejected:%s" % f.get("confidence")
                 match_summary = str(f.get("summary", ""))[:200]
-            c = {"mr": iid, "file": path, "line": line, "body": body[:1500], "reviewer_hash": crlib.short_hash(uname),
+            c = {"mr": iid, "file": path, "line": line, "body": body, "reviewer_hash": crlib.short_hash(uname),
                  "resolved": bool(n.get("resolved")), "code_changed_after": changed_after, "matched_finding": match, "matched_summary": match_summary,
-                 "reviewed_by_crosscheck": bool(reviewed), "created_at": n.get("created_at", ""), "url": mr.get("web_url", "")}
+                 "reviewed_by_crosscheck": bool(reviewed), "created_at": n.get("created_at", ""),
+                 "note_id": n.get("id"), "discussion_id": disc.get("id"),
+                 "discussion": [{"id": x.get("id"), "body": x.get("body", ""), "resolved": bool(x.get("resolved"))} for x in disc.get("notes", []) if not x.get("system")],
+                 "url": mr.get("web_url", "") + ("#note_%s" % n["id"] if n.get("id") else "")}
             comments.append(c)
-            if reviewed and (match is None or str(match).startswith("rejected:")):
+            if reviewed and path and line and (match is None or str(match).startswith("rejected:")):
                 misses.append(c)
 
 with open(os.path.join(out, "comments.jsonl"), "w", encoding="utf-8") as f:
@@ -212,31 +260,52 @@ crlib.save_json(os.path.join(out, "feedback-summary.json"), {
 
 # 被关闭的规则 MR
 closed = []
-for m in api("projects/%s/merge_requests?state=closed&labels=crosscheck-rule&per_page=50" % proj) or []:
-    notes = api("projects/%s/merge_requests/%s/notes?sort=desc&per_page=20" % (proj, m.get("iid"))) or []
+for m in pages("projects/%s/merge_requests?state=closed&labels=crosscheck-rule" % proj):
+    notes = pages("projects/%s/merge_requests/%s/notes?sort=desc" % (proj, m.get("iid")))
     last = next((x.get("body", "") for x in notes if not x.get("system")), "")
-    closed.append({"iid": m.get("iid"), "title": m.get("title"), "description": (m.get("description") or "")[:800],
-                   "last_comment": last[:800], "url": m.get("web_url")})
+    closed.append({"iid": m.get("iid"), "title": m.get("title"), "description": (m.get("description") or ""),
+                   "last_comment": last, "url": m.get("web_url")})
 crlib.save_json(os.path.join(out, "closed-candidates.json"), closed)
+
+opened = pages("projects/%s/merge_requests?state=opened&labels=crosscheck-rule" % proj)
+crlib.save_json(os.path.join(out, "open-candidates.json"), [
+    {"iid": m.get("iid"), "title": m.get("title"), "description": m.get("description"), "url": m.get("web_url")}
+    for m in opened])
 
 # 现有规则
 src = crlib.Source(root)
 parts = []
-for f in sorted(x for x in src.files() if x == "REVIEW.md" or x.endswith("/REVIEW.md")) + [".cr/ignore.md"]:
-    t = src.read(f)
-    if t:
-        parts.append("=== %s ===\n%s" % (f, t))
+for r in project_rules.discover(src):
+    parts.append("=== %s scope=%s%s ===\n%s" % (r["file"], ",".join(r["patterns"]),
+                 " excludeAgent=code-review（仅核对已有编码约束）" if r["excluded"] else "", r["text"]))
+    collection_errors.extend(r["file"] + ": " + x for x in r["issues"])
 t = src.read("REVIEW.md")
-rd = crlib.rules_dir()
-for pack in crlib.as_list(crlib.parse_frontmatter(t)[0].get("extends")) if t else []:
-    p = os.path.join(rd, "packs", pack, "rules.md") if rd else ""
-    if p and os.path.isfile(p):
-        parts.append("=== 组织规则包 %s ===\n%s" % (pack, open(p, encoding="utf-8").read()))
+packs, errors = rule_materials.legacy_packs({"extends": crlib.as_list(crlib.parse_frontmatter(t)[0].get("extends")) if t else []})
+for pack in packs:
+    parts.append("=== 组织规则(只读) %s ===\n%s" % (pack["pack"], pack["text"]))
+materials_file = crlib.config().get("materials_file", "")
+if materials_file and not os.path.isabs(materials_file):
+    materials_file = os.path.join(root, materials_file)
+materials, material_errors = rule_materials.read_import(materials_file)
+for item in materials:
+    if item["purpose"] == "rules" and item["text"]:
+        parts.append("=== 外部规范(只读) %s ===\n%s" % (item["ref"], item["text"]))
+collection_errors.extend(errors + material_errors)
+for error in errors + material_errors:
+    parts.append("资料未取得:" + error)
 with open(os.path.join(out, "existing-rules.md"), "w", encoding="utf-8") as f:
     f.write("\n\n".join(parts) + "\n")
 
-summary = "MR %d 个 · 人工评论 %d 条(挂在改动行上、过滤后) · 其中 crosscheck 审过的 MR 上的漏报 %d 条 · 判断记录 %d 条 · 被关闭的规则 MR %d 个" % (
+summary = "MR %d 个 · 人工评论 %d 条(含一般讨论、过滤后) · 其中 crosscheck 审过的 MR 上的漏报 %d 条 · 判断记录 %d 条 · 被关闭的规则 MR %d 个" % (
     len(mr_list), len(comments), len(misses), len(fb), len(closed))
+status = "complete" if not collection_errors else ("partial" if mr_list else "failed")
+crlib.save_json(os.path.join(out, "collection-status.json"), {
+    "status": status, "date_basis": "explicit MR" if os.environ["CR_MRS"] else "merged_at",
+    "since": os.environ["CR_SINCE"], "mrs": len(mr_list), "errors": collection_errors,
+    "open_proposals": len(opened), "comment_scope": "human diff notes and general discussions"})
+summary += " · 采集 " + status + " · 未合入规则 MR %d 个" % len(opened)
+for error in collection_errors:
+    print("mine-reviews: " + error, file=sys.stderr)
 with open(os.path.join(out, "summary.txt"), "w", encoding="utf-8") as f:
     f.write(summary + "\n")
 print(summary)

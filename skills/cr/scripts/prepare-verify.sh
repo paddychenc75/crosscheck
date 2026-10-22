@@ -78,8 +78,12 @@ if cur:
 vd = os.path.join(d, "verify")
 os.makedirs(vd, exist_ok=True)
 for name in os.listdir(vd):
-    if name.startswith("batch-"):
+    if name.startswith(("batch-", "result-")):
         os.remove(os.path.join(vd, name))
+# 新一轮核实不得误用上一轮的报告和展示分组。
+for name in ("final.json", "findings.json", "rejected.json", "report.json", "display-groups.json"):
+    path = os.path.join(d, name)
+    if os.path.isfile(path): os.remove(path)
 for i, b in enumerate(batches, 1):
     p = os.path.join(vd, "batch-%d.json" % i)
     crlib.save_json(p, b)

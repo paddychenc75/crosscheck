@@ -2,8 +2,8 @@
 # eval.sh — 评测:用一批答案已知的用例给 crosscheck 打分,和基线比较。由插件维护者在改插件前后运行。
 #
 # 用法:
-#   eval.sh prepare [--cases DIR] [--out RUN]
-#       读取评测用例(默认组织规则仓库的 evals/cases/*.json),加上规则包里每条规则的正反例,
+#   eval.sh prepare [--cases DIR] [--examples RULES_DIR] [--rules-dir RULES_DIR] [--out RUN]
+#       读取评测用例(默认 ~/.crosscheck/eval/cases);正反例仅在显式 --examples 时加入,
 #       生成这次评测的运行目录 RUN 和 plan.json:每个用例要审查的仓库、提交范围、期望。
 #       用例里的仓库名在配置里映射到本机路径:repo.<名字>=<路径>。正反例会在 RUN 里建一个临时仓库。
 #   eval.sh done RUN CASE
@@ -13,10 +13,10 @@
 #       写出 judge.json:需要判断「是不是同一个问题」的配对,以及答案之外、需要判断「站不站得住」的发现。
 #   eval.sh score RUN [--baseline FILE]
 #       读取 judgments.json(由 judge 角色填写,人工抽查),计算召回、每个干净用例的误报、精确率、
-#       平均用时和 token,逐个用例和基线(默认组织规则仓库的 evals/baseline.json)比较,给出能否合入的结论。
+#       平均用时和 token,逐个用例和基线(默认 ~/.crosscheck/eval/baseline.json)比较,给出能否合入的结论。
 #       写出 score.json 和 report.md。
-#   eval.sh baseline RUN [--yes]
-#       把这次的成绩作为新的基线:通过 MR 更新组织规则仓库的 evals/baseline.json(不带 --yes 只预览)。
+#   eval.sh baseline RUN [--out FILE] [--yes]
+#       把已完整判定的成绩保存为本地基线，不推送；不带 --yes 只预览。
 #   eval.sh find-cases [--repo DIR] [--since 365d] [--limit 20] [--clean]
 #       找候选用例:提交说明含 fix / 修复 的小提交,用 git blame 找到当初引入那几行的提交;
 #       --clean 找合并后 30 天内没有相关修复的提交。结果给人确认,不会自动加入评测集。
@@ -24,7 +24,7 @@
 #                    [--intent-file FILE]   来自 MR 的用例带上当时的需求材料(如审查记录里的 intent.md),评测时作为 --plan 传入
 #       写一个用例到 ~/.crosscheck/eval/cases-pending/,确认人写在 --confirmed-by(会存哈希)。
 #   eval.sh submit-cases [--yes]
-#       把 cases-pending 里的用例通过 MR 提交到组织规则仓库的 evals/cases/。
+#       把 cases-pending 里的用例复制到本地 eval/cases（--out 可覆盖）；不推送，不带 --yes 只预览。
 # 运行时用隔离的记录目录(RUN/home),不读历史判断、不做增量。需要 python3。
 
 set -eu
@@ -38,32 +38,12 @@ case "$cmd" in
   *) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
-if [ "$cmd" = baseline ] || [ "$cmd" = submit-cases ]; then
-  run=""; yes=""
-  while [ $# -gt 0 ]; do case "$1" in --yes) yes=--yes; shift ;; *) run=$1; shift ;; esac; done
-  rd=${CROSSCHECK_RULES_DIR:-$(sh "$here/config.sh" get rules_dir)}; rd=${rd:-${CROSSCHECK_HOME:-$HOME/.crosscheck}/org-rules}
-  [ -d "$rd/.git" ] || die "本地没有组织规则仓库(先配置 rules_repo 并运行 sync-rules.sh)"
-  if [ "$cmd" = baseline ]; then
-    [ -f "$run/score.json" ] || die "$run 里没有 score.json,先运行 eval.sh score"
-    exec sh "$here/open-mr.sh" --repo "$rd" --branch "crosscheck/eval-baseline-$(date +%Y%m%d-%H%M%S)" \
-      --title "crosscheck: 更新评测基线" --put "evals/baseline.json=$run/score.json" \
-      --check "sh '$here/rules-lint.sh' --rules-repo \"\$1\"" $yes
-  fi
-  pend="${CROSSCHECK_HOME:-$HOME/.crosscheck}/eval/cases-pending"
-  set --
-  for f in "$pend"/*.json; do [ -f "$f" ] && set -- "$@" --put "evals/cases/$(basename "$f")=$f"; done
-  [ $# -gt 0 ] || die "cases-pending 里没有用例"
-  sh "$here/open-mr.sh" --repo "$rd" --branch "crosscheck/eval-cases-$(date +%Y%m%d-%H%M%S)" --title "crosscheck: 新增评测用例" \
-    --check "sh '$here/rules-lint.sh' --rules-repo \"\$1\"" "$@" $yes
-  [ -z "$yes" ] || rm -f "$pend"/*.json
-  exit 0
-fi
-
 CR_SCRIPTS="$here" CR_CMD=$cmd CR_ARGS=$(printf '%s\n' "$@") CR_CWD=$(pwd) python3 - <<'PY'
 import collections, datetime, glob, json, os, re, shutil, subprocess, sys, time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import rule_materials
 
 cmd = os.environ["CR_CMD"]
 argv = [a for a in os.environ["CR_ARGS"].split("\n") if a != ""]
@@ -84,14 +64,49 @@ def multi(name):
 def git(root, *a):
     return subprocess.run(["git", "-C", root] + list(a), capture_output=True, text=True)
 cfg = crlib.config()
-rd = crlib.rules_dir()
+rd = ""
+
+if cmd in ("baseline", "submit-cases"):
+    yes = opt("--yes", flag=True)
+    if cmd == "baseline":
+        dest = os.path.abspath(opt("--out") or cfg.get("eval_baseline") or os.path.join(crlib.home(), "eval", "baseline.json"))
+        source = os.path.join(argv[0], "score.json") if argv else ""
+        score = crlib.load_json(source, {})
+        if not score or score.get("unjudged") or score.get("incomplete") or not score.get("dataset_hash"):
+            print("eval: 需要完整、已判定且带数据摘要的 score.json", file=sys.stderr); sys.exit(2)
+        print("保存本地基线:%s" % dest)
+        if yes:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copyfile(source, dest)
+    else:
+        dest = os.path.abspath(opt("--out") or cfg.get("eval_cases") or os.path.join(crlib.home(), "eval", "cases"))
+        pending = sorted(glob.glob(os.path.join(crlib.home(), "eval", "cases-pending", "*.json")))
+        if any(os.path.exists(os.path.join(dest, os.path.basename(p))) for p in pending):
+            print("eval: 目标已有同名用例，请先人工合并，不自动覆盖", file=sys.stderr); sys.exit(2)
+        print("保存 %d 个用例到本地:%s" % (len(pending), dest))
+        if yes:
+            os.makedirs(dest, exist_ok=True)
+            for p in pending:
+                shutil.copyfile(p, os.path.join(dest, os.path.basename(p)))
+    if not yes:
+        print("仅预览；确认后加 --yes。不会向组织规则来源推送。")
+    sys.exit(0)
 
 if cmd == "prepare":
-    cases_dir = opt("--cases") or (os.path.join(rd, "evals", "cases") if rd else "")
+    cases_dir = opt("--cases") or cfg.get("eval_cases") or os.path.join(crlib.home(), "eval", "cases")
+    examples_dir = opt("--examples") or cfg.get("eval_examples", "")
+    rules_dir = opt("--rules-dir") or cfg.get("eval_rules_dir") or examples_dir
     run = opt("--out") or os.path.join(crlib.home(), "eval", "runs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     run = os.path.abspath(run)
     os.makedirs(os.path.join(run, "home"), exist_ok=True)
-    plan, skipped = [], []
+    # 规则样例和旧 Git 规范均显式选取，并固定到本轮目录，不再读取隐式组织仓库。
+    rd = os.path.join(run, "rules")
+    if os.path.exists(os.path.join(run, "plan.json")):
+        print("eval: 运行目录已存在，请使用新目录，避免混入旧结果", file=sys.stderr); sys.exit(2)
+    os.makedirs(rd, exist_ok=True)
+    if rules_dir:
+        shutil.copytree(os.path.join(rules_dir, "packs"), os.path.join(rd, "packs"))
+    plan, skipped, dataset = [], [], []
     for p in sorted(glob.glob(os.path.join(cases_dir, "*.json"))) if cases_dir else []:
         c = crlib.load_json(p, {})
         path = cfg.get("repo." + str(c.get("repo", "")), "")
@@ -99,7 +114,14 @@ if cmd == "prepare":
             skipped.append("%s(仓库 %s 在本机的位置没有配置:repo.%s=<路径>)" % (c.get("id"), c.get("repo"), c.get("repo"))); continue
         if git(path, "cat-file", "-e", c.get("head", "") + "^{commit}").returncode != 0:
             git(path, "fetch", "-q", "origin")
-        item = {"case": c["id"], "kind": c.get("source", "fix-commit").split(":")[0], "repo_path": path,
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", str(c.get("id", ""))) or c["id"] in (".", ".."):
+            print("eval: 无效用例 ID", file=sys.stderr); sys.exit(2)
+        dataset.append(c)
+        cdir = os.path.join(run, "cases", c["id"])
+        os.makedirs(cdir, exist_ok=True)
+        material_file = os.path.join(cdir, "materials.json")
+        crlib.save_json(material_file, c.get("materials", []))
+        item = {"materials_file": material_file, "case": c["id"], "kind": c.get("source", "fix-commit").split(":")[0], "repo_path": path,
                 "target": "%s..%s" % (c["base"], c["head"]), "expect": c.get("expect", [])}
         if str(c.get("intent") or "").strip():
             # 当时的需求材料(MR 描述、验收标准):只有提交范围时意图会丢,需求核对类的期望就测不出来
@@ -110,7 +132,7 @@ if cmd == "prepare":
             item["plan_file"] = os.path.join(cdir, "intent.md")
         plan.append(item)
     # 规则包的正反例:每条建一个只有两个提交的临时仓库(base 里引用这个包,head 加入例子文件)
-    for ex in sorted(glob.glob(os.path.join(rd, "packs", "**", "examples", "*.*"), recursive=True)) if rd else []:
+    for ex in sorted(glob.glob(os.path.join(rd, "packs", "**", "examples", "*.*"), recursive=True)) if examples_dir else []:
         name = os.path.basename(ex)
         m = re.match(r"^(.+?)\.(bad|good)\.(.+)$", name)
         if not m:
@@ -129,8 +151,27 @@ if cmd == "prepare":
             shutil.copy(ex, os.path.join(repo, "src", "example.%s" % ext))
             git(repo, "add", "-A"); git(repo, "commit", "-qm", "example")
         base = git(repo, "rev-parse", "HEAD~1").stdout.strip(); head = git(repo, "rev-parse", "HEAD").stdout.strip()
-        plan.append({"case": "rule-%s-%s" % (rid, kind), "kind": "rule-example", "rule_id": rid, "example": kind,
+        case_name = "rule-%s-%s" % (rid, kind)
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", case_name):
+            print("eval: 无效规则样例编号", file=sys.stderr); sys.exit(2)
+        case_dir = os.path.join(run, "cases", case_name)
+        os.makedirs(case_dir, exist_ok=True)
+        material_file = os.path.join(case_dir, "materials.json")
+        crlib.save_json(material_file, [])
+        plan.append({"materials_file": material_file, "case": case_name, "kind": "rule-example", "rule_id": rid, "example": kind,
                      "repo_path": repo, "target": "%s..%s" % (base, head), "expect": []})
+    if not plan:
+        print("eval: 没有可运行用例；请配置 eval_cases 或 --cases，规则样例使用 --examples", file=sys.stderr); sys.exit(2)
+    if len({x["case"] for x in plan}) != len(plan):
+        print("eval: 用例 ID 重复", file=sys.stderr); sys.exit(2)
+    rules_data = {}
+    for root_dir, _, names in os.walk(rd):
+        for name in sorted(names):
+            path = os.path.join(root_dir, name)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                rules_data[os.path.relpath(path, rd)] = f.read()
+    dataset_hash = rule_materials.digest({"cases": dataset, "rules": rules_data, "examples": bool(examples_dir)})
+    crlib.save_json(os.path.join(run, "dataset.json"), {"hash": dataset_hash})
     crlib.save_json(os.path.join(run, "plan.json"), plan)
     with open(os.path.join(run, "env.sh"), "w") as f:
         f.write("export CROSSCHECK_HOME='%s'\nexport CROSSCHECK_CONFIG='%s'\n" % (os.path.join(run, "home"), crlib.config_path()))
@@ -144,7 +185,7 @@ if cmd == "prepare":
     print()
     print("对 plan.json 里的每个用例(先 . %s/env.sh):" % run)
     print("  1. sh collect-diff.sh <target> --repo <repo_path> --full --out %s/cases/<case>/review [--depth 和基线一致]" % run)
-    print("     用例有 plan_file 时加 --plan <plan_file>(当时的需求材料);规则正反例加 --only rules")
+    print("     用例有 plan_file 时加 --plan <plan_file>；有 materials_file 时加 --materials <materials_file>；规则正反例加 --only rules")
     print("  2. 照常查找、核实,跑到 aggregate.sh 为止(不写报告、不保存记录)")
     print("  3. sh eval.sh done %s <case>" % run)
     print("全部完成后:sh eval.sh match %s" % run)
@@ -171,7 +212,7 @@ plan = crlib.load_json(os.path.join(run, "plan.json"), [])
 
 def findings_of(case):
     rv = os.path.join(run, "cases", case, "review")
-    return crlib.load_json(os.path.join(rv, "findings.json"), []), os.path.isfile(os.path.join(rv, "final.json"))
+    return crlib.load_json(os.path.join(rv, "findings.json"), []), (os.path.isfile(os.path.join(rv, "final.json")) and crlib.load_json(os.path.join(rv, "final.json"), {}).get("materials_complete", True))
 
 if cmd == "match":
     pairs, extras, auto, missing = [], [], [], []
@@ -212,7 +253,7 @@ if cmd == "match":
     sys.exit(0)
 
 if cmd == "score":
-    base_path = opt("--baseline") or (os.path.join(rd, "evals", "baseline.json") if rd else "")
+    base_path = opt("--baseline") or cfg.get("eval_baseline") or os.path.join(crlib.home(), "eval", "baseline.json")
     j = crlib.load_json(os.path.join(run, "judgments.json"), {})
     jp = {(x.get("case"), x.get("expect_index"), x.get("finding_id")): bool(x.get("same")) for x in j.get("pairs", [])}
     je = {(x.get("case"), x.get("finding_id")): bool(x.get("valid")) for x in j.get("extras", [])}
@@ -258,6 +299,8 @@ if cmd == "score":
     durs = [r["duration_s"] for r in per_case.values() if r.get("duration_s")]
     toks = [r["tokens"] for r in per_case.values() if r.get("tokens")]
     score = {
+        "dataset_hash": crlib.load_json(os.path.join(run, "dataset.json"), {}).get("hash"),
+        "incomplete": [c["case"] for c in plan if not findings_of(c["case"])[1]],
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "cases": len(per_case),
         "recall": {"hit": hit, "expected": exp}, "by_category": {k: dict(v) for k, v in by_cat.items()},
         "fp_per_clean": round(sum(r["invalid"] for r in clean) / len(clean), 2) if clean else None,
@@ -297,10 +340,14 @@ if cmd == "score":
     verdict = ""
     if base:
         recall_down = hit * max(br.get("expected", 1), 1) < br.get("hit", 0) * max(exp, 1)
-        fp_up = (score["fp_per_clean"] or 0) > (base.get("fp_per_clean") or 0)
+        fp_up = invalid > base.get("precision", {}).get("invalid", 0) or bool(new_fp)
         cost_up = (score["avg_tokens"] and base.get("avg_tokens") and score["avg_tokens"] > base["avg_tokens"] * 1.3) or \
                   (score["avg_duration_s"] and base.get("avg_duration_s") and score["avg_duration_s"] > base["avg_duration_s"] * 1.3)
-        if recall_down or fp_up or newly_miss:
+        if score["unjudged"] or score["incomplete"]:
+            verdict = "暂定:存在未判断的发现或未完成的用例，不能宣布通过"
+        elif not base.get("dataset_hash") or base["dataset_hash"] != score["dataset_hash"]:
+            verdict = "不可比较:数据或规则快照摘要不同（或旧基线没有摘要），请用已认可版本重建同组基线"
+        elif recall_down or fp_up or newly_miss:
             small = len(newly_miss) + len(new_fp) <= 1
             verdict = "不建议合入:%s%s" % ("、".join(x for x, y in (("召回下降", recall_down), ("误报上升", fp_up), ("有用例新漏掉", bool(newly_miss))) if y),
                                          "。差距只有一个用例,可能是模型输出的波动,建议重跑一次再判断" if small else "")
@@ -412,10 +459,16 @@ if cmd == "add-case":
     cid = "%s-%s" % (re.sub(r"[^A-Za-z0-9._-]", "_", name), head[:8])
     case = {"id": cid, "repo": name, "base": base, "head": head, "source": source, "expect": exps,
             "confirmed_by": [crlib.short_hash(w) for w in who]}
+    material_file = opt("--materials-file")
+    if material_file:
+        records, errors = rule_materials.read_import(material_file)
+        if errors:
+            print("eval: 外部资料格式无效:" + ";".join(errors), file=sys.stderr); sys.exit(2)
+        case["materials"] = records
     if opt("--intent-file"):
         # 来自 MR 的用例带上当时的需求材料,例如那次审查记录里的 intent.md
         with open(opt("--intent-file"), encoding="utf-8") as f:
             case["intent"] = f.read()
     crlib.save_json(os.path.join(pend, cid + ".json"), case)
-    print("ok: 已写入 %s(%s,期望 %d 个问题)。攒够一批后用 eval.sh submit-cases 提交到规则仓库。" % (os.path.join(pend, cid + ".json"), "干净用例" if not exps else source, len(exps)))
+    print("ok: 已写入 %s(%s,期望 %d 个问题)。攒够一批后用 eval.sh submit-cases --yes 保存到本地用例目录。" % (os.path.join(pend, cid + ".json"), "干净用例" if not exps else source, len(exps)))
 PY

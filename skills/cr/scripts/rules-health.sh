@@ -4,18 +4,19 @@
 # 用法: rules-health.sh [--repo DIR] [--months 6]
 #
 # 规则是人批准才生效的,去留也由负责人定期主动复核决定,不靠命中次数这类统计。
-# 这份清单按规则文件(以及组织规则包的负责人)列出每条规则和它上次复核的时间,
+# 这份清单按规则文件(项目负责人)列出每条规则和它上次复核的时间,
 # 超过 --months 个月(默认 6)没复核的排在前面,并附上几项只读仓库就能做的检查,帮负责人省事:
 #   作用域失效    scope 已经匹配不到任何文件
 #   引用失效      规则里用 `…` 提到的文件、函数、包在代码库里已经找不到
 #                 (要求使用的东西没了,规则多半过时;禁止的东西没了,说明都遵守了,不用动)
 #   重复          同层或跨层有几乎一样的规则
-#   缺元数据      没有编号,或没有 added / reviewed 日期
+#   缺元数据      REVIEW/ignore 缺编号，或缺复核日期；原生格式不强制 CR 编号
 #   太长          单个文件超过 20 条
 # 负责人确认保留的规则,用 propose-rules.sh 的 confirm 更新 reviewed=<年-月>;要改写或删除的用 replace / remove。
 # 不读审查记录,也不需要团队共享任何数据。需要 python3。
 
 set -eu
+script_dir=$(cd "$(dirname "$0")" && pwd)
 
 command -v python3 >/dev/null 2>&1 || { echo "rules-health: 需要 python3" >&2; exit 2; }
 repo_arg=""; months=6
@@ -30,11 +31,12 @@ done
 if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || { echo "rules-health: 目录不存在" >&2; exit 2; }; fi
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "rules-health: 当前目录不是 git 仓库" >&2; exit 2; }
 
-CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ROOT=$(git rev-parse --show-toplevel) CR_MONTHS=$months python3 - <<'PY'
+CR_SCRIPTS=$script_dir CR_ROOT=$(git rev-parse --show-toplevel) CR_MONTHS=$months python3 - <<'PY'
 import datetime, difflib, os, re, subprocess, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import project_rules
 
 root, limit = os.environ["CR_ROOT"], int(os.environ["CR_MONTHS"])
 src = crlib.Source(root)
@@ -45,25 +47,18 @@ RULE_FILES = re.compile(r"(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md|GE
 code_files = [f for f in files if not RULE_FILES.search(f)]
 
 rules = []
-def load(path, layer, text, owner=""):
+def load(path, layer, text, owner="", record=None):
     fm, body = crlib.parse_frontmatter(text)
     off = len(text.split("\n")) - len(body.split("\n"))
-    for r in crlib.split_rules(body):
-        rules.append(dict(r, layer=layer, file=path, line=r["start"] + off, owner=owner))
+    entries = crlib.split_rules(body)
+    if not entries and body.strip():
+        entries = [dict(id=None, meta={}, text=body.strip(), start=1, end=len(body.splitlines()))]
+    for r in entries:
+        rules.append(dict(r, layer=layer, file=path, line=r["start"] + off, owner=owner, record=record))
     return fm
-fm_root = {}
-for f in sorted(x for x in files if x == "REVIEW.md" or x.endswith("/REVIEW.md")):
-    fm = load(f, "L2" if f == "REVIEW.md" else "L3", src.read(f) or "")
-    if f == "REVIEW.md":
-        fm_root = fm
-if src.exists(".cr/ignore.md"):
-    load(".cr/ignore.md", "ignore", src.read(".cr/ignore.md") or "")
-rd = crlib.rules_dir()
-for pack in crlib.as_list(fm_root.get("extends")):
-    p = os.path.join(rd, "packs", pack, "rules.md") if rd else ""
-    if p and os.path.isfile(p):
-        t = open(p, encoding="utf-8").read()
-        load("packs/%s/rules.md" % pack, "L1", t, str(crlib.parse_frontmatter(t)[0].get("owner") or ""))
+for record in project_rules.discover(src):
+    layer = ('L2' if record['file'] == 'REVIEW.md' else 'L3') if record['source'] == 'review' else record['source']
+    load(record['file'], layer, record['text'], record=record)
 
 def missing_refs(text):
     out = []
@@ -98,10 +93,16 @@ for i, r in enumerate(rules):
     notes = []
     ym = r["meta"].get("reviewed") or r["meta"].get("added")
     age = months_since(ym)
-    if not r["id"]:
+    if not r["id"] and r["layer"] in ("L2", "L3", "ignore"):
         notes.append("没有编号")
     if age is None:
         notes.append("没有 added / reviewed 日期")
+    record = r.get("record")
+    if record:
+        notes.extend(record['issues'])
+        if record['excluded']: notes.append('仅供编码使用，审查排除')
+        if not any(project_rules.matches(record, f) for f in code_files):
+            notes.append('文件范围未命中代码，请核对（不自动删除）')
     scope = r["meta"].get("scope")
     if scope and not any(crlib.any_match(scope.split(","), f) for f in files):
         notes.append("作用域 %s 匹配不到任何文件" % scope)
@@ -133,7 +134,7 @@ print("## 规则复核清单:%s" % pname)
 print()
 print("共 %d 条规则,其中 %d 条超过 %d 个月没复核(或没有日期),排在最前。" % (len(rows), len(due), limit))
 for c in crowded:
-    print("- " + c + ",考虑合并、挪到目录级,或删掉不重要的")
+    print("- " + c + ",考虑合并、挪到目录级；这是提示，不按数量或命中率删规则")
 print()
 print("| # | 规则 | 层级 | 位置 | 上次复核 | 规则内容 | 检查提示 |")
 print("|---|---|---|---|---|---|---|")

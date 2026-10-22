@@ -28,7 +28,7 @@ case "$mode" in
 esac
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ARGS=$(printf '%s\n' "$@") python3 - <<'PY'
-import json, os, sys
+import json, os, subprocess, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
@@ -40,6 +40,9 @@ if mode == "apply":
 else:
     out, root, ref = "", args[1], (args[2] if len(args) > 2 else "")
 
+if ref and subprocess.run(["git", "-C", root, "cat-file", "-e", ref + "^{commit}"], capture_output=True).returncode:
+    print("settings: base 无法读取，不回退工作区", file=sys.stderr)
+    sys.exit(1)
 src = crlib.Source(root, ref or None)
 text = src.read("REVIEW.md")
 fm = crlib.parse_frontmatter(text)[0] if text else {}

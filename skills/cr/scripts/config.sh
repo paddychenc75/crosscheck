@@ -8,6 +8,8 @@
 # 常用的设置:
 #   gitlab_hosts=code.company.com,company.com/gitlab   按 GitLab 处理的域名(可带子路径)
 #   rules_repo=<地址>   rules_ref=<tag 或分支>   rules_dir=<本地克隆的位置>
+#   materials_file=<本地JSON文件>  宿主取得的外部只读资料;--materials 可覆盖
+#   eval_cases=<目录> eval_baseline=<文件> eval_examples=<旧包目录> eval_rules_dir=<固定包目录>
 #   data_repo=<地址>    data_dir=<本地克隆的位置>          共享人的判断(可选)
 #   issue_cmd=<命令>    读取非 GitLab 需求单的命令,{key} 会替换成需求编号(可选)
 #   repo.<名字>=<本地路径>                                  评测用例里的仓库在本机的位置

@@ -3,7 +3,7 @@
 #
 # 用法: collect-diff.sh [target] [--depth quick|standard|deep] [--only LIST] [--full]
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
-#                        [--intent TEXT] [--plan FILE] [--verifier-model NAME]
+#                        [--intent TEXT] [--plan FILE] [--materials FILE] [--verifier-model NAME]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
@@ -67,6 +67,7 @@ with_tests=no
 auth_via=""
 depth_source=default
 intent_arg=""
+materials_arg=""
 plan_arg=""
 verifier_model=""
 api_project=""
@@ -79,6 +80,7 @@ while [ $# -gt 0 ]; do
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; depth_source=user; shift 2 ;;
     --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; shift 2 ;;
+    --materials) [ $# -ge 2 ] || die "--materials 需要一个值"; materials_arg=$2; shift 2 ;;
     --plan) [ $# -ge 2 ] || die "--plan 需要一个值"; plan_arg=$2; shift 2 ;;
     --verifier-model) [ $# -ge 2 ] || die "--verifier-model 需要一个值"; verifier_model=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
@@ -502,8 +504,11 @@ for f in diff.patch files.txt skipped.txt skipped.patch; do [ -f "$out/$f" ] || 
 # REVIEW.md 头部的审查设置:skip 命中的路径在这里就移出审查范围。
 # 本地审查自己的分支读工作区;PR/MR、其他分支、范围读 base,改动本身改不了审查设置。
 settings_ref=""
-if [ "$mode" != local ] && [ -n "$base_sha" ] && git cat-file -e "$base_sha^{commit}" 2>/dev/null; then settings_ref=$base_sha; fi
-sh "$script_dir/settings.sh" apply "$out" "$root" $settings_ref || true
+if [ "$mode" != local ]; then
+  [ -n "$base_sha" ] && git cat-file -e "$base_sha^{commit}" 2>/dev/null || die "base 无法读取，不使用工作区规则代替"
+  settings_ref=$base_sha
+fi
+sh "$script_dir/settings.sh" apply "$out" "$root" "$settings_ref" || die "读取审查设置失败"
 
 # 每个文件 diff 的哈希。内容没变则哈希不变,下次审查据此跳过。
 split="$out/split"
@@ -559,6 +564,23 @@ if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_k
 fi
 store_dir="$reviews_dir/$repo_key/$target_key"
 
+# 先读取完整目标的意图与规则材料，再决定能否使用增量缓存。
+[ -n "$materials_arg" ] || materials_arg=$(sh "$script_dir/config.sh" get materials_file)
+[ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier)
+finder_model=$(sh "$script_dir/config.sh" get model.finder)
+{
+  printf 'repo_root=%s\nmode=%s\nbase_sha=%s\nhead_sha=%s\ncode_ref=%s\n' "$root" "$mode" "$base_sha" "$head_sha" "$code_ref"
+  printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
+  printf 'depth=%s\ndepth_source=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$depth_source" "$plan_arg" "$store_dir" "$repo_id"
+  printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
+} > "$out/meta.txt"
+printf '%s' "$intent_arg" > "$out/intent-arg.txt"
+rm -f "$out/discussions.json"
+context_out=$(sh "$script_dir/collect-context.sh" "$out")
+printf '%s\n' "$context_out" > "$out/context-notes.txt"
+grep -E '^(intent_sources|intent_acceptance|discussions|weakening|risk_level|risk_suggest|risk_reasons)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+python3 "$script_dir/rule_materials.py" "$out" "$materials_arg"
+
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
 rank() { case "$1" in quick) echo 1 ;; deep) echo 3 ;; *) echo 2 ;; esac; }
 review_scope=full
@@ -569,7 +591,10 @@ if [ "$full" = no ] && [ -f "$store_dir/baseline" ]; then
   prev="$store_dir/$prev_review"
   if [ -f "$prev/hashes.txt" ] && [ -f "$prev/meta.txt" ]; then
     prev_depth=$(sed -n 's/^depth=//p' "$prev/meta.txt" | head -n 1)
-    if [ "$(rank "$prev_depth")" -ge "$(rank "$depth")" ]; then review_scope=incremental; fi
+    if [ "$(rank "$prev_depth")" -ge "$(rank "$depth")" ] &&
+       [ "$(cat "$out/context-complete.txt")" = yes ] &&
+       [ "$(cat "$prev/context-complete.txt" 2>/dev/null || true)" = yes ] &&
+       cmp -s "$prev/context-hash.txt" "$out/context-hash.txt"; then review_scope=incremental; fi
   fi
   [ "$review_scope" = incremental ] || prev_review=""
 fi
@@ -728,6 +753,8 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'started_epoch=%s\n' "$(date +%s)"
 } > "$out/meta.txt"
 
+cat "$out/context-meta.txt" >> "$out/meta.txt"
+
 sh "$script_dir/check-state.sh" --save "$out"
 
 # 项目里对这些文件的历史判断(不成立、不修、有争议、成立),连同"那段代码现在变没变",
@@ -736,8 +763,7 @@ rm -f "$out/history.json"
 sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 || true
 
 # 意图、MR 上的人工讨论、测试削弱、风险分级。读不到的部分跳过,不影响审查。
-printf '%s' "$intent_arg" > "$out/intent-arg.txt"
-context_out=$(sh "$script_dir/collect-context.sh" "$out" 2>/dev/null || true)
+
 
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"

@@ -26,11 +26,24 @@ import os, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import rule_materials
+import report_groups
 
 d = os.environ["CR_DIR"]
 m = crlib.read_kv(os.path.join(d, "meta.txt"))
 rm = crlib.read_kv(os.path.join(d, "rules-meta.txt"))
+report_path = os.path.join(d, "report.json")
+if os.path.isfile(report_path): os.remove(report_path)
+if os.path.isfile(os.path.join(d, "verification-errors.json")):
+    sys.exit("report-lines: 核实未完成，请先补齐结果并重新 aggregate")
 final = crlib.load_json(os.path.join(d, "final.json"), {})
+try:
+    display = report_groups.build(final, os.path.join(d, "display-groups.json"))
+except ValueError as e:
+    sys.exit("report-lines: " + str(e))
+crlib.save_json(os.path.join(d, "report.json"), display)
+if display.get("display_groups"):
+    print("GROUPED: 同一问题合并展示 %d 组；关联编号及依据保留" % len(display["display_groups"]))
 cov = crlib.load_json(os.path.join(d, "rules-coverage.json"), {})
 risk = crlib.read_kv(os.path.join(d, "risk.txt"))
 DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
@@ -63,9 +76,12 @@ print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"),
       ";验收标准 %s 条" % m["intent_acceptance"] if m.get("intent_acceptance", "0") not in ("", "0") else ""))
 
 # 规则
+for exclusion in crlib.load_json(os.path.join(d, 'rules-excluded.json'), []):
+    print("RULES-EXCLUDED: %s · %s" % (exclusion['file'], exclusion['reason']))
+materials = rule_materials.load(d)
 units = int(rm.get("units", "0") or 0)
 if units == 0:
-    print("RULES: 规则:没有找到适用的规则")
+    print("RULES: 规则:没有取得适用规则，规则检查未完成" if materials and not materials.get("complete") else "RULES: 规则:没有找到适用的规则")
 else:
     org = int(rm.get("units_L1", "0") or 0)
     prj = int(rm.get("units_L2", "0") or 0) + int(rm.get("units_L3", "0") or 0)
@@ -102,6 +118,16 @@ if rm.get("missing_ids", "0") not in ("", "0"):
     print("RULES_NOTE: 有 %s 条项目规则没有编号,只能按文件核对;规则体检时可以补上" % rm["missing_ids"])
 if rm.get("source", "").startswith("worktree(") :
     print("RULES_NOTE: base 提交不在本地,规则读自当前工作区")
+
+if materials:
+    entries = materials.get("records", [])
+    print("MATERIALS: 外部材料:%d 份 · %s" % (len(entries), "读取完整" if materials.get("complete") else "读取不完整或存在冲突，不能宣称规则检查完成"))
+    for msg in materials.get("errors", []):
+        print("RULES_NOTE: " + str(msg).replace("\n", " "))
+    for x in entries:
+        print("MATERIALS: %s · %s · %s · %s%s" % (x["source"].replace("\n", " "), x["purpose"], x["status"], x["ref"].replace("\n", " "), (" · " + x["note"].replace("\n", " ")) if x.get("note") else ""))
+if final.get("unverified"):
+    print("UNVERIFIED: 本轮未能复核 %d 条上次规范发现；保留旧依据，不计已解决或采纳" % len(final["unverified"]))
 
 # 风险
 if risk.get("level"):

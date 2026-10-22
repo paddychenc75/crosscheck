@@ -58,9 +58,13 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 ### 1. 收集改动
 
+**外部资料（可选，只读）**：需要通过宿主的 MCP 或文件获取组织资料时，先读 `references/materials.md`。取得资料后先写入仓库外的 JSON 文件，再用 `--materials` 传入；也可以配置 `materials_file`。不要在插件里创建 MCP 连接、提取凭证或修改组织规则。没有提供来源就照常审项目规则；来源失败必须写一项失败记录，不能省略它冒充没有规范。
+
+材料、规则、意图或插件配置变化时，本轮自动重审目标全部 diff。宿主实际模型变化而脚本无法感知时，主动加 `--full`，并在报告说明实际模型。
+
 ```
 sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <list>] [--full] [--with-tests]
-   [--intent "<一句话>"] [--plan <文件>] [--verifier-model <模型>] [--repo <目录>]
+   [--intent "<一句话>"] [--plan <文件>] [--materials <本地JSON文件>] [--verifier-model <模型>] [--repo <目录>]
 ```
 
 深度:用户说了快速或仔细才传(`--depth quick` / `--depth deep`),没说就不传。其余选项照用户的要求传。
@@ -88,7 +92,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 ```
 
-它按「目录级 → 项目级 → 抑制 → 组织规则包 → 外部规则」装配这次适用的规则,写出 `rules.txt`、`rules-index.json`(需要检查的单位)、`rules-meta.txt` 和 `task-rules.md`(交给 rules-auditor 和 verifier 的规则段落,含规则指纹和末尾的核对码)。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区。输出里有 `packs_missing` 或 `org_rules_stale=yes` 时,报告末尾会提示,不需要你处理。
+它按「目录级 → 项目级 → 抑制 → 组织规则包 → 外部规则」装配这次适用的规则,写出 `rules.txt`、`rules-index.json`(需要检查的单位)、`rules-meta.txt` 和 `task-rules.md`(交给 rules-auditor 和 verifier 的规则段落,含规则指纹和末尾的核对码)。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区。base 不可读时停止，不回退工作区。原生格式按来源路径语义装配；`rules-excluded.json` 记录用途排除，格式错误会标记检查未完成。所有角色采用受信任 REVIEW.md 正文的证据要求和分级，不能据此跳过核实。外部原文冻结在 `materials/`，来源与读取结果在 `materials/manifest.json`；`context-materials.md` 仅供理解与反证，不构成正式规范。材料缺失或有冲突时继续已取得部分，报告规则检查未完成。规则包使用本轮冻结副本。
 
 ### 3. 查找候选
 
@@ -117,7 +121,7 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 **保存结果:**
 
 - 把每次 `rules-auditor` 的回复原样写成 `<review_dir>/rules-auditor-<n>.json`(n 从 1 开始)。
-- 合并其余角色的数组和 rules-auditor 的 `findings`:描述同一位置同一缺陷的合并成一条(保留表述更清楚的那条),在 `found_by` 里列出报了它的角色(如 `["bug-hunter", "bug-hunter(reverse)"]`),`pass_hits` 写被几遍查到。
+- 合并其余角色的数组和 rules-auditor 的 `findings`，包括同一角色内部的重复。按 `finding-schema.md` 的“一个缺陷一条发现”判断同根因，不只比较位置；合并时在 `failure_scenario` 保留各触发场景及待核实点，不能只保留一句更清楚的摘要。在 `found_by` 列出报了它的角色(如 `["bug-hunter", "bug-hunter(reverse)"]`)，`pass_hits` 记查到它的遍数，不按重复条目数累计。
 - **增量时**,把 `prev-findings.json` 中位于 `changed` 或 `dependent` 文件里的发现也加进来(`dependent` 是本身没变、但引用了这次被改动的符号的文件,它们也在这次的审查范围里):去掉 `confidence` 和 `verdict`,保留 `id` 和 `since`,加上 `"from_prev": true`。
 - 全部写成 `<review_dir>/candidates.json`(JSON 数组)。
 
@@ -136,6 +140,8 @@ sh <skill_dir>/scripts/check-rules.sh <review_dir>
 - `NONCE:` → 核对码对不上,规则可能没读到底:同样补跑一次完整的 `rules-auditor`,再核对一次。
 
 ### 4. 核实
+
+普通候选为零也要执行本步骤：未违反的检查项仍可产生抽查候选。
 
 ```
 sh <skill_dir>/scripts/prepare-verify.sh <review_dir> [--spot 5]
@@ -161,7 +167,17 @@ sh <skill_dir>/scripts/aggregate.sh <review_dir>
 
 它校验依据(引用的代码位置不存在的,分数最高 50)、核对规则编号和引用、只留改动行上的、套用 REVIEW.md 的设置、丢掉 80 分以下的(存进 `rejected.json`)、处理增量的遗留和已解决、合并同一规则同一文件的多处、排序、套用条数上限、编号,写出 `final.json`(报告用)和 `findings.json`(记录用)。不要自己再筛一遍或改动这些结果。
 
+核实回复缺失、重复、格式错误或遗漏需要重核的历史发现时，脚本以非零退出并写 `verification-errors.json`。补齐对应核实再汇总；不能使用旧报告、不能把缺回复视为已解决，也不能自己补低分跳过。
+
 ### 6. 报告
+
+先检查 `final.json.groups` 中已通过核实的发现，为同一失败事实生成 `display-groups.json`，没有重复就写 `[]`：
+
+```json
+[{"primary":"主发现id","members":["主发现id","关联发现id"],"reason":"同一错误、同一失败事实和同一局部修复"}]
+```
+
+这是主 agent 的报告整理，不新增审查角色、不改核实结果。只有同文件中确实同一根因和同一修复的已确认发现才分组；主条优先选择能清楚表达实际后果的安全或缺陷条目。规范与安全指向同一失败事实时，规范作为关联依据保留。独立失效条件、分别修复的问题保持分开；不能仅凭同行、相似措辞或同类修法合并。无法确认就不分组。不要在主条建议、证据说明或兼容性中重复展开另一条独立问题。
 
 先核对仓库状态并结束只读阶段:
 
@@ -176,6 +192,8 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 ```
 sh <skill_dir>/scripts/report-lines.sh <review_dir>
 ```
+
+`report-lines.sh` 校验展示分组并生成 `report.json`：只使用最终已展示、已核实的编号，保留主编号和关联编号及全部依据；`final.json` 与 `findings.json` 继续保留原始独立发现。错误分组会拒绝生成报告，不静默丢条目。
 
 然后按 `references/report-format.md` 写报告(读一遍再写)。报告用中文,代码、标识符、路径和规则原文保持原样。
 

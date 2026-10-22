@@ -1,7 +1,7 @@
 #!/bin/sh
 # rules-lint.sh — 规则写入前的格式检查(只做确定性的部分,语义上的重复、能否对照代码检查由 agent 判断)。
 #
-# 用法: rules-lint.sh [--repo DIR]           检查项目里的 REVIEW.md(各级目录)和 .cr/ignore.md
+# 用法: rules-lint.sh [--repo DIR]           检查 REVIEW.md、ignore 及已支持原生规则的范围格式
 #       rules-lint.sh --rules-repo DIR       检查组织规则仓库:packs/*/rules.md、正反例、CODEOWNERS、评测用例
 #
 # 项目规则:
@@ -34,6 +34,7 @@ import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import project_rules
 
 mode, root = os.environ["CR_MODE"], os.environ["CR_TARGET"]
 errors, warns = [], []
@@ -51,7 +52,7 @@ def check_rules(rel, text, idpat, idname, all_files, seen_ids):
     off = len(text.split("\n")) - len(body.split("\n"))
     rules = crlib.split_rules(body)
     if len(rules) > 20:
-        W(rel, 0, "有 %d 条规则,超过 20 条,最重要的几条容易被稀释;考虑合并、挪到目录级,或删掉命中最少的" % len(rules))
+        W(rel, 0, "有 %d 条规则,超过 20 条,最重要的几条容易被稀释;考虑合并、挪到目录级,不要按命中次数自动删除" % len(rules))
     for r in rules:
         ln = r["start"] + off
         if not r["id"]:
@@ -95,6 +96,13 @@ if mode == "project":
             for g in crlib.as_list(fm.get("skip")) + crlib.as_list(fm.get("risk_paths")):
                 if not any(crlib.glob_match(g, f) for f in files):
                     W(rel, 0, "路径 %s 匹配不到任何文件" % g)
+    for record in project_rules.discover(crlib.Source(root)):
+        if record['source'] in ('review', 'ignore'): continue
+        for issue in record['issues']:
+            E(record['file'], 0, issue)
+        if not record['issues'] and record['patterns'] and not any(project_rules.matches(record, f) for f in files if not project_rules.kind(f)):
+            W(record['file'], 0, "范围未匹配代码，请核对路径正反例")
+        # 原生格式不要求 CR 编号或 CR 日期；保留宿主自己的 frontmatter。
     if os.path.isfile(os.path.join(root, ".cr", "ignore.md")):
         check_rules(".cr/ignore.md", read(os.path.join(root, ".cr", "ignore.md")), r"IGN-\d{3,}", "IGN-NNN", files, {})
 else:
