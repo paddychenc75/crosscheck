@@ -13,7 +13,6 @@
 # 判断记在项目级的 ~/.crosscheck/reviews/<项目名>/feedback.jsonl,对这个项目的所有分支、MR 和范围
 # 都有效,不需要知道是哪一次审查。每条记录带着发现的身份:文件、维度、摘要、出问题的那一行,
 # 以及那一行上下各 2 行代码的哈希;还记着是谁判断的(邮箱的哈希,不存人名)。
-# 团队开启共享时(sync-data.sh),同步下来的团队判断和本机的一起使用,同一条发现以时间晚的为准。
 #
 # history 由 collect-diff.sh 在每次审查开始时调用:取出这次改动涉及的文件上的历史判断,并标明
 # 那段代码现在是否原样还在(same_code),写进 OUT.json。它不删除任何候选,怎么用由 verifier 判断:
@@ -22,7 +21,7 @@
 set -eu
 
 die() { printf 'feedback: %s\n' "$*" >&2; exit 1; }
-case "${1:-}" in -h|--help|"") sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+case "${1:-}" in -h|--help|"") sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 command -v python3 >/dev/null 2>&1 || die "需要 python3。这次判断没有被记录,请如实告诉用户"
 
 mode=$1; shift
@@ -83,7 +82,7 @@ def save(path, data):
 def key(f):
     return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
 def verdicts(pdir):
-    return list(crlib.feedback_entries(pdir).values())      # 本机 + 团队,同一条发现以最后一次判断为准
+    return list(crlib.feedback_entries(pdir).values())      # 同一条发现以最后一次判断为准
 
 if mode == "history":
     if len(args) < 2: fail("用法: feedback.sh history REVIEW_DIR OUT.json")
@@ -115,8 +114,7 @@ if mode == "history":
         where = [i + 1 for i, x in enumerate(ls) if e.get("code_line") and norm(x) == norm(e["code_line"]) and ctx_hash(ls, i + 1) == e.get("context_hash")]
         out_list.append({
             "verdict": e.get("verdict"), "verdict_name": NAMES.get(e.get("verdict"), ""), "reason": e.get("reason", ""), "time": e.get("time", ""),
-            "rule_id": e.get("rule_id", ""), "rule_source": e.get("rule_source", ""),
-            "reference_only": e.get("category") == "rules" and (e.get("rule_source") in ("org", "import") or not str(e.get("rule_id", "")).startswith(("PRJ-", "IGN-"))),
+            "rule_file": e.get("rule_file", ""), "rule_quote": e.get("rule_quote", ""),
             "file": e.get("file"), "category": e.get("category"), "summary": e.get("summary"), "recorded_line": e.get("line"),
             "code_line": e.get("code_line", ""), "same_code": bool(where), "line_now": where[0] if where else None, "id": e.get("id"),
         })
@@ -166,7 +164,7 @@ entry = {
     "id": f.get("id"), "key": fid, "file": f.get("file"), "line": f.get("line"), "category": f.get("category"),
     "severity": f.get("severity"), "confidence": f.get("confidence"), "summary": f.get("summary"),
     "code_line": f.get("code_line", ""), "context_hash": f.get("context_hash", ""), "target": os.path.basename(tdir),
-    "rule_id": f.get("rule_id", ""), "rule_source": f.get("rule_source", ""), "rule_origin": f.get("rule_origin", ""), "author": crlib.author_hash(), "project": want,
+    "rule_file": f.get("rule_file", ""), "rule_quote": f.get("rule_quote", ""), "author": crlib.author_hash(), "project": want,
 }
 with open(os.path.join(pdir, "feedback.jsonl"), "a", encoding="utf-8") as out:
     out.write(json.dumps(entry, ensure_ascii=False) + "\n")

@@ -22,7 +22,7 @@ class ReviewIntegrityTests(fixture.Base):
         c = dict(cid='c1', id='prior-1', from_prev=True, file='src/a.py', line=1,
                  category='bug', severity='major', summary='prior bug', failure_scenario='x')
         (rd/'candidates.json').write_text(json.dumps([c]))
-        self.run_script('prepare-verify.sh', str(rd), '--spot', '0')
+        self.run_script('prepare-verify.sh', str(rd))
         meta = (rd/'meta.txt').read_text().replace('review_scope=full', 'review_scope=incremental')
         (rd/'meta.txt').write_text(meta)
         (rd/'prev-findings.json').write_text(json.dumps([dict(c, confidence=95)]))
@@ -68,15 +68,6 @@ class ReviewIntegrityTests(fixture.Base):
                 self.assertEqual(self.run_script('aggregate.sh', str(rd), check=False).returncode, 2)
                 self.assertFalse((rd/'final.json').exists())
 
-    def test_missing_spot_result_stops_even_without_normal_candidates(self):
-        _, rd, _ = self.setup_review()
-        (rd/'meta.txt').write_text((rd/'meta.txt').read_text().replace('review_scope=incremental','review_scope=full'))
-        (rd/'candidates.json').write_text('[]')
-        (rd/'verify/batch-1.json').write_text('[{"cid":"s1","kind":"spot"}]')
-        r = self.run_script('aggregate.sh', str(rd), check=False)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn('s1', r.stderr)
-
     def test_verified_batch_cannot_be_silently_removed_from_candidates(self):
         _, rd, c = self.setup_review()
         (rd/'meta.txt').write_text((rd/'meta.txt').read_text().replace('review_scope=incremental','review_scope=full'))
@@ -90,11 +81,11 @@ class ReviewIntegrityTests(fixture.Base):
         _, rd, c = self.setup_review()
         for file in ['verify/result-1.json','final.json','findings.json','report.json','display-groups.json']:
             (rd/file).write_text('[]')
-        self.run_script('prepare-verify.sh', str(rd), '--spot', '0')
+        self.run_script('prepare-verify.sh', str(rd))
         for file in ['verify/result-1.json','final.json','findings.json','report.json','display-groups.json']:
             self.assertFalse((rd/file).exists())
 
-    def test_hidden_directory_rules_do_not_escape_in_collection_or_maintenance(self):
+    def test_hidden_directory_rules_do_not_escape_collection(self):
         local = ['.github/workflows/AGENTS.md', '.claude/helpers/CLAUDE.md', '.cursor/sub/AGENTS.md', '.github/sub/REVIEW.md', '.claude/rules/nested/REVIEW.md']
         files = {'src/a.py':'x\n', '.claude/CLAUDE.md':'global claude\n', '.github/copilot-instructions.md':'global copilot\n'}
         for name in local:
@@ -112,11 +103,6 @@ class ReviewIntegrityTests(fixture.Base):
         loaded = {x['file'] for x in self.load(rd/'rules-index.json')}
         self.assertFalse(loaded.intersection(local))
         self.assertEqual(loaded,{'.claude/CLAUDE.md','.github/copilot-instructions.md'})
-        ops=Path(self.tmp,'ops.json')
-        ops.write_text(json.dumps([dict(op='add',file=local[0],text='new rule',paths={'match':['src/a.py'],'miss':[]})]))
-        r=self.run_script('propose-rules.sh','--repo',repo,'--ops',str(ops),'--yes',check=False)
-        self.assertNotEqual(r.returncode,0)
-        self.assertEqual(self.git(repo,'status','--short'),'')
 
     def display_fixture(self):
         security=dict(id='sql-security',no=1,category='security',file='src/a.py',line=1,confidence=95,severity='major',summary='SQL input changes query',evidence=[{'file':'src/a.py','lines':'1'}])

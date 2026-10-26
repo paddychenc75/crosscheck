@@ -8,11 +8,8 @@
 #       settings.sh show ROOT [REF]   只打印解析结果(JSON)
 #
 # REVIEW.md 头部支持的设置:
-#   extends:    [lang/go, platform/rpc]          引用的组织规则包
-#   disable:    - ORG-RPC-004: 原因              关掉的组织规则,必须写原因
 #   skip:       ["src/gen/**"]                   不审查的路径
 #   limits:     { defects: 10, rules: 5, minor: 3 }   条数上限(defects/intent/rules/simplify/critical/major/minor)
-#   severity:   { PRJ-002: critical }            按规则编号指定严重程度
 #   risk_paths: ["src/payment/**"]               高风险路径,用于建议深度
 #   platform:   gitlab                           自建 GitLab 的域名不含 gitlab 时注明
 # 没有 python3 时什么都不做(审查照常进行,只是这些设置不生效)。
@@ -24,7 +21,7 @@ mode=${1:-}
 case "$mode" in
   apply) [ $# -ge 3 ] || { echo "settings: 用法 settings.sh apply DIR ROOT [REF]" >&2; exit 2; } ;;
   show) [ $# -ge 2 ] || { echo "settings: 用法 settings.sh show ROOT [REF]" >&2; exit 2; } ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ARGS=$(printf '%s\n' "$@") python3 - <<'PY'
@@ -46,18 +43,11 @@ if ref and subprocess.run(["git", "-C", root, "cat-file", "-e", ref + "^{commit}
 src = crlib.Source(root, ref or None)
 text = src.read("REVIEW.md")
 fm = crlib.parse_frontmatter(text)[0] if text else {}
-disable = {}
-for item in crlib.as_list(fm.get("disable")):
-    k, _, why = item.partition(":")
-    disable[k.strip()] = why.strip()
 settings = {
     "source": ("base:" + ref[:12]) if ref else "worktree",
     "found": text is not None,
-    "extends": crlib.as_list(fm.get("extends")),
-    "disable": disable,
     "skip": crlib.as_list(fm.get("skip")),
     "limits": crlib.as_map(fm.get("limits")),
-    "severity": crlib.as_map(fm.get("severity")),
     "risk_paths": crlib.as_list(fm.get("risk_paths")),
     "platform": str(fm.get("platform") or ""),
 }

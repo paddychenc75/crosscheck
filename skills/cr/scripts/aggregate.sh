@@ -9,22 +9,21 @@
 #   1. 依据校验:verifier 给出的 evidence 引用的文件和行在被审查的那一版里必须真实存在
 #      (review_dir 里的 intent.md、rules.txt 等材料只核对文件存在;位置写成文字的,核对那段文字在文件里);
 #      引用不存在或者干脆没给依据的,置信度最高 50。
-#   2. 规则发现:rule_id 必须是这次适用的规则、作用域覆盖这个文件;rule_quote 必须逐字出现在规则原文里。
-#      对不上的置信度为 0。严重程度按 REVIEW.md 的 severity 设置 → 规则自己的 severity → 核实后的分级 → 轻微。
+#   2. 规则发现:rule_file 必须是这次适用的规则文件、覆盖这个文件;rule_quote 必须逐字出现在那份规则里。
+#      对不上的置信度为 0。严重程度用核实后的分级,没有就是轻微。
 #   3. 只看改动的行;REVIEW.md 的 skip 路径不报;带 history_match 的单独列为「已按历史判断忽略」。
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
-#   5. 抽查:抽查的规则检查如果被 verifier 判定确实违反(80 分以上),直接作为规则发现报出,并记为抽查发现漏检。
-#   6. 增量:上次的发现分成遗留(文件没变的原样带入;文件变了且再次通过核实的)和已解决。
-#   7. 同一条规则在同一个文件里的多处合并成一条;按严重程度、置信度排序;套用条数上限
+#   5. 增量:上次的发现分成遗留(文件没变的原样带入;文件变了且再次通过核实的)和已解决。
+#   6. 同一条规则在同一个文件里的多处合并成一条;按严重程度、置信度排序;套用条数上限
 #      (默认缺陷 10 条、quick 5 条,需求核对、规范、可简化各 5 条;REVIEW.md 的 limits 可覆盖,
 #      还可以按 critical/major/minor 限制缺陷和需求核对的条数),超出的不展示但仍写进 findings.json。
-#   8. 给展示的发现编号(no),给新发现分配 id 和 since。
+#   7. 给展示的发现编号(no),给新发现分配 id 和 since。
 # 写出:
 #   final.json     报告要用的全部内容:groups(defects/intent/rules/simplify,每条带 no 和 status:new|carried)、
-#                  resolved、ignored_by_history、trimmed、counts、spot、notes
+#                  resolved、ignored_by_history、trimmed、counts、notes
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量
 #   rejected.json  没通过的候选,带分数和理由,用于校准阈值
-# 最后一行输出:passed=… rejected=… new=… carried=… resolved=… trimmed=… spot_failed=…
+# 最后一行输出:passed=… rejected=… new=… carried=… resolved=… trimmed=… ignored_by_history=…
 
 set -eu
 
@@ -36,16 +35,14 @@ import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
-import rule_materials
 
 d = os.environ["CR_DIR"]
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
 settings = crlib.load_json(os.path.join(d, "settings.json"), {})
-units = {u["unit"]: u for u in crlib.load_json(os.path.join(d, "rules-index.json"), [])}
+rule_blocks = crlib.load_json(os.path.join(d, "rules-index.json"), [])
 ranges = crlib.ranges_of(d)
 src = crlib.code_source(meta)
 skip = settings.get("skip") or []
-sev_override = settings.get("severity") or {}
 THRESHOLD = 80
 
 verification_errors = []
@@ -116,7 +113,7 @@ for p in batch_paths:
 if len(expected) != len(set(expected)):
     verification_errors.append("核实批次 cid 重复")
 if batch_paths:
-    normal_ids = [x["cid"] for x in prepared if x.get("kind") != "spot"]
+    normal_ids = [x["cid"] for x in prepared]
     candidate_ids = [c.get("cid") for c in cands]
     if any(not isinstance(x, str) for x in candidate_ids) or sorted(candidate_ids) != sorted(normal_ids):
         verification_errors.append("候选与核实批次不一致")
@@ -150,19 +147,10 @@ if verification_errors:
 if os.path.exists(error_file):
     os.remove(error_file)
 
-materials = rule_materials.load(d)
-material_files = {x["file"] for x in materials.get("records", []) if x.get("file")}
 _lines_cache = {}
 def file_lines(path):
     if path not in _lines_cache:
-        if path in material_files:
-            try:
-                with open(os.path.join(d, path), encoding="utf-8") as f:
-                    t = f.read()
-            except OSError:
-                t = None
-        else:
-            t = src.read(path) if src else None
+        t = src.read(path) if src else None
         _lines_cache[path] = t.split("\n") if t is not None else None
     return _lines_cache[path]
 
@@ -197,13 +185,10 @@ def check_evidence(item):
 def group_of(cat):
     return {"bug": "defects", "security": "defects", "intent": "intent", "rules": "rules", "simplify": "simplify"}.get(cat, "defects")
 
-passed, rejected, history, spot_ok, spot_failed = [], [], [], 0, 0
+passed, rejected, history = [], [], []
 skipped_by_settings = 0
-# (候选, 核实结果) 成对处理;抽查只存在于核实结果里。
-pairs = [(c, result_for(c)) for c in cands]
-pairs += ([(c, by_cid.get(c["cid"])) for c in prepared if c.get("kind") == "spot"] if batch_paths
-          else [(r, r) for r in results if r.get("kind") == "spot"])
-for c, r in pairs:
+for c in cands:
+    r = result_for(c)
     if r is None:
         rejected.append(dict(c, confidence=0, verdict="没有核实结果", reject_reason="没有核实结果"))
         continue
@@ -226,25 +211,20 @@ for c, r in pairs:
         continue
     cat = item.get("category", "bug")
     if cat == "rules":
-        rid = str(item.get("rule_id") or "").strip()
-        u = units.get(rid) or units.get("FILE:" + rid)
-        if not rid or not u:
-            conf, reasons = 0, reasons + ["规则编号不在这次适用的规则里"]
+        rf = str(item.get("rule_file") or "").strip()
+        q = crlib.norm(item.get("rule_quote") or "")
+        mine = [b for b in rule_blocks if (not rf or b["file"] == rf) and b["layer"] != "ignore"]
+        hit = next((b for b in mine if q and q in crlib.norm(b["text"]) and f in b["applies_files"]), None)
+        if not q:
+            conf = 0; reasons.append("没有引用规则原文")
+        elif not mine:
+            conf = 0; reasons.append("规则文件不在这次适用的规则里")
+        elif not hit:
+            conf = 0
+            reasons.append("规则不覆盖这个文件" if any(q in crlib.norm(b["text"]) for b in mine) else "引用的规则原文对不上")
         else:
-            item["rule_id"] = u["unit"]
-            if f not in (u.get("applies_files") or []):
-                conf, reasons = 0, reasons + ["规则的作用域不覆盖这个文件"]
-            q = crlib.norm(item.get("rule_quote") or "")
-            if q:
-                if q not in crlib.norm(u.get("text", "")):
-                    conf, reasons = 0, reasons + ["引用的规则原文对不上"]
-            else:
-                conf = 0; reasons.append("没有引用规则原文")
-            item["severity"] = sev_override.get(u["unit"]) or u.get("severity") or item.get("severity") or "minor"
-            item["rule_file"] = u.get("file")
-            item["rule_origin"] = u.get("origin", u.get("file"))
-            item["rule_source"] = u.get("source_name", u.get("source"))
-            item["document_rule"] = u.get("document", False)
+            item["rule_file"] = hit["file"]
+            item["rule_source"] = hit["source"]
     elif cat == "simplify":
         item["severity"] = "minor"
     if item.get("severity") not in crlib.SEV_ORDER:
@@ -258,16 +238,6 @@ for c, r in pairs:
     if not crlib.in_ranges(ranges, f, line):
         conf = 0; reasons.append("不在改动的行上")
     item["confidence"] = conf
-    if c.get("kind") == "spot":
-        if conf >= THRESHOLD:
-            spot_failed += 1
-            item.pop("kind", None)
-            item["found_by"] = ["verifier 抽查"]
-            item["spot"] = True
-            passed.append(item)
-        else:
-            spot_ok += 1
-        continue
     if conf >= THRESHOLD:
         passed.append(item)
     else:
@@ -292,12 +262,11 @@ for x in passed:
     (again if x.get("from_prev") else new).append(x)
 carried.extend(again)
 
+def rule_key(x):
+    return (x.get("rule_file") or "", crlib.norm(x.get("rule_quote") or ""))
 def same(a, b):
-    if str(a.get("rule_id", "")).startswith("FILE:") and (crlib.norm(a.get("summary", "")) != crlib.norm(b.get("summary", "")) or crlib.norm(a.get("rule_quote", "")) != crlib.norm(b.get("rule_quote", ""))):
-        return False
     return (a.get("file") == b.get("file") and a.get("category") == b.get("category")
-            and abs(to_int(a.get("line")) - to_int(b.get("line"))) <= 3
-            and str(a.get("rule_id") or "") == str(b.get("rule_id") or ""))
+            and abs(to_int(a.get("line")) - to_int(b.get("line"))) <= 3 and rule_key(a) == rule_key(b))
 dedup = []
 for x in new:
     hit = next((c for c in carried if same(c, x)), None)
@@ -311,8 +280,8 @@ new = dedup
 def merge_rules(items):
     out = []
     for x in sorted(items, key=lambda y: to_int(y.get("line"))):
-        if x.get("category") == "rules" and x.get("rule_id") and not x.get("document_rule") and not str(x["rule_id"]).startswith("FILE:"):
-            hit = next((o for o in out if o.get("category") == "rules" and o.get("rule_id") == x["rule_id"] and o.get("file") == x.get("file")), None)
+        if x.get("category") == "rules":
+            hit = next((o for o in out if o.get("category") == "rules" and rule_key(o) == rule_key(x) and o.get("file") == x.get("file")), None)
             if hit:
                 hit.setdefault("also_lines", []).append(to_int(x.get("line")))
                 continue
@@ -381,23 +350,14 @@ crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
           "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings}
-unverified = []
-if materials and not materials.get("complete"):
-    prior = crlib.load_json(os.path.join(d, "previous-findings.json"), [])
-    for f in prior:
-        if f.get("category") == "rules" and not any(x.get("category") == "rules" and x.get("file") == f.get("file") and x.get("rule_id") == f.get("rule_id") and crlib.norm(x.get("summary", "")) == crlib.norm(f.get("summary", "")) and crlib.norm(x.get("rule_quote", "")) == crlib.norm(f.get("rule_quote", "")) for x in passed):
-            unverified.append(dict(f, status="unverified", status_reason="本轮外部规则材料不完整或有冲突，未能重新核实"))
-    resolved = [x for x in resolved if x.get("category") != "rules"]
-crlib.save_json(os.path.join(d, "unverified.json"), unverified)
 final = {
-    "unverified": unverified, "materials_complete": materials.get("complete", True),
     "scope": meta.get("review_scope", "full"), "depth": meta.get("depth", "standard"),
     "groups": {k: [x for x in shown[k]] for k in shown}, "resolved": resolved, "ignored_by_history": history,
-    "trimmed": trimmed, "limits": limits, "counts": counts, "spot": {"checked": spot_ok + spot_failed, "failed": spot_failed},
+    "trimmed": trimmed, "limits": limits, "counts": counts,
     "notes": crlib.load_json(os.path.join(d, "rules-notes.json"), []),
 }
 crlib.save_json(os.path.join(d, "final.json"), final)
-print("passed=%d rejected=%d new=%d carried=%d resolved=%d trimmed=%d spot_failed=%d ignored_by_history=%d" % (
+print("passed=%d rejected=%d new=%d carried=%d resolved=%d trimmed=%d ignored_by_history=%d" % (
     len(passed), len(rejected), len([x for x in standing if x["status"].startswith("new")]),
-    len([x for x in standing if x["status"].startswith("carried")]), len(resolved), sum(trimmed.values()), spot_failed, len(history)))
+    len([x for x in standing if x["status"].startswith("carried")]), len(resolved), sum(trimmed.values()), len(history)))
 PY

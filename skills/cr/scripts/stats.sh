@@ -8,12 +8,11 @@
 #   --repo DIR 仓库所在的目录(默认:当前目录)
 #
 # 几个维度分开统计,互不折算:
-#   判断     人对这条发现的结论(feedback.sh 记录,含同步下来的团队判断):成立 / 不修 / 不成立 / 有争议 / 未表态
+#   判断     人对这条发现的结论(feedback.sh 记录):成立 / 不修 / 不成立 / 有争议 / 未表态
 #   采纳     MR 合并后,报过的问题在最终代码里是否真的解决了(adoption.sh 记录)
 #   去向     代码层面发生了什么:仍在 / 代码已改 / 代码没变但不再报 / 文件已不在改动里
 #   校准     不同置信度区间里,有人判断过的发现有多少是成立的
 #   差一点   没通过核实的候选的分数分布,尤其是 70–79 分那批(rejected.json),用来判断 80 分门槛是否合适
-#   规则检查 rules-auditor 漏检和抽查的情况(规则本身的去留由负责人定期复核,见 rules-health.sh)
 # "代码已改"不等于"被采纳":改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算,样本不足 10 条时只给数量。
 # 另外给出每种深度的平均用时和 token。需要 python3。只读取记录,不修改任何东西。
 
@@ -27,7 +26,7 @@ while [ $# -gt 0 ]; do
     --all) all=yes; shift ;;
     --days) [ $# -ge 2 ] || die "--days 需要一个值"; days=$2; shift 2 ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "未知参数: $1" ;;
   esac
 done
@@ -103,8 +102,6 @@ open_now = set()
 costs = {}
 n_reviews = n_full = n_incr = n_clean = 0
 rejected_all = []
-rule_cov_missing = collections.Counter()
-spot_checked = spot_failed = 0
 adoption = {}
 
 for pname, pdir in projects:
@@ -136,18 +133,12 @@ for pname, pdir in projects:
                 if m.get("usage_subagents") == "included": c["sub"] += 1
             for f in fs + ds:
                 k = key(f); findings[k] = f; seen_n[k] = seen_n.get(k, 0) + 1
-            for d in ds:                 # 旧版本 dismiss.sh 只写了 dismissed.json,分不清不成立和不修
+            for d in ds:                 # 旧版本只写了 dismissed.json,分不清不成立和不修
                 verdict.setdefault(key(d), d.get("verdict", "invalid_legacy"))
             for t in load(os.path.join(rdir, "transitions.json"), []):
                 fate[key(t)] = t.get("transition")
             for r in load(os.path.join(rdir, "rejected.json"), []):
                 rejected_all.append(r)
-            cov = load(os.path.join(rdir, "rules-coverage.json"), {})
-            for mm in cov.get("missing", []) if isinstance(cov, dict) else []:
-                rule_cov_missing[mm.get("unit")] += 1
-            fin = load(os.path.join(rdir, "final.json"), {})
-            sp = fin.get("spot", {}) if isinstance(fin, dict) else {}
-            spot_checked += int(sp.get("checked", 0) or 0); spot_failed += int(sp.get("failed", 0) or 0)
         if stamps:
             try: latest = open(os.path.join(tdir, "latest"), encoding="utf-8").readline().strip()
             except Exception: latest = stamps[-1]
@@ -265,15 +256,6 @@ if rejected_all:
         print("70–79 分的候选(最多列 8 条,值得抽几条人工看看,判断 80 分门槛是不是太严):")
         for r in near[:8]:
             print("- %d 分 `%s:%s` %s —— %s" % (conf_of(r), r.get("file", "?"), r.get("line", "?"), r.get("summary", ""), r.get("reject_reason") or r.get("verdict", "")))
-if rule_cov_missing or spot_checked:
-    print()
-    print("### 规则检查")
-    print()
-    if rule_cov_missing:
-        print("漏检(检查清单没覆盖到,补跑后仍然没有):" + "、".join("%s %d 次" % kv for kv in rule_cov_missing.most_common(10)))
-    if spot_checked:
-        print("抽查:共抽查 %d 条「没违反」,其中 %d 条其实违反了。" % (spot_checked, spot_failed))
-    print("规则本身的去留由负责人定期复核(rules-health.sh 生成复核清单)。")
 stale = [k for k in open_now if seen_n.get(k, 0) >= 3 and verdict.get(k) not in ("invalid", "wontfix")]
 if stale:
     print()

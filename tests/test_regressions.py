@@ -8,34 +8,12 @@ import test_crosscheck as fixture
 
 
 class PipelineRegressions(fixture.ProjectFixture):
-    auditor = fixture.TestPipeline.auditor
-    all_checked = fixture.TestPipeline.all_checked
     run_pipeline = fixture.TestPipeline.run_pipeline
 
-    def test_invalid_checks_do_not_count_and_rerun_repairs(self):
-        rd, _ = self.collect('feature')
-        checks = self.all_checked(rd)
-        for bad in [dict(result='banana'), dict(result='ok', lines=None),
-                    dict(result='ok', lines='999-1000'), dict(result='ok', lines='0-999'),
-                    dict(result='ok', lines=['x']), dict(result='n/a'), dict(result='violated')]:
-            with self.subTest(bad=bad):
-                items = [dict({k: v for k, v in c.items() if k not in ('lines', 'note')}, **bad) for c in checks]
-                self.auditor(rd, items)
-                r = self.run_script('check-rules.sh', rd, check=False)
-                self.assertEqual(r.returncode, 1, r.stdout)
-                cov = self.load(os.path.join(rd, 'rules-coverage.json'))
-                self.assertEqual(cov['covered_pairs'], 0)
-                self.assertEqual(cov['checked_ok'], [])
-        original = Path(rd, 'rules-auditor-1.json').read_text()
-        self.auditor(rd, checks)
-        Path(rd, 'rules-auditor-2.json').write_text(Path(rd, 'rules-auditor-1.json').read_text())
-        Path(rd, 'rules-auditor-1.json').write_text(original)
-        self.assertIn('OK', self.run_script('check-rules.sh', rd).stdout)
-
-    def test_missing_quote_is_rejected_for_numbered_rule(self):
+    def test_missing_quote_is_rejected(self):
         rd, _ = self.collect('feature')
         p = 'src/orders/paginate.ts'
-        c = dict(file=p, line=2, category='rules', rule_id='PRJ-002', summary='missing quote', failure_scenario='x')
+        c = dict(file=p, line=2, category='rules', rule_file='REVIEW.md', summary='missing quote', failure_scenario='x')
         final, _ = self.run_pipeline(rd, [c], {'missing quote': (100, [dict(file=p, lines='2')])})
         self.assertEqual(final['groups']['rules'], [])
         self.assertIn('没有引用规则原文', self.load(os.path.join(rd, 'rejected.json'))[0]['reject_reason'])
@@ -134,11 +112,3 @@ class GuardRegressions(fixture.Base):
             cmd='sh /example/collect-diff.sh target'
             self.hook(event, inp={'command':cmd}, command=cmd, exit_code=1, output='fatal: invalid revision')
             self.assertFalse(self.denied())
-
-    def test_full_rule_block_required_and_ttl_applies_to_agents(self):
-        self.start()
-        self.hook('PostToolUse', inp={'command':'sh /example/collect-diff.sh target'}, tool_response={'stdout':str(self.rd)})
-        self.assertIn('deny', self.hook(tool='Agent', inp={'prompt':'roles/verifier.md RULES-FP=abc'}))
-        self.assertNotIn('deny', self.hook(tool='Agent', inp={'prompt':'roles/verifier.md\n'+(self.rd/'task-rules.md').read_text()}))
-        Path(self.env['TMPDIR'], 'cr-guard', 'session').write_text('1')
-        self.assertNotIn('deny', self.hook(tool='Agent', inp={'prompt':'roles/verifier.md'}))

@@ -3,13 +3,14 @@
 #
 # 用法: collect-diff.sh [target] [--depth quick|standard|deep] [--only LIST] [--full]
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
-#                        [--intent TEXT] [--plan FILE] [--materials FILE] [--verifier-model NAME]
+#                        [--intent TEXT] [--plan FILE] [--verifier-model NAME]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
 #   --base REF   PR/MR 的目标分支,只在无法通过 gh/glab 读取时使用(默认:默认分支)
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan 方案或计划文件(仓库相对路径或绝对路径)
+#   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
 #
 # 平台:--platform > 环境变量 CR_PLATFORM > ~/.crosscheck/config 的 gitlab_hosts >
@@ -67,7 +68,6 @@ with_tests=no
 auth_via=""
 depth_source=default
 intent_arg=""
-materials_arg=""
 plan_arg=""
 verifier_model=""
 api_project=""
@@ -80,7 +80,6 @@ while [ $# -gt 0 ]; do
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; depth_source=user; shift 2 ;;
     --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; shift 2 ;;
-    --materials) [ $# -ge 2 ] || die "--materials 需要一个值"; materials_arg=$2; shift 2 ;;
     --plan) [ $# -ge 2 ] || die "--plan 需要一个值"; plan_arg=$2; shift 2 ;;
     --verifier-model) [ $# -ge 2 ] || die "--verifier-model 需要一个值"; verifier_model=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
@@ -88,7 +87,7 @@ while [ $# -gt 0 ]; do
     --with-tests) with_tests=yes; shift ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --base) [ $# -ge 2 ] || die "--base 需要一个值"; base_override=$2; shift 2 ;;
-    -h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -97,7 +96,7 @@ done
 case "$depth" in quick|standard|deep) ;; *) die "--depth 应为 quick、standard 或 deep" ;; esac
 only=$(printf '%s' "$only" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//')
 case ",$only," in
-  ,all,|,bug,rules,security,simplify,) only=all ;;
+  ,all,|,bug,rules,security,) only=all ;;
 esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
@@ -564,8 +563,7 @@ if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_k
 fi
 store_dir="$reviews_dir/$repo_key/$target_key"
 
-# 先读取完整目标的意图与规则材料，再决定能否使用增量缓存。
-[ -n "$materials_arg" ] || materials_arg=$(sh "$script_dir/config.sh" get materials_file)
+# 先读取完整目标的意图和规则,再决定能否使用增量缓存。
 [ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier)
 finder_model=$(sh "$script_dir/config.sh" get model.finder)
 {
@@ -579,7 +577,7 @@ rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
 grep -E '^(intent_sources|intent_acceptance|discussions|weakening|risk_level|risk_suggest|risk_reasons)=' "$out/meta.txt" > "$out/context-meta.txt" || true
-python3 "$script_dir/rule_materials.py" "$out" "$materials_arg"
+python3 "$script_dir/context_hash.py" "$out"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
 rank() { case "$1" in quick) echo 1 ;; deep) echo 3 ;; *) echo 2 ;; esac; }
@@ -592,8 +590,6 @@ if [ "$full" = no ] && [ -f "$store_dir/baseline" ]; then
   if [ -f "$prev/hashes.txt" ] && [ -f "$prev/meta.txt" ]; then
     prev_depth=$(sed -n 's/^depth=//p' "$prev/meta.txt" | head -n 1)
     if [ "$(rank "$prev_depth")" -ge "$(rank "$depth")" ] &&
-       [ "$(cat "$out/context-complete.txt")" = yes ] &&
-       [ "$(cat "$prev/context-complete.txt" 2>/dev/null || true)" = yes ] &&
        cmp -s "$prev/context-hash.txt" "$out/context-hash.txt"; then review_scope=incremental; fi
   fi
   [ "$review_scope" = incremental ] || prev_review=""

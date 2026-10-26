@@ -4,9 +4,7 @@
 import hashlib
 import json
 import os
-import random
 import re
-import string
 import subprocess
 
 
@@ -50,12 +48,6 @@ def ctx_hash(lines, n):
 
 def short_hash(s, n=8):
     return hashlib.sha1(str(s).encode("utf-8")).hexdigest()[:n]
-
-
-def nonce(n=4):
-    alphabet = string.ascii_uppercase + string.digits
-    rng = random.SystemRandom()
-    return "".join(rng.choice(alphabet) for _ in range(n))
 
 
 # ---------- glob ----------
@@ -258,71 +250,6 @@ def as_map(v):
     return out
 
 
-# ---------- 规则条目 ----------
-
-META_RE = re.compile(r"<!--\s*cr:\s*(.*?)-->")
-BULLET_RE = re.compile(r"^(\s*)[-*]\s+(.*)$")
-
-
-def parse_meta(s):
-    d = {}
-    for m in re.finditer(r"([A-Za-z_]+)=(\S+)", s):
-        d[m.group(1)] = m.group(2)
-    return d
-
-
-def split_rules(body):
-    """把规则文件正文拆成条目。一条规则是一个列表项(可以续行),后面紧跟的
-    <!-- cr: id=... --> 是它的元数据。返回 [{id, meta, text, start, end}],行号从 1 开始。"""
-    lines = body.split("\n")
-    rules, cur = [], None
-
-    def close():
-        if cur is not None:
-            rules.append(cur)
-
-    for i, line in enumerate(lines, 1):
-        m = META_RE.search(line)
-        b = BULLET_RE.match(line)
-        if b and len(b.group(1)) <= 1 and not line.strip().startswith("<!--"):
-            close()
-            text = META_RE.sub("", b.group(2)).strip()
-            cur = {"id": None, "meta": {}, "text": text, "start": i, "end": i}
-            if m:
-                cur["meta"] = parse_meta(m.group(1))
-                cur["id"] = cur["meta"].get("id")
-            continue
-        if cur is None:
-            continue
-        if m and line.strip().startswith("<!--"):
-            cur["meta"] = parse_meta(m.group(1))
-            cur["id"] = cur["meta"].get("id")
-            cur["end"] = i
-            continue
-        if line.strip() and line[:1] in (" ", "\t") and not cur["meta"]:
-            cur["text"] += " " + line.strip()
-            cur["end"] = i
-            continue
-        if not line.strip():
-            continue
-        close()
-        cur = None
-    close()
-    return rules
-
-
-def remove_rules(body, ids):
-    """去掉指定编号的规则(连同元数据行)。"""
-    if not ids:
-        return body
-    lines = body.split("\n")
-    drop = set()
-    for r in split_rules(body):
-        if r["id"] in ids:
-            drop.update(range(r["start"], r["end"] + 1))
-    return "\n".join(x for i, x in enumerate(lines, 1) if i not in drop)
-
-
 # ---------- git / 仓库 ----------
 
 def git(root, *args, check=True):
@@ -430,25 +357,11 @@ def home():
     return os.environ.get("CROSSCHECK_HOME") or os.path.join(os.path.expanduser("~"), ".crosscheck")
 
 
-def rules_dir():
-    d = os.environ.get("CROSSCHECK_RULES_DIR") or config().get("rules_dir") or os.path.join(home(), "org-rules")
-    return d if os.path.isdir(d) else ""
-
-
-def data_dir():
-    d = config().get("data_dir") or os.path.join(home(), "data")
-    return d
-
-
-def project_key(repo_id):
-    return re.sub(r"[^A-Za-z0-9._-]", "_", repo_id.strip("/"))
-
-
 SEV_ORDER = {"critical": 0, "major": 1, "minor": 2}
 SEV_NAME = {"critical": "严重", "major": "重要", "minor": "轻微"}
 
 
-# ---------- 人的判断(本机 + 团队共享) ----------
+# ---------- 人的判断 ----------
 
 def _read_jsonl(path):
     out = []
@@ -464,25 +377,9 @@ def _read_jsonl(path):
     return out
 
 
-def team_feedback_files(repo_id):
-    base = os.path.join(data_dir(), "feedback", project_key(repo_id))
-    out = []
-    for dp, _, names in os.walk(base):
-        out.extend(os.path.join(dp, n) for n in names if n.endswith(".jsonl"))
-    return sorted(out)
-
-
-def feedback_entries(pdir, repo_id=None):
-    """项目的判断记录:本机的 feedback.jsonl,加上已同步下来的团队记录。按 key 合并,时间晚的为准。"""
-    if repo_id is None:
-        try:
-            repo_id = open(os.path.join(pdir, ".repo"), encoding="utf-8").readline().strip()
-        except OSError:
-            repo_id = ""
+def feedback_entries(pdir):
+    """项目的判断记录 feedback.jsonl,按 key 合并,时间晚的为准。"""
     entries = _read_jsonl(os.path.join(pdir, "feedback.jsonl")) if pdir else []
-    if repo_id:
-        for p in team_feedback_files(repo_id):
-            entries.extend(_read_jsonl(p))
     latest = {}
     for e in entries:
         k = e.get("key") or e.get("id")

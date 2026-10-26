@@ -5,7 +5,7 @@
 #         找出这个项目里已经合并的 PR/MR,只读拉取合并后的代码,对照每条报过的发现:
 #           那段代码原样还在          → 记为「代码没改」(没有采纳)
 #           文件已经不在了            → 记为「文件已删除」(不计入采纳率)
-#           那段代码改了              → 列进 adoption-pending.json,交给 judge 角色(mode=adoption)判断问题是否真的解决
+#           那段代码改了              → 列进 adoption-pending.json,交给 judge 角色判断问题是否真的解决
 #         判断合并:有 glab / gh 时读平台的状态;没有时看 MR 的最后一个提交是否已经进了目标分支。
 #       adoption.sh record ID resolved|not_resolved [说明] [--repo DIR]
 #         记下 judge 的判断。

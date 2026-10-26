@@ -1,7 +1,5 @@
-"""项目规则的来源识别与范围解析；审查、提炼、复核共用，不执行正文。"""
+"""项目规则的来源识别与范围解析,不执行正文。"""
 import os
-import re
-from urllib.parse import unquote, urlparse
 
 import crlib
 
@@ -89,36 +87,3 @@ def matches(record, path):
 def discover(src):
     return [describe(p, text) for p in sorted(set(src.files())) if kind(p)
             for text in [src.read(p)] if text is not None]
-
-
-def writable(root, path):
-    """位置许可仅限项目来源；组织维护责任仍由操作的 origin 与宿主确认。"""
-    if (not kind(path) or os.path.isabs(path) or any(x in ('', '.', '..') for x in path.split('/'))
-            or re.search(r'[\x00-\x1f=]', path)):
-        raise ValueError('只能修改仓库内受支持的项目规则文件: ' + path)
-    absolute = os.path.realpath(os.path.join(root, path))
-    org = crlib.rules_dir()
-    if org and (absolute == os.path.realpath(org) or absolute.startswith(os.path.realpath(org) + os.sep)):
-        raise ValueError('组织规则副本只读')
-    # 本机材料清单中明确标识的本地组织原件，即使位于项目内也不能写。
-    import rule_materials
-    manifest = crlib.config().get('materials_file', '')
-    if manifest and not os.path.isabs(manifest):
-        manifest = os.path.join(root, manifest)
-    records, errors = rule_materials.read_import(manifest)
-    if errors:
-        raise ValueError('组织来源清单不可读，无法确认维护责任')
-    for r in records:
-        ref = r['ref']
-        if ref.startswith('file://'):
-            ref = unquote(urlparse(ref).path)
-        if r['purpose'] == 'rules' and '://' not in ref:
-            if os.path.realpath(os.path.join(root, ref)) == absolute:
-                raise ValueError('该文件是配置中的外部规范，只读')
-    cur = root
-    for part in path.split('/'):
-        cur = os.path.join(cur, part)
-        if os.path.islink(cur):
-            raise ValueError('不写入符号链接规则或目录: ' + path)
-    if not os.path.realpath(cur).startswith(os.path.realpath(root) + os.sep):
-        raise ValueError('规则路径指向仓库外')

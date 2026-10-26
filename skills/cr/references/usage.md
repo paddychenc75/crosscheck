@@ -31,12 +31,10 @@
 
 | 想做的 | 可以这样说 |
 |---|---|
+| 看效果和采纳率 | 「看看 review 的效果」 |
 | 从 MR 评论里总结规则 | 「从最近一个月的 MR 评论里总结一下规则」 |
 | 检查规则还好不好用 | 「检查一下我们的规则」 |
-| 看效果和采纳率 | 「看看 review 的效果」 |
-| 同步团队判断 / 组织规则 | 「同步一下 review 数据」「同步一下组织规则」 |
-| 跑评测(插件维护者) | 「跑一下评测」「找几个评测用例」 |
+| 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 
-配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、组织规则仓库 `rules_repo` / `rules_ref`、共享判断的 `data_repo`、读取需求单的 `issue_cmd`、评测用例的仓库位置 `repo.<名字>`。
+配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、读取需求单的 `issue_cmd`、查找和核实用的模型 `model.finder` / `model.verifier`。
 
-组织资料可由宿主只读取得并传 `--materials <JSON>`，或配置 materials_file。组织规则只读，项目规则维护仍可用；评测位置用 eval_cases / eval_baseline，正反例用显式 --examples，不再默认发布到组织规则仓库。见 materials.md。

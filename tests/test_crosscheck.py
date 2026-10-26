@@ -126,12 +126,8 @@ class Base(unittest.TestCase):
 
 REVIEW_MD = """\
 ---
-extends: [platform/rpc]
-disable:
-  - ORG-RPC-004: 本项目是网关,超时由上游设置
 skip: ["src/gen/**"]
 limits: { minor: 2 }
-severity: { PRJ-002: critical }
 risk_paths: ["src/payment/**"]
 ---
 # Review 约定
@@ -139,38 +135,19 @@ risk_paths: ["src/payment/**"]
 ## 每次都要检查
 
 - 日期格式化统一用 `src/utils/date.ts`,不要直接调用 dayjs。原因:时区统一处理。
-  <!-- cr: id=PRJ-001 scope=src/** severity=minor src=manual added=2026-10 -->
 - 日志里不能出现邮箱。原因:合规。
-  <!-- cr: id=PRJ-002 src=manual added=2026-10 -->
-- 没有编号的一条规则
-"""
-
-PACK = """\
----
-pack: platform/rpc
-prefix: ORG-RPC
-owner: "@rpc-team"
-applies_to: ["**/*.ts"]
----
-- RPC 调用必须设置超时。原因:避免拖垮调用方。 <!-- cr: id=ORG-RPC-001 -->
-- 网关透传 header。原因:链路追踪。
-  <!-- cr: id=ORG-RPC-004 -->
-- 旧规则。原因:历史。 <!-- cr: id=ORG-RPC-005 status=deprecated -->
 """
 
 
 class ProjectFixture(Base):
-    """一个带规则、组织规则包和 feature 分支的项目。"""
+    """一个带规则和 feature 分支的项目。"""
 
     def setUp(self):
         super().setUp()
-        rules = os.path.join(self.home, "org-rules")
-        self.write(rules, {"packs/platform/rpc/rules.md": PACK})
-        open(os.path.join(rules, ".last-sync"), "w").close()
         self.repo = self.make_repo("shop", {
             "REVIEW.md": REVIEW_MD,
-            "src/orders/REVIEW.md": "- 订单金额用 decimal。原因:精度。 <!-- cr: id=PRJ-003 -->\n",
-            ".cr/ignore.md": "- order_client 统一重试,调用方不用处理 <!-- cr: id=IGN-001 -->\n",
+            "src/orders/REVIEW.md": "- 订单金额用 decimal。原因:精度。\n",
+            ".cr/ignore.md": "- order_client 统一重试,调用方不用处理\n",
             "CLAUDE.md": "# Project\nUse pnpm.\n",
             "src/orders/paginate.ts": "export function page(t: number, s: number) {\n  return Math.ceil(t / s)\n}\n",
             "src/auth/login.ts": "export function login(u: string) {\n  return u\n}\n",
@@ -186,7 +163,7 @@ class ProjectFixture(Base):
             "tests/page.test.ts": 'test.skip("a", () => {})\n',
             ".gitlab-ci.yml": "stages: [test]\nunit:\n  script: npm test\n",
             "db/migrations/001.sql": "ALTER TABLE x ADD y int;\n",
-            "REVIEW.md": REVIEW_MD.replace("PRJ-002: critical", "PRJ-002: minor") + "- 分支里新加的规则。原因:测试。\n  <!-- cr: id=PRJ-009 -->\n",
+            "REVIEW.md": REVIEW_MD.replace("limits: { minor: 2 }", "limits: { minor: 9 }") + "- 分支里新加的规则。原因:测试。\n",
         }, "feat: 修复分页 Closes #12, PROJ-231")
         self.git(self.repo, "switch", "-q", "main")
 
@@ -202,22 +179,21 @@ class TestCollect(ProjectFixture):
         rd, out = self.collect("feature")
         settings = self.load(os.path.join(rd, "settings.json"))
         self.assertTrue(settings["source"].startswith("base:"))
-        self.assertEqual(settings["severity"]["PRJ-002"], "critical")
+        self.assertEqual(settings["limits"]["minor"], "2", "改动本身改的审查设置不应在审查它时生效")
         skipped = Path(os.path.join(rd, "skipped.txt")).read_text(encoding="utf-8")
         self.assertIn("src/gen/x.ts\treview-skip", skipped)
         self.assertIn("tests/page.test.ts\ttest", skipped)
-        units = {u["unit"] for u in self.load(os.path.join(rd, "rules-index.json"))}
-        self.assertTrue({"PRJ-001", "PRJ-002", "PRJ-003", "ORG-RPC-001", "FILE:REVIEW.md", "FILE:CLAUDE.md"} <= units)
-        self.assertNotIn("PRJ-009", units, "改动本身加的规则不应在审查它时生效")
-        self.assertNotIn("ORG-RPC-004", units)
-        self.assertNotIn("ORG-RPC-005", units)
+        blocks = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}
+        self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", ".cr/ignore.md", "CLAUDE.md"})
+        self.assertEqual(blocks["src/orders/REVIEW.md"]["applies_files"], ["src/orders/paginate.ts"])
+        self.assertEqual(blocks["src/orders/REVIEW.md"]["layer"], "L3")
+        rules = Path(os.path.join(rd, "rules.txt")).read_text(encoding="utf-8")
+        self.assertNotIn("分支里新加的规则", rules, "改动本身加的规则不应在审查它时生效")
+        self.assertNotIn("skip:", rules, "frontmatter 不进规则正文")
+        self.assertLess(rules.index("file=src/orders/REVIEW.md"), rules.index("file=REVIEW.md"), "越具体越先")
         meta = self.kv(os.path.join(rd, "rules-meta.txt"))
-        self.assertIn("ORG-RPC-004", meta["disabled"])
-        self.assertEqual(meta["deprecated"], "ORG-RPC-005")
-        task = Path(os.path.join(rd, "task-rules.md")).read_text(encoding="utf-8")
-        self.assertIn("RULES-FP=" + meta["fingerprint"], task)
-        nonce = Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
-        self.assertTrue(task.rstrip().splitlines()[-1].startswith("核对码:" + nonce))
+        self.assertEqual(meta["blocks"], "4")
+        self.assertTrue(meta["source"].startswith("base:"))
 
     def test_context_weakening_risk_and_intent(self):
         rd, out = self.collect("feature")
@@ -234,8 +210,7 @@ class TestCollect(ProjectFixture):
     def test_local_review_reads_worktree_rules(self):
         self.git(self.repo, "switch", "-q", "feature")
         rd, _ = self.collect("--intent", "修复分页丢数据")
-        units = {u["unit"] for u in self.load(os.path.join(rd, "rules-index.json"))}
-        self.assertIn("PRJ-009", units)
+        self.assertIn("分支里新加的规则", Path(os.path.join(rd, "rules.txt")).read_text(encoding="utf-8"))
         self.assertIn("你的补充", self.kv(os.path.join(rd, "meta.txt"))["intent_sources"])
 
     def test_no_rules_is_fine(self):
@@ -243,128 +218,74 @@ class TestCollect(ProjectFixture):
         self.commit(repo, {"a.py": "x = 2\n"}, "change")
         r = self.run_script("collect-diff.sh", "HEAD~1..HEAD", cwd=repo)
         rd = self.review_dir(r.stdout)
-        self.run_script("collect-rules.sh", rd)
-        self.assertEqual(self.kv(os.path.join(rd, "rules-meta.txt"))["units"], "0")
-        r = self.run_script("check-rules.sh", rd)
-        self.assertIn("OK", r.stdout)
+        r = self.run_script("collect-rules.sh", rd)
+        self.assertIn("blocks=0", r.stdout)
+        self.assertEqual(self.load(os.path.join(rd, "rules-index.json")), [])
 
 
 class TestPipeline(ProjectFixture):
-    def auditor(self, rd, checked, nonce=None):
-        nonce = nonce if nonce is not None else Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
-        with open(os.path.join(rd, "rules-auditor-1.json"), "w") as f:
-            json.dump({"nonce": nonce, "findings": [], "checked": checked}, f)
-
-    def all_checked(self, rd):
-        out = []
-        ranges = {}
-        for line in Path(rd, "ranges.txt").read_text().splitlines():
-            file, start, end = line.split("\t")
-            ranges.setdefault(file, start)
-        for u in self.load(os.path.join(rd, "rules-index.json")):
-            for file in u["applies_files"]:
-                c = {"rule_id": u["unit"], "files": [file]}
-                if file in ranges:
-                    c.update(result="ok", lines=ranges[file])
-                else:
-                    c.update(result="n/a", note="没有可检查的改动行")
-                out.append(c)
-        return out
-
-    def test_check_rules_detects_missing_and_bad_nonce(self):
-        rd, _ = self.collect("feature")
-        checked = [c for c in self.all_checked(rd) if c["rule_id"] != "FILE:CLAUDE.md"]
-        self.auditor(rd, checked)
-        r = self.run_script("check-rules.sh", rd, check=False)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("MISSING: FILE:CLAUDE.md", r.stdout)
-        self.assertTrue(os.path.exists(os.path.join(rd, "rerun-rules.md")))
-        self.auditor(rd, self.all_checked(rd), nonce="XXXX")
-        r = self.run_script("check-rules.sh", rd, check=False)
-        self.assertIn("NONCE", r.stdout)
-        self.auditor(rd, self.all_checked(rd))
-        r = self.run_script("check-rules.sh", rd)
-        self.assertIn("OK", r.stdout)
-
-    def test_check_rules_rerun_after_bad_nonce(self):
-        rd, _ = self.collect("feature")
-        good = Path(os.path.join(rd, ".rules-nonce")).read_text(encoding="utf-8").strip()
-        for n, nonce in ((1, "XXXX"), (2, good)):
-            with open(os.path.join(rd, "rules-auditor-%d.json" % n), "w") as f:
-                json.dump({"nonce": nonce, "findings": [], "checked": self.all_checked(rd) if n == 1 else []}, f)
-        r = self.run_script("check-rules.sh", rd, check=False)
-        self.assertIn("MISSING", r.stdout, "核对码错的那次,检查清单不算覆盖")
-        self.assertNotIn("NONCE", r.stdout, "以最后一次的核对码为准")
-        with open(os.path.join(rd, "rules-auditor-2.json"), "w") as f:
-            json.dump({"nonce": good, "findings": [], "checked": self.all_checked(rd)}, f)
-        self.assertIn("OK", self.run_script("check-rules.sh", rd).stdout)
-        self.assertEqual(self.load(os.path.join(rd, "rules-coverage.json"))["nonce_mismatch"], ["rules-auditor-1.json"])
-
-    def run_pipeline(self, rd, candidates, scores, spot_score=0):
+    def run_pipeline(self, rd, candidates, scores):
         with open(os.path.join(rd, "candidates.json"), "w") as f:
             json.dump(candidates, f, ensure_ascii=False)
-        self.run_script("prepare-verify.sh", rd, "--spot", "1")
+        self.run_script("prepare-verify.sh", rd)
         results = []
         for name in sorted(os.listdir(os.path.join(rd, "verify"))):
             for c in self.load(os.path.join(rd, "verify", name)):
                 r = dict(c)
                 self.assertNotIn("found_by", r)
-                if c.get("kind") == "spot":
-                    text = next(u["text"] for u in self.load(os.path.join(rd, "rules-index.json")) if u["unit"] == c["rule_id"])
-                    r.update(confidence=spot_score, verdict="抽查", evidence=[{"file": c["file"], "lines": "1"}], rule_quote=text[:20])
-                else:
-                    conf, ev = scores[c["summary"]]
-                    r.update(confidence=conf, verdict="读过代码", evidence=ev)
+                conf, ev = scores[c["summary"]]
+                r.update(confidence=conf, verdict="读过代码", evidence=ev)
                 results.append(r)
         with open(os.path.join(rd, "verify", "result-1.json"), "w") as f:
             json.dump(results, f, ensure_ascii=False)
         r = self.run_script("aggregate.sh", rd)
         return self.load(os.path.join(rd, "final.json")), r.stdout
 
-    def test_aggregate_rules_evidence_limits_and_severity(self):
+    def test_aggregate_rules_evidence_and_limits(self):
         rd, _ = self.collect("feature")
-        self.auditor(rd, self.all_checked(rd))
-        self.run_script("check-rules.sh", rd)
         P, L = "src/orders/paginate.ts", "src/auth/login.ts"
         ev = [{"file": P, "lines": "1-2"}]
         cands = [
-            {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "整页丢最后一页", "failure_scenario": "x", "found_by": ["bug-hunter"], "pass_hits": 2},
+            {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "整页丢最后一页", "failure_scenario": "x", "found_by": ["reviewer"], "pass_hits": 2},
             {"file": L, "line": 1, "category": "security", "severity": "critical", "summary": "依据不存在", "failure_scenario": "x"},
-            {"file": P, "line": 2, "category": "rules", "rule_id": "PRJ-002", "rule_quote": "日志里不能出现邮箱。原因:合规。", "summary": "日志有邮箱", "failure_scenario": "x"},
-            {"file": P, "line": 2, "category": "rules", "rule_id": "PRJ-404", "summary": "编造的规则", "failure_scenario": "x"},
-            {"file": P, "line": 2, "category": "rules", "rule_id": "PRJ-001", "rule_quote": "不是原文", "summary": "引用不对", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "日志里不能出现邮箱。", "summary": "日志有邮箱", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_quote": "Use pnpm.", "summary": "没写出处", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": "NOPE.md", "rule_quote": "编造", "summary": "编造的规则", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "不是原文", "summary": "引用不对", "failure_scenario": "x"},
+            {"file": L, "line": 1, "category": "rules", "rule_file": "src/orders/REVIEW.md", "rule_quote": "订单金额用 decimal", "summary": "范围不对", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "summary": "没有引文", "failure_scenario": "x"},
             {"file": P, "line": 1, "category": "bug", "severity": "minor", "summary": "小问题1", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "bug", "severity": "minor", "summary": "小问题2", "failure_scenario": "x"},
             {"file": L, "line": 2, "category": "bug", "severity": "minor", "summary": "小问题3", "failure_scenario": "x"},
             {"file": P, "line": 9, "category": "bug", "severity": "major", "summary": "不在改动行", "failure_scenario": "x"},
-            {"file": "REVIEW.md", "line": 1, "category": "rules", "rule_id": "PRJ-002", "summary": "规则可能过时:日志", "failure_scenario": "x"},
+            {"file": "REVIEW.md", "line": 1, "category": "rules", "rule_file": "REVIEW.md", "summary": "规则可能过时:日志", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "intent", "severity": "major", "summary": "没满足验收标准", "failure_scenario": "x"},
             {"file": P, "line": 1, "category": "bug", "severity": "major", "summary": "文字定位的依据", "failure_scenario": "x"},
             {"file": P, "line": 1, "category": "bug", "severity": "major", "summary": "文字定位不存在", "failure_scenario": "x"},
         ]
         scores = {"整页丢最后一页": (96, ev), "依据不存在": (90, [{"file": L, "lines": "50-60"}]), "日志有邮箱": (90, ev),
-                  "编造的规则": (90, ev), "引用不对": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
+                  "没写出处": (90, ev), "编造的规则": (90, ev), "引用不对": (90, ev), "范围不对": (90, [{"file": L, "lines": "1"}]),
+                  "没有引文": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
                   "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev),
                   "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}]),
-                  "文字定位的依据": (95, ev + [{"file": "REVIEW.md", "lines": "PRJ-002"}]),
+                  "文字定位的依据": (95, ev + [{"file": "REVIEW.md", "lines": "日志里不能出现邮箱"}]),
                   "文字定位不存在": (95, ev + [{"file": "REVIEW.md", "lines": "PRJ-999"}])}
-        final, out = self.run_pipeline(rd, cands, scores, spot_score=90)
+        final, out = self.run_pipeline(rd, cands, scores)
         shown = {x["summary"]: x for g in final["groups"].values() for x in g}
         self.assertIn("整页丢最后一页", shown)
         self.assertIn("没满足验收标准", shown, "引用 review_dir 里的 intent.md 作依据是有效的")
-        self.assertIn("文字定位的依据", shown, "REVIEW.md 里能找到 PRJ-002,依据有效")
-        self.assertEqual(shown["整页丢最后一页"]["found_by"], ["bug-hunter"])
-        rule_reports = [x for fs in final["groups"].values() for x in fs if x.get("rule_id") == "PRJ-002"]
-        self.assertTrue(rule_reports)
-        self.assertTrue(all(x["severity"] == "critical" for x in rule_reports), "按规则身份校验分级，抽查合并可能改变摘要")
+        self.assertIn("文字定位的依据", shown, "REVIEW.md 里能找到这段文字,依据有效")
+        self.assertEqual(shown["整页丢最后一页"]["found_by"], ["reviewer"])
+        self.assertEqual(shown["日志有邮箱"]["severity"], "minor")
+        self.assertEqual(shown["没写出处"]["rule_file"], "CLAUDE.md", "没写出处时按引文找到规则文件")
         rejected = {x["summary"]: x for x in self.load(os.path.join(rd, "rejected.json"))}
         self.assertEqual(rejected["依据不存在"]["confidence"], 50)
         self.assertEqual(rejected["文字定位不存在"]["confidence"], 50)
-        self.assertEqual(rejected["编造的规则"]["confidence"], 0)
-        self.assertEqual(rejected["引用不对"]["confidence"], 0)
+        for k, why in (("编造的规则", "规则文件不在"), ("引用不对", "对不上"), ("范围不对", "不覆盖"), ("没有引文", "没有引用")):
+            self.assertEqual(rejected[k]["confidence"], 0, k)
+            self.assertIn(why, rejected[k]["reject_reason"], k)
         self.assertEqual(rejected["不在改动行"]["confidence"], 0)
         self.assertEqual(final["trimmed"].get("defects"), 1, "minor 上限 2 条,第 3 条应被裁掉")
-        self.assertEqual(final["spot"]["failed"], 1)
         self.assertEqual([n["summary"] for n in final["notes"]], ["规则可能过时:日志"])
         nos = sorted(x["no"] for g in final["groups"].values() for x in g)
         self.assertEqual(nos, list(range(1, len(nos) + 1)))
@@ -373,9 +294,18 @@ class TestPipeline(ProjectFixture):
         self.assertEqual(len(standing), sum(len(g) for g in final["groups"].values()) + 1)
         lines = self.run_script("report-lines.sh", rd).stdout
         self.assertIn("SCOPE: 审查范围:分支 feature", lines)
-        self.assertIn("任务含规则 未验证(未安装 hook)", lines)
-        self.assertIn("抽查 1 条发现 1 处漏检", lines)
+        self.assertIn("`REVIEW.md`", lines)
+        self.assertIn("违反 2 条", lines)
+        self.assertNotIn("VERIFY:", lines)
         self.assertIn("WEAKEN:", lines)
+
+    def test_same_rule_in_same_file_is_merged(self):
+        rd, _ = self.collect("feature")
+        P = "src/orders/paginate.ts"
+        cands = [{"file": P, "line": n, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "日志里不能出现邮箱", "summary": "邮箱%d" % n, "failure_scenario": "x"} for n in (1, 2)]
+        final, _ = self.run_pipeline(rd, cands, {"邮箱1": (90, [{"file": P, "lines": "1"}]), "邮箱2": (90, [{"file": P, "lines": "2"}])})
+        self.assertEqual(len(final["groups"]["rules"]), 1)
+        self.assertEqual(final["groups"]["rules"][0]["also_lines"], [2])
 
     def test_incremental_carries_and_resolves(self):
         rd, _ = self.collect("feature")
@@ -426,29 +356,6 @@ class TestDependents(Base):
         self.assertEqual((st["src/a.ts"], st["src/b.ts"], st["src/c.ts"]), ("changed", "dependent", "unchanged"))
         files = Path(os.path.join(rd2, "files.txt")).read_text(encoding="utf-8").split()
         self.assertEqual(sorted(files), ["src/a.ts", "src/b.ts"])
-
-
-class TestGuard(ProjectFixture):
-    def hook(self, payload):
-        r = subprocess.run(["sh", os.path.join(SCRIPTS, "guard.sh")], input=json.dumps(payload), capture_output=True,
-                           text=True, env=self.env, cwd=self.repo)
-        return r.stdout
-
-    def test_subagent_needs_rules_fingerprint(self):
-        rd, _ = self.collect("feature")
-        cmd = "sh %s/collect-diff.sh feature" % SCRIPTS
-        self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": self.repo})
-        self.hook({"hook_event_name": "PostToolUse", "session_id": "s1", "tool_name": "Bash", "tool_input": {"command": cmd},
-                   "tool_response": {"stdout": "files=4\n%s\n" % rd}})
-        fp = self.kv(os.path.join(rd, "rules-meta.txt"))["fingerprint"]
-        out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Agent", "tool_input": {"prompt": "阅读 roles/verifier.md"}})
-        self.assertIn('"permissionDecision":"deny"', out)
-        out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Agent", "tool_input": {"prompt": "阅读 roles/rules-auditor.md\n" + Path(rd, "task-rules.md").read_text(encoding="utf-8")}})
-        self.assertEqual(out.strip(), "")
-        self.assertTrue(os.path.exists(os.path.join(rd, ".hook-fp-ok")))
-        out = self.hook({"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}, "cwd": self.repo})
-        self.assertIn("deny", out)
-        self.assertIn("任务含规则 ✓", self.run_script("report-lines.sh", rd).stdout)
 
 
 class TestGitLab(Base):
@@ -504,214 +411,7 @@ class TestGitLab(Base):
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
         self.assertEqual(self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))["platform"], "gitlab")
 
-    def test_mine_reviews(self):
-        self.config("gitlab_hosts=code.example.com\n")
-        self.mock_api("projects/eng%2Fshop/merge_requests?state=merged&per_page=100&page=1", [dict(self.mr, merged_at="2099-01-01T00:00:00Z")])
-        notes = [{"notes": [
-            {"body": "整页时会丢最后一页的数据", "author": {"username": "alice"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 1, "head_sha": self.head}, "resolved": True},
-            {"body": "LGTM", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 1, "head_sha": self.head}},
-            {"body": "这个常量应该放进配置中心", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 40, "head_sha": self.head}},
-            {"body": "日志里打印了用户邮箱", "author": {"username": "bob"}, "type": "DiffNote", "position": {"new_path": "src/p.ts", "new_line": 3, "head_sha": self.head}},
-        ]}]
-        self.mock_api("projects/eng%2Fshop/merge_requests/12/discussions?per_page=100&page=1", notes)
-        self.mock_api("projects/eng%2Fshop/merge_requests?state=closed&labels=crosscheck-rule&per_page=100&page=1", [])
-        self.mock_api("projects/eng%2Fshop/merge_requests?state=opened&labels=crosscheck-rule&per_page=100&page=1", [])
-        pdir = os.path.join(self.home, "reviews", "shop")
-        os.makedirs(os.path.join(pdir, "mr-12", "20261020-100000"))
-        with open(os.path.join(pdir, ".repo"), "w") as f:
-            f.write("code.example.com/eng/shop\n")
-        with open(os.path.join(pdir, "mr-12", "20261020-100000", "findings.json"), "w") as f:
-            json.dump([{"id": "f1", "file": "src/p.ts", "line": 1, "summary": "丢数据"}], f)
-        with open(os.path.join(pdir, "mr-12", "20261020-100000", "rejected.json"), "w") as f:
-            json.dump([{"file": "src/p.ts", "line": 3, "summary": "日志有邮箱", "confidence": 0, "suppressed_by": "discussions"}], f, ensure_ascii=False)
-        out = self.run_script("mine-reviews.sh", "--since", "30d", cwd=self.repo).stdout
-        d = out.strip().splitlines()[-1]
-        comments = [json.loads(x) for x in Path(os.path.join(d, "comments.jsonl")).read_text(encoding="utf-8").splitlines(keepends=True)]
-        self.assertEqual(len(comments), 3)
-        self.assertEqual(comments[0]["matched_finding"], "f1")
-        self.assertEqual(comments[2]["matched_finding"], "suppressed:discussions", "取最近的一条;因人工已评论而压下的不算漏报")
-        self.assertFalse(comments[0]["code_changed_after"])
-        self.assertEqual([m["body"] for m in self.load(os.path.join(d, "misses.json"))], ["这个常量应该放进配置中心"])
-        self.assertNotIn("alice", Path(os.path.join(d, "comments.jsonl")).read_text(encoding="utf-8"))
-
-
-class TestSync(Base):
-    def test_sync_rules_and_data(self):
-        rules_remote = self.bare("rules")
-        src = self.make_repo("rules-src", {"packs/platform/rpc/rules.md": PACK}, remote=rules_remote)
-        self.git(src, "tag", "v1.0.0")
-        self.git(src, "push", "-q", "origin", "main", "--tags")
-        data_remote = self.bare("data")
-        d = self.make_repo("data-src", {"README.md": "data\n"}, remote=data_remote)
-        self.git(d, "push", "-q", "origin", "main")
-        self.config("rules_repo=%s\nrules_ref=v1.0.0  # tag\ndata_repo=%s\n" % (rules_remote, data_remote))
-        self.assertIn("v1.0.0", self.run_script("sync-rules.sh").stdout)
-        self.assertTrue(os.path.isfile(os.path.join(self.home, "org-rules", "packs", "platform", "rpc", "rules.md")))
-        pdir = os.path.join(self.home, "reviews", "shop")
-        os.makedirs(pdir)
-        with open(os.path.join(pdir, ".repo"), "w") as f:
-            f.write("code.example.com/eng/shop\n")
-        with open(os.path.join(pdir, "feedback.jsonl"), "w") as f:
-            f.write(json.dumps({"time": "2026-10-20 10:00", "verdict": "invalid", "reason": "上游已重试", "key": "k1", "id": "k1", "file": "a.go", "author": "abc"}, ensure_ascii=False) + "\n")
-        self.assertIn("以上是要推送的条数", self.run_script("sync-data.sh", "push").stdout)
-        self.assertIn("已推送 1 条判断", self.run_script("sync-data.sh", "push", "--yes").stdout)
-        self.assertIn("total\t0", self.run_script("sync-data.sh", "status").stdout)
-        # 另一个人的机器:没有本机记录,只靠团队数据
-        rd = os.path.join(self.tmp, "rd")
-        os.makedirs(rd)
-        other = os.path.join(self.tmp, "home2")
-        shutil.copytree(os.path.join(self.home, "data"), os.path.join(other, "data"))
-        os.makedirs(os.path.join(other, "reviews", "shop"))
-        with open(os.path.join(other, "reviews", "shop", ".repo"), "w") as f:
-            f.write("code.example.com/eng/shop\n")
-        with open(os.path.join(rd, "meta.txt"), "w") as f:
-            f.write("store_dir=%s/reviews/shop/branch-x\nrepo_root=%s\nhead_checked_out=yes\n" % (other, self.tmp))
-        with open(os.path.join(rd, "files.txt"), "w") as f:
-            f.write("a.go\n")
-        env = dict(self.env, CROSSCHECK_HOME=other)
-        self.run_script("feedback.sh", "history", rd, os.path.join(rd, "history.json"), env=env)
-        self.assertEqual(self.load(os.path.join(rd, "history.json"))[0]["reason"], "上游已重试")
-
-
-class TestRules(Base):
-    def test_lint_errors(self):
-        repo = self.make_repo("p", {
-            "REVIEW.md": "---\ndisable:\n  - ORG-X-001\n---\n- 规则甲。原因:a <!-- cr: id=PRJ-001 -->\n- 规则乙。原因:b <!-- cr: id=PRJ-001 severity=huge -->\n",
-            "src/a.ts": "x\n"})
-        r = self.run_script("rules-lint.sh", "--repo", repo, check=False)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("没有写原因", r.stdout)
-        self.assertIn("编号 PRJ-001 重复", r.stdout)
-        self.assertIn("severity=huge", r.stdout)
-
-    def test_propose_worktree_and_mr(self):
-        remote = self.bare("proj")
-        repo = self.make_repo("p", {"REVIEW.md": "# Review 约定\n\n## 每次都要检查\n\n- 甲。原因:a。\n  <!-- cr: id=PRJ-001 -->\n", "src/a.go": "x\n"}, remote=remote)
-        self.git(repo, "push", "-q", "origin", "main")
-        self.git(repo, "remote", "set-head", "origin", "main")
-        ops = os.path.join(self.tmp, "ops.json")
-        with open(ops, "w") as f:
-            json.dump([{"op": "add", "text": "金额用 decimal", "reason": "精度", "scope": "**/*.go", "src": "!301"}, {"op": "remove", "id": "PRJ-001"}], f, ensure_ascii=False)
-        r = self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo)
-        self.assertIn("+  <!-- cr: id=PRJ-002", r.stdout)
-        self.assertIn("确认后加 --yes", r.stdout)
-        self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--worktree", "--yes")
-        text = Path(os.path.join(repo, "REVIEW.md")).read_text(encoding="utf-8")
-        self.assertIn("id=PRJ-002", text)
-        self.assertNotIn("id=PRJ-001", text)
-        self.assertIn("PRJ-001", Path(os.path.join(repo, ".cr", "retired-ids")).read_text(encoding="utf-8"))
-        self.git(repo, "checkout", "-q", "--", "REVIEW.md")
-        shutil.rmtree(os.path.join(repo, ".cr"))
-        self.use_mock_glab()
-        self.mock_api("projects/:id/merge_requests?state=opened&labels=crosscheck-rule&per_page=100&page=1", [])
-        preview = os.path.join(self.tmp, "preview.json")
-        self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--mr", "--preview", preview)
-        r = self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--mr", "--preview", preview, "--yes")
-        self.assertIn("已创建 MR", r.stdout)
-        self.assertIn("--label crosscheck-rule", Path(os.path.join(self.mock, "calls.log")).read_text(encoding="utf-8"))
-        branches = self.git(remote, "branch", "--list")
-        self.assertIn("crosscheck/rules-", branches)
-        self.assertEqual(self.git(repo, "status", "--short"), "", "不应碰用户的工作区")
-        self.assertNotIn("crosscheck/rules-", self.git(repo, "branch", "--list"))
-
-    def test_org_rule_writes_are_rejected(self):
-        self.repo = self.make_repo("local-project", {"REVIEW.md": "# Rules\n"})
-        self.use_mock_glab()
-        ops = os.path.join(self.tmp, "ops.json")
-        self.write(self.tmp, {"ops.json": json.dumps([{"op": "add", "text": "rule"}])})
-        before = self.git(self.repo, "status", "--porcelain")
-        r = self.run_script("propose-rules.sh", "--ops", ops, "--target", "pack:platform/rpc", "--mr", "--yes", check=False)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("组织规则只读", r.stderr)
-        self.assertEqual(self.git(self.repo, "status", "--porcelain"), before)
-        self.assertFalse(os.path.exists(os.path.join(self.mock, "calls.log")))
-
-    def test_review_checklist_and_confirm(self):
-        repo = self.make_repo("p", {
-            "REVIEW.md": "".join([
-                "- 日期格式化统一用 `src/utils/date.ts`,不要直接调用 `dayjs`。原因:时区。\n  <!-- cr: id=PRJ-001 added=2020-01 -->\n",
-                "- 日志不能有邮箱。原因:合规。\n  <!-- cr: id=PRJ-002 added=2026-10 reviewed=2026-10 -->\n",
-                "- legacy 不能加依赖。原因:要下线。\n  <!-- cr: id=PRJ-003 scope=src/legacy/** added=2026-10 -->\n",
-                "- 日志里不能有邮箱。原因:合规要求。\n  <!-- cr: id=PRJ-004 added=2026-10 -->\n",
-                "- 调用 `loadConfig` 读配置。原因:统一缓存。\n  <!-- cr: id=PRJ-005 added=2026-10 -->\n"]),
-            "src/a.ts": "export const x = loadConfig()\n"})
-        out = self.run_script("rules-health.sh", "--repo", repo).stdout
-        lines = [l for l in out.splitlines() if l.startswith("| ") and "PRJ-" in l]
-        self.assertIn("PRJ-001", lines[0], "超过 6 个月没复核的排在最前")
-        self.assertIn("⏰", lines[0])
-        self.assertIn("`src/utils/date.ts`、`dayjs` 在代码库里找不到", lines[0])
-        row = {re.search(r"PRJ-\d+", l).group(0): l for l in lines}
-        self.assertIn("匹配不到任何文件", row["PRJ-003"])
-        self.assertIn("几乎一样", row["PRJ-002"])
-        self.assertNotIn("找不到", row["PRJ-005"])
-        self.assertNotIn("命中", out)
-        ops = os.path.join(self.tmp, "ops.json")
-        with open(ops, "w") as f:
-            json.dump([{"op": "confirm", "id": "PRJ-001"}], f)
-        self.run_script("propose-rules.sh", "--ops", ops, "--repo", repo, "--worktree", "--yes")
-        import datetime
-        self.assertIn("id=PRJ-001 added=2020-01 reviewed=%s" % datetime.date.today().strftime("%Y-%m"),
-                      Path(os.path.join(repo, "REVIEW.md")).read_text(encoding="utf-8"))
-
-
 class TestEvalAdoptionStats(Base):
-    def test_eval_flow(self):
-        rules = os.path.join(self.home, "org-rules")
-        self.write(rules, {"packs/platform/rpc/rules.md": PACK.replace("**/*.ts", "**/*.go"),
-                           "packs/platform/rpc/examples/ORG-RPC-001.bad.go": "package x\n",
-                           "packs/platform/rpc/examples/ORG-RPC-001.good.go": "package x\n"})
-        repo = self.make_repo("shop", {"src/a.ts": "a\n"})
-        head = self.commit(repo, {"src/a.ts": "b\n"}, "bug")
-        base = self.git(repo, "rev-parse", "HEAD~1")
-        cases = os.path.join(rules, "evals", "cases")
-        os.makedirs(cases)
-        for cid, exp, src in (("c1", [{"file": "src/a.ts", "lines": "1-1", "category": "bug", "severity": "major", "desc": "坏了"}], "fix-commit"), ("c2", [], "clean")):
-            with open(os.path.join(cases, cid + ".json"), "w") as f:
-                json.dump({"id": cid, "repo": "shop", "base": base, "head": head, "source": src, "expect": exp,
-                           "intent": "## 验收标准\n\n1. 空列表返回 0 页\n" if cid == "c1" else ""}, f, ensure_ascii=False)
-        self.config("repo.shop=%s\n" % repo)
-        out = self.run_script("eval.sh", "prepare", "--cases", cases, "--examples", rules, "--out", os.path.join(self.tmp, "run")).stdout
-        run = os.path.join(self.tmp, "run")
-        plan = self.load(os.path.join(run, "plan.json"))
-        self.assertEqual(sorted(p["case"] for p in plan), ["c1", "c2", "rule-ORG-RPC-001-bad", "rule-ORG-RPC-001-good"])
-        c1 = next(p for p in plan if p["case"] == "c1")
-        self.assertIn("空列表返回 0 页", Path(c1["plan_file"]).read_text(encoding="utf-8"), "用例的需求材料作为 --plan 传入")
-        self.assertNotIn("plan_file", next(p for p in plan if p["case"] == "c2"))
-        fake = {"c1": [{"id": "x1", "file": "src/a.ts", "line": 1, "summary": "坏了"}, {"id": "x4", "file": "src/a.ts", "line": 2, "summary": "另一件事"}],
-                "c2": [{"id": "x2", "file": "src/a.ts", "line": 1, "summary": "误报"}],
-                "rule-ORG-RPC-001-bad": [{"id": "x3", "file": "src/example.go", "line": 1, "category": "rules", "rule_id": "ORG-RPC-001"}],
-                "rule-ORG-RPC-001-good": []}
-        for cid, fs in fake.items():
-            rv = os.path.join(run, "cases", cid, "review")
-            os.makedirs(rv)
-            for name, data in (("findings.json", fs), ("final.json", {})):
-                with open(os.path.join(rv, name), "w") as f:
-                    json.dump(data, f, ensure_ascii=False)
-            with open(os.path.join(rv, "meta.txt"), "w") as f:
-                f.write("started_epoch=1\ndepth=standard\n")
-            self.run_script("eval.sh", "done", run, cid)
-        self.assertIn("配对 2 组", self.run_script("eval.sh", "match", run).stdout)
-        judged = {"pairs": [{"case": "c1", "expect_index": 0, "finding_id": "x1", "same": True},
-                            {"case": "c1", "expect_index": 0, "finding_id": "x4", "same": False}],
-                  "extras": [{"case": "c2", "finding_id": "x2", "valid": False}]}
-        with open(os.path.join(run, "judgments.json"), "w") as f:
-            json.dump(judged, f)
-        self.run_script("eval.sh", "score", run)
-        self.assertEqual(self.load(os.path.join(run, "score.json"))["unjudged"], 1, "配对都不成立的发现要判断站不站得住")
-        judged["extras"].append({"case": "c1", "finding_id": "x4", "valid": True})
-        with open(os.path.join(run, "judgments.json"), "w") as f:
-            json.dump(judged, f)
-        base_file = os.path.join(self.tmp, "baseline.json")
-        with open(base_file, "w") as f:
-            json.dump({"dataset_hash": self.load(os.path.join(run, "dataset.json"))["hash"], "time": "old", "recall": {"hit": 1, "expected": 2}, "fp_per_clean": 1.0, "precision": {"valid": 1, "invalid": 1},
-                       "per_case": {"c1": {"hit": 0, "invalid": 0}}}, f)
-        out = self.run_script("eval.sh", "score", run, "--baseline", base_file).stdout
-        self.assertIn("| 召回 | 1/2 | 2/2 |", out)
-        self.assertIn("新抓到:c1", out)
-        self.assertIn("可以合入", out)
-        r = self.run_script("eval.sh", "add-case", "--repo-name", "shop", "--base", base, "--head", head, "--source", "随便写", check=False)
-        self.assertEqual(r.returncode, 2)
-
     def test_adoption_and_stats(self):
         remote = self.bare("shop")
         repo = self.make_repo("shop", {"src/a.ts": "line1\nline2\nline3\nline4\nline5\n", "src/b.ts": "keep\n"}, remote=remote)

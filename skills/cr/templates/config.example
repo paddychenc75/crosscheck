@@ -4,25 +4,9 @@
 # 私有化 GitLab:域名里不含 gitlab 时写在这里,多个用逗号分隔;部署在子路径下时写全,如 company.com/gitlab
 gitlab_hosts=code.company.com
 
-# 组织规则仓库(GitLab 上的独立仓库),地址里不要带账号和 token
-rules_repo=https://code.company.com/eng/crosscheck-rules.git
-rules_ref=v1.0.0
-# rules_dir=~/.crosscheck/org-rules
-
-# 可选:共享人的判断
-# data_repo=https://code.company.com/eng/crosscheck-data.git
-
 # 可选:读取非 GitLab 需求单的命令,{key} 会替换成编号,例如 PROJ-231
 # issue_cmd=jira issue view {key} --plain
 
-# 评测用例里的仓库在本机的位置
-# repo.shop-api=~/code/shop-api
-
-# 可选:宿主通过 MCP / 文件取得的组织规范或参考材料（不含凭证）
-# materials_file=/absolute/path/materials.json
-
-# 评测与组织规则来源独立。没有配置时使用 CROSSCHECK_HOME 下的 eval/cases 和 eval/baseline.json
-# eval_cases=/absolute/path/evals/cases
-# eval_baseline=/absolute/path/evals/baseline.json
-# eval_examples=/absolute/path/legacy-rules
-# eval_rules_dir=/absolute/path/frozen-rules
+# 可选:模型。核实最好用和查找不同的模型,两者的盲区不同
+# model.finder=sonnet
+# model.verifier=opus

@@ -11,9 +11,6 @@
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
-#         启动 rules-auditor 或 verifier 子代理时(Claude Code 的 Task / Agent 工具),检查任务里
-#         有没有这次的规则指纹及 task-rules.md 完整内容;没有就拒绝启动,要求把规则段落原样放进任务。
-#         检查通过时在 review_dir 里留下 .hook-fp-ok,报告据此写「任务含规则 ✓」
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
 # 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
@@ -187,31 +184,7 @@ if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
   allow
 fi
 
-if [ "$kind" = agent ]; then
-  rd=$(head -n 1 "$dir/$sid.review" 2>/dev/null || true)
-  [ -n "$rd" ] && [ -f "$rd/rules-meta.txt" ] || allow
-  units=$(sed -n 's/^units=//p' "$rd/rules-meta.txt" | head -n 1)
-  case "$units" in ""|0|*[!0-9]*) allow ;; esac
-  prompt=$(get .tool_input.prompt)
-  case "$prompt" in *rules-auditor.md*|*verifier.md*) ;; *) allow ;; esac
-  fp=$(sed -n 's/^fingerprint=//p' "$rd/rules-meta.txt" | head -n 1)
-  case "$prompt" in
-    *"RULES-FP=$fp"*)
-      rules_task=$(cat "$rd/task-rules.md" 2>/dev/null || true)
-      if [ -n "$rules_task" ]; then
-        case "$prompt" in *"$rules_task"*) : > "$rd/.hook-fp-ok" 2>/dev/null || true; allow ;; esac
-      fi ;;
-
-  esac
-  msg="任务里缺少这次审查的规则段落(规则指纹 RULES-FP=$fp)。请把 $rd/task-rules.md 的全部内容原样放进 rules-auditor 和 verifier 的任务里再启动。"
-  esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  ')
-  if [ "$host" = cursor ]; then
-    printf '{"permission":"deny","user_message":"%s","agent_message":"%s"}\n' "$esc" "$esc"
-  else
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
-  fi
-  exit 0
-fi
+[ "$kind" != agent ] || allow
 
 deny() {
   case "$1" in

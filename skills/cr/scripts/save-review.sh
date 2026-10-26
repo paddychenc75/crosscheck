@@ -7,7 +7,7 @@
 #          report.md      给用户看的报告
 #          findings.json  本次审查结束时仍然成立的全部发现(aggregate.sh 写出,含从上次带过来的)
 #        另外会一并保存(有就存):final.json、rejected.json(没通过核实的候选)、intent.md、weakening.txt、
-#        risk.txt、settings.json、rules-index.json、rules-meta.txt、rules-coverage.json、rules-notes.json
+#        risk.txt、settings.json、rules-index.json、rules-meta.txt、rules-notes.json
 #
 # 写入 ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
 #   latest    最近一次审查
@@ -63,10 +63,9 @@ repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
-for f in report.json display-groups.json context-hash.txt context-complete.txt context-materials.md unverified.json final.json rejected.json intent.md weakening.txt risk.txt settings.json rules-index.json rules-meta.txt rules-coverage.json rules-notes.json; do
+for f in report.json display-groups.json context-hash.txt final.json rejected.json intent.md weakening.txt risk.txt settings.json rules-index.json rules-meta.txt rules-notes.json; do
   [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
 done
-[ ! -d "$dir/materials" ] || cp -R "$dir/materials" "$dest/"
 if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ] && command -v python3 >/dev/null 2>&1; then
   counts=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])).get("counts",{}); print(c.get("candidates",""), c.get("passed",""))' "$dir/final.json" 2>/dev/null || true)
   [ -n "$run_candidates" ] || run_candidates=${counts% *}

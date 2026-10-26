@@ -10,10 +10,8 @@
 | `SCOPE:` | 报告第一行,紧跟标题 |
 | `INTENT:` | 第二行 |
 | `WEAKEN:` | 「测试和检查被削弱」一节,每行一条 |
-| `MATERIALS:` | 末尾逐行说明外部来源、读取情况；不得把不完整称为检查完成 |
-| `UNVERIFIED:` | 单列“本轮未能复核”，从 final.json.unverified 列出旧发现与原因，不计已解决 |
 | `RISK:` | 末尾说明行 |
-| `RULES:`、`VERIFY:`、`RULES_NOTE:` | 末尾说明行,`RULES_NOTE` 每条一行 |
+| `RULES:`、`RULES_NOTE:` | 末尾说明行,`RULES_NOTE` 每条一行 |
 | `TRIMMED:` | 末尾说明行 |
 | `SKIPPED:`、`CHECKED:` | 末尾说明行 |
 | `FEEDBACK:` | 报告最后,`记录:` 一行之前 |
@@ -39,7 +37,7 @@
 <每条按「每条发现」的格式,编号接着上面>
 
 ### 规范(<n>)
-- **<编号>.** `path:line` — <规则编号>「<规则原文>」(出处 <文件>)→ <违反在哪、建议怎么改>
+- **<编号>.** `path:line` — 「<规则原文>」(出处 <文件>)→ <违反在哪、建议怎么改>
   <details><summary>依据(置信度 <分数>)</summary> … </details>
 
 ### 可简化(<n>)
@@ -55,7 +53,6 @@
 
 <RISK>
 <RULES>
-<VERIFY>
 <RULES_NOTE…>
 <TRIMMED>
 <SKIPPED>
@@ -69,7 +66,7 @@
 
 **增量审查**(`final.json` 的 `scope` 为 `incremental`):标题写成 `— <N> 条发现(新增 <a> · 遗留 <b> · 已解决 <c>)`;概览表多一列「状态」(新增 / 遗留);逐条发现分成「新发现」和「上次遗留(仍然存在)」两段,遗留的标题末尾加 `· 首次报告于 <since>`;再加一节「已解决(<c>)」,列出 `final.json` 的 `resolved`:`- \`path:line\` — <摘要>(<resolved_reason>)`。
 
-**没有任何发现通过核实时**,说明已检查部分没有确认发现；若外部资料不完整或有未能复核项，同时明确审查未完成，不能声称整体没有问题,后面跟上 `RISK`、`RULES`、`VERIFY`、`CHECKED` 这几行和测试削弱(如果有)。不要为了填充篇幅而添加观察、表扬或泛泛的建议。不要列出被否决的候选,除非用户问起(见 `after-report.md`)。
+**没有任何发现通过核实时**,说明已检查部分没有确认发现,不要声称代码整体没有问题,后面跟上 `RISK`、`RULES`、`CHECKED` 这几行和测试削弱(如果有)。不要为了填充篇幅而添加观察、表扬或泛泛的建议。不要列出被否决的候选,除非用户问起(见 `after-report.md`)。
 
 ## 每条发现
 
@@ -100,7 +97,7 @@
 - 读过:paginate.ts:38-47(改动处);api/orders.ts:88(唯一调用方)
 - 排除:base 版本用的是 Math.ceil,问题由本次改动引入
 - 复现:<repro.cmd> → <repro.result>
-- 查到:bug-hunter(两遍都查到)
+- 查到:reviewer、reviewer(impact)
 </details>
 ``````
 
@@ -108,8 +105,8 @@
 - **修复建议**:`suggestion` 里有确切的替换代码时写成 `diff`,`-` 行与问题代码原文一致;只有文字时照文字写,不要自己编代码;没有 `suggestion` 时写「修复方式需要结合上下文判断」并说明要考虑什么。
 - **兼容性**:有 `compat` 时,在修复建议下加一行 `**兼容性**:<compat>`。
 - **之前的判断**:有 `previously` 时,在问题下加一行说明,例如 `之前(10-09)判为不成立:上游已校验;本次重新报告是因为 <原因>`。
-- **依据**:默认折叠。`evidence` 每项写成「读过:文件:行(note)」,`ruled_out` 每项写成「排除:…」,有 `repro` 时写「复现:命令 → 结果」,`found_by` 写成「查到:…」(`pass_hits` 大于 1 时注明几遍都查到),`spot` 为真时写「来自抽查:rules-auditor 漏检」。
-- **规范**发现在问题里逐字引用 `rule_quote` 和出处(`rule_origin` 存在时展示原始出处，`rule_file` 是本次保存的正文位置),`also_lines` 有值时写明共几处。
+- **依据**:默认折叠。`evidence` 每项写成「读过:文件:行(note)」,`ruled_out` 每项写成「排除:…」,有 `repro` 时写「复现:命令 → 结果」,`found_by` 写成「查到:…」(`pass_hits` 大于 1 时注明几遍都查到)。
+- **规范**发现在问题里逐字引用 `rule_quote` 和出处 `rule_file`,`also_lines` 有值时写明共几处。
 - **需求核对**发现在问题里写出是哪一条验收标准(来自 `intent.md`)。
 
 ## 同一问题的关联依据

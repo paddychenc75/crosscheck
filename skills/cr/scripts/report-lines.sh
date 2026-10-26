@@ -6,9 +6,8 @@
 # 输出若干行,每行以一个标签开头(标签本身不写进报告):
 #   SCOPE:     报告第一行:审查范围、深度、全量还是增量
 #   INTENT:    意图取自哪些来源
-#   RULES:     规则的使用情况(适用几条、检查了几条、违反几条)
-#   VERIFY:    规则读取的验证状态(任务含规则 / 核对码 / 抽查)
-#   RULES_NOTE: 规则相关的提示(可能过时、冲突、被覆盖、未同步、缺编号等),可能有多行
+#   RULES:     用了哪些规则文件、违反几条
+#   RULES_NOTE: 规则相关的提示(可能过时、冲突、格式有误、被排除),可能有多行
 #   RISK:      风险等级和建议深度
 #   WEAKEN:    测试或检查被削弱的每一处,可能有多行(没有就不输出)
 #   SKIPPED:   跳过的文件按原因计数
@@ -26,7 +25,6 @@ import os, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
-import rule_materials
 import report_groups
 
 d = os.environ["CR_DIR"]
@@ -44,7 +42,6 @@ except ValueError as e:
 crlib.save_json(os.path.join(d, "report.json"), display)
 if display.get("display_groups"):
     print("GROUPED: 同一问题合并展示 %d 组；关联编号及依据保留" % len(display["display_groups"]))
-cov = crlib.load_json(os.path.join(d, "rules-coverage.json"), {})
 risk = crlib.read_kv(os.path.join(d, "risk.txt"))
 DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
 
@@ -76,58 +73,20 @@ print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"),
       ";验收标准 %s 条" % m["intent_acceptance"] if m.get("intent_acceptance", "0") not in ("", "0") else ""))
 
 # 规则
-for exclusion in crlib.load_json(os.path.join(d, 'rules-excluded.json'), []):
-    print("RULES-EXCLUDED: %s · %s" % (exclusion['file'], exclusion['reason']))
-materials = rule_materials.load(d)
-units = int(rm.get("units", "0") or 0)
-if units == 0:
-    print("RULES: 规则:没有取得适用规则，规则检查未完成" if materials and not materials.get("complete") else "RULES: 规则:没有找到适用的规则")
+rm_blocks = int(rm.get("blocks", "0") or 0)
+if rm_blocks == 0:
+    print("RULES: 规则:没有找到适用的规则文件")
 else:
-    org = int(rm.get("units_L1", "0") or 0)
-    prj = int(rm.get("units_L2", "0") or 0) + int(rm.get("units_L3", "0") or 0)
-    ext = int(rm.get("units_external", "0") or 0)
-    parts = [x for x in ("组织 %d" % org if org else "", "项目 %d" % prj if prj else "", "外部 %d" % ext if ext else "") if x]
-    checked = cov.get("units", 0) - len({x["unit"] for x in cov.get("missing", [])}) if cov else 0
+    blocks = crlib.load_json(os.path.join(d, "rules-index.json"), [])
     violated = len(final.get("groups", {}).get("rules", [])) + final.get("trimmed", {}).get("rules", 0)
-    print("RULES: 规则:适用 %d 条(%s),已检查 %d 条,违反 %d 条" % (units, " · ".join(parts), checked, violated))
-    guard = os.path.exists(os.path.join(d, ".guard-active"))
-    hook_ok = os.path.exists(os.path.join(d, ".hook-fp-ok"))
-    v1 = "任务含规则 ✓" if hook_ok else ("任务含规则 未验证(未安装 hook)" if not guard else "任务含规则 未验证(这个宿主的 hook 看不到子代理的任务)")
-    v2 = ("核对码一致 ✓" if cov.get("nonce_ok") else "核对码不一致 ✗") if cov else "核对码 未核对"
-    sp = final.get("spot", {})
-    if sp.get("checked"):
-        v3 = "抽查 %d 条无异常 ✓" % sp["checked"] if not sp.get("failed") else "抽查 %d 条发现 %d 处漏检,已补进发现" % (sp["checked"], sp["failed"])
-    else:
-        v3 = "抽查 未做"
-    print("VERIFY: 验证:%s · %s · %s" % (v1, v2, v3))
-    if cov.get("missing"):
-        print("RULES_NOTE: 未检查:" + "、".join(x["unit"] for x in cov["missing"]))
+    print("RULES: 规则:%s(读自 %s),违反 %d 条" % ("、".join("`%s`" % b["file"] for b in blocks if b["layer"] != "ignore") or "只有 .cr/ignore.md",
+          "工作区" if rm.get("source") == "worktree" else rm.get("source", ""), violated))
+if rm.get("excluded"):
+    print("RULES_NOTE: 标了 excludeAgent: code-review,没有用于审查:" + rm["excluded"])
+if rm.get("errors"):
+    print("RULES_NOTE: 规则文件格式有误,这部分没有生效:" + rm["errors"])
 for n in final.get("notes", []):
     print("RULES_NOTE: %s%s" % (n.get("summary", ""), "(%s)" % n["file"] if n.get("file") else ""))
-if rm.get("disabled"):
-    print("RULES_NOTE: 项目关掉了这些组织规则:" + "、".join(x.split(":", 1)[0] for x in rm["disabled"].split(";") if x))
-if rm.get("disable_without_reason"):
-    print("RULES_NOTE: REVIEW.md 里关掉 %s 没有写原因,这条 disable 没有生效" % rm["disable_without_reason"])
-if rm.get("deprecated"):
-    print("RULES_NOTE: 即将删除的组织规则(deprecated,已不再检查):" + rm["deprecated"])
-if rm.get("packs_missing"):
-    print("RULES_NOTE: REVIEW.md 引用了 %s,但本地没有这个组织规则包(先运行 sync-rules.sh,或检查配置里的 rules_repo)" % rm["packs_missing"])
-if rm.get("org_rules_stale") == "yes":
-    print("RULES_NOTE: 组织规则的本地副本超过一天没有同步,可以运行 sync-rules.sh 更新")
-if rm.get("missing_ids", "0") not in ("", "0"):
-    print("RULES_NOTE: 有 %s 条项目规则没有编号,只能按文件核对;规则体检时可以补上" % rm["missing_ids"])
-if rm.get("source", "").startswith("worktree(") :
-    print("RULES_NOTE: base 提交不在本地,规则读自当前工作区")
-
-if materials:
-    entries = materials.get("records", [])
-    print("MATERIALS: 外部材料:%d 份 · %s" % (len(entries), "读取完整" if materials.get("complete") else "读取不完整或存在冲突，不能宣称规则检查完成"))
-    for msg in materials.get("errors", []):
-        print("RULES_NOTE: " + str(msg).replace("\n", " "))
-    for x in entries:
-        print("MATERIALS: %s · %s · %s · %s%s" % (x["source"].replace("\n", " "), x["purpose"], x["status"], x["ref"].replace("\n", " "), (" · " + x["note"].replace("\n", " ")) if x.get("note") else ""))
-if final.get("unverified"):
-    print("UNVERIFIED: 本轮未能复核 %d 条上次规范发现；保留旧依据，不计已解决或采纳" % len(final["unverified"]))
 
 # 风险
 if risk.get("level"):
@@ -166,15 +125,16 @@ if cnt:
 
 # 已检查
 only = m.get("only", "all")
-dims = ["bug", "安全", "需求核对", "项目规则", "简化"] if only == "all" else [{"bug": "bug", "security": "安全", "rules": "项目规则", "simplify": "简化"}.get(x, x) for x in only.split(",")]
-if units == 0 and "项目规则" in dims:
+dims = ["bug", "安全", "需求核对", "项目规则"] if only == "all" else [{"bug": "bug", "security": "安全", "rules": "项目规则", "simplify": "简化"}.get(x, x) for x in only.split(",")]
+if rm_blocks == 0 and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
 if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
     dims.remove("需求核对")
     extra.append("需求核对:缺少明确验收标准,未完成")
-if os.path.exists(os.path.join(d, "settings.json")) and crlib.load_json(os.path.join(d, "settings.json"), {}).get("found"):
-    extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % crlib.load_json(os.path.join(d, "settings.json"), {}).get("source", ""))
+st = crlib.load_json(os.path.join(d, "settings.json"), {})
+if any(st.get(k) for k in ("skip", "limits", "risk_paths", "platform")):
+    extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % st.get("source", ""))
 if m.get("finder_model"):
     extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
 if m.get("verifier_model", "host") not in ("", "host"):
