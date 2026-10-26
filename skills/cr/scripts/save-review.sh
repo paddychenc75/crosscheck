@@ -162,7 +162,12 @@ if num "$run_finders" && num "$run_verifiers"; then cost="${cost:+$cost · }查�
 if num "$run_candidates" && num "$run_passed"; then cost="${cost:+$cost · }候选 ${run_candidates} 条、通过 ${run_passed} 条"; fi
 tok=$(saved usage_total_tokens)
 if ! num "$tok"; then
-  cost="${cost:+$cost · }token 未统计(没有安装 hook)"
+  case "$(saved usage_status)" in
+    no_start) why="hook 在运行,但审查开始时没拿到会话记录" ;;
+    no_records) why="hook 在运行,但会话记录里读不到用量" ;;
+    *) why="hook 没有运行:没有以插件方式安装,或在 Codex 里还没有用 /hooks 信任" ;;
+  esac
+  cost="${cost:+$cost · }token 未统计(${why})"
 elif true; then
   case "$(saved usage_subagents)" in included) sub="含子代理" ;; none-seen) sub="没有发现子代理的用量" ;; *) sub="是否含子代理未知" ;; esac
   cost="${cost:+$cost · }token 约 $(human "$tok")(新输入 $(human "$(saved usage_input_tokens)")、缓存读取 $(human "$(saved usage_cache_read_tokens)")、输出 $(human "$(saved usage_output_tokens)");${sub})"

@@ -324,6 +324,7 @@ class TestPipeline(ProjectFixture):
             f.write("报告\n")
         r = self.run_script("save-review.sh", rd)
         self.assertIn("cost=", r.stdout)
+        self.assertIn("hook 没有运行", r.stdout)
         saved = r.stdout.split("dir=")[1].splitlines()[0]
         self.assertTrue(os.path.exists(os.path.join(saved, "rejected.json")))
         self.git(self.repo, "switch", "-q", "feature")

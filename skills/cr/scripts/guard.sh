@@ -160,6 +160,11 @@ if [ "$kind" = shell ]; then
         }')
         if [ -n "$review_dir" ] && [ -f "$review_dir/meta.txt" ]; then
           sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
+          # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"。
+          if [ ! -s "$review_dir/usage.txt" ]; then
+            if [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
+            printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
+          fi
           # Cursor 的用量要等这一轮结束(stop)才有,先记下是哪次审查。
           if [ "$host" = cursor ]; then printf '%s\n' "$review_dir" > "$dir/$sid.last" 2>/dev/null || true; fi
         fi

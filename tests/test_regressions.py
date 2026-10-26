@@ -123,6 +123,12 @@ class GuardRegressions(fixture.Base):
         cmd = 'sh /example/collect-diff.sh target'
         self.hook('beforeShellExecution' if cursor else 'PreToolUse', tool, {'command': cmd}, command=cmd)
 
+    def test_usage_reason_is_recorded_when_hook_ran(self):
+        self.start()
+        cmd = 'sh /example/save-review.sh %s' % self.rd
+        self.hook(inp={'command': cmd}, command=cmd)
+        self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
+
     def denied(self):
         return 'deny' in self.hook(inp={'command': 'git commit -m test'})
 

@@ -39,7 +39,7 @@
 - 主推自然语言用法,报告第一行写明审查范围;说「cr 帮助」可以看常用说法。报告之后的回复有了固定处理方式(`after-report.md`)。
 - 私有化 GitLab:新增配置文件 `~/.crosscheck/config`,`gitlab_hosts` 支持子路径和端口;平台判断顺序固定。
 - 对比基准以远端最新为准:本地分支和分支名审查前先从 origin 拉取基准分支(只更新远程跟踪分支),拉取失败时提示可能过期;本地审查也支持 `--base <分支>`;develop、release/* 这类长期分支比默认分支更近时输出 `BASE_CHOICE`,由 agent 问用户。见 DESIGN.md 决策 21。
-- Hook 仅在结束脚本成功执行后解除保护,支持 exec_command 和多种补丁输入,识别常见 shell 字面路径写入,处理 Cursor 失败退出码。去掉了已不再使用的 Task/Agent 分支。
+- Hook 仅在结束脚本成功执行后解除保护,支持 exec_command 和多种补丁输入,识别常见 shell 字面路径写入,处理 Cursor 失败退出码。去掉了已不再使用的 Task/Agent 分支。token 未统计时写明原因:hook 没有运行(没装,或 Codex 里还没用 `/hooks` 信任),还是运行了但读不到用量。
 - 插件不往 GitLab / GitHub 写任何东西;审查后唯一的写操作是用户确认后改工作区的规则文件。
 - 去掉 `dismiss.sh`(用 `feedback.sh invalid`)。
 - 测试:`python3 -m unittest discover -s tests`,用 `tests/bin/glab` 模拟 GitLab;在本地 GitLab 上端到端跑过一遍。
