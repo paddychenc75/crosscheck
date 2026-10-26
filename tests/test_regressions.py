@@ -53,6 +53,55 @@ class ContextRegressions(fixture.Base):
         self.assertNotIn('需要 glab 登录', r.stdout)
 
 
+class BaseRegressions(fixture.Base):
+    """本地审查的对比基准:以远端最新为准,可以用 --base 指定,有更近的长期分支时提示。"""
+
+    def setUp(self):
+        super().setUp()
+        origin = self.bare('shop')
+        self.repo = self.make_repo('shop', {'a.txt': '1\n'}, remote=origin)
+        self.old = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.git(self.repo, 'push', '-q', 'origin', 'main')
+        self.git(self.repo, 'checkout', '-qb', 'develop')
+        self.commit(self.repo, {'d.txt': 'd\n'}, 'dev')
+        self.git(self.repo, 'push', '-q', 'origin', 'develop')
+        self.git(self.repo, 'checkout', '-q', 'main')
+        self.commit(self.repo, {'other.txt': '2\n'}, 'other')
+        self.git(self.repo, 'push', '-q', 'origin', 'main')
+
+    def files(self, *args, env=None):
+        r = self.run_script('collect-diff.sh', *args, '--full', cwd=self.repo, env=dict(self.env, **(env or {})))
+        return Path(self.review_dir(r.stdout), 'files.txt').read_text().split(), r.stdout
+
+    def test_stale_remote_tracking_branch_is_refreshed(self):
+        self.git(self.repo, 'checkout', '-qb', 'feat')
+        self.commit(self.repo, {'f.txt': 'f\n'}, 'feat')
+        self.git(self.repo, 'update-ref', 'refs/remotes/origin/main', self.old)
+        files, out = self.files()
+        self.assertEqual(files, ['f.txt'])
+        self.assertNotIn('NOTE:', out)
+
+    def test_unfetchable_base_is_reported(self):
+        self.git(self.repo, 'checkout', '-qb', 'feat')
+        self.commit(self.repo, {'f.txt': 'f\n'}, 'feat')
+        self.git(self.repo, 'update-ref', 'refs/remotes/origin/main', self.old)
+        files, out = self.files(env=dict(CR_FETCH='0'))
+        self.assertIn('other.txt', files)
+        self.assertIn('按本地已有的 origin/main', out)
+
+    def test_closer_long_lived_branch_is_suggested_and_base_overrides(self):
+        self.git(self.repo, 'checkout', '-qb', 'feat', 'origin/develop')
+        self.commit(self.repo, {'g.txt': 'g\n'}, 'g')
+        files, out = self.files()
+        self.assertEqual(sorted(files), ['d.txt', 'g.txt'])
+        self.assertIn('BASE_CHOICE:', out)
+        self.assertIn('--base develop', out)
+        files, out = self.files('--base', 'develop')
+        self.assertEqual(files, ['g.txt'])
+        self.assertNotIn('BASE_CHOICE:', out)
+        self.assertEqual(self.kv(os.path.join(self.review_dir(out), 'meta.txt'))['target_branch'], 'develop')
+
+
 class GuardRegressions(fixture.Base):
     def setUp(self):
         super().setUp()

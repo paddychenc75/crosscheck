@@ -636,6 +636,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>7. 修复（仅要求时）</td><td>主 agent</td><td>工作区改动，修好的记为成立</td></tr>
       </table></div>
 
+      <h3>对比基准</h3>
+      <p>和 GitHub / GitLab 一样，diff 从源分支与目标分支<strong>远端最新</strong>的 merge-base 算起：</p>
+      <ul>
+        <li>PR / MR 用平台给的目标分支；本地分支默认对比默认分支，用户说「对比 develop」时传 <code>--base</code>。</li>
+        <li>算之前先从 origin 拉取基准分支（只更新 <code>origin/</code> 下的远程跟踪分支，不动工作区）。本机缓存过期时，别人合进 main 的提交不会被当成这次的改动。拉取失败照常审查，但提示基准可能过期。</li>
+        <li>不每次都问：develop、release/* 这类长期分支比默认分支更近时，脚本输出 <code>BASE_CHOICE</code>，agent 才问用户要对比哪个。</li>
+      </ul>
+
       <h3>深度</h3>
       <div class="table-wrap"><table>
         <tr><th>档位</th><th>查找</th><th>核实</th><th>上限</th></tr>

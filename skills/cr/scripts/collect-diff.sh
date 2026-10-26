@@ -7,7 +7,7 @@
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
-#   --base REF   PR/MR 的目标分支,只在无法通过 gh/glab 读取时使用(默认:默认分支)
+#   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan 方案或计划文件(仓库相对路径或绝对路径)
 #   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
@@ -16,11 +16,12 @@
 # 平台:--platform > 环境变量 CR_PLATFORM > ~/.crosscheck/config 的 gitlab_hosts >
 #       REVIEW.md 的 platform > 域名含 github.com / gitlab > 链接里的 /pull/、/merge_requests/
 #
-#   省略 target        当前分支相对其与默认分支的 merge-base 的改动,
+#   省略 target        当前分支相对其与对比基准(--base,默认是默认分支)的 merge-base 的改动,
 #                      加上未提交和未跟踪的改动
 #   target = A..B      该 commit 范围
 #   target = 路径      同"省略",但仅限该路径
-#   target = 分支/ref  该分支相对其与默认分支的 merge-base 的改动(不需要检出它)
+#   target = 分支/ref  该分支相对其与对比基准的 merge-base 的改动(不需要检出它)
+#   没传 --base 而存在比默认分支更近的长期分支(develop、release/* 等)时,输出 BASE_CHOICE 提示
 #   target = N 或 URL  第 N 号 pull request / merge request
 #
 # 写入 DIR(默认:新建的临时目录),并在最后一行打印其路径:
@@ -139,6 +140,61 @@ default_branch_ref() {
   return 1
 }
 
+# 对比基准:--base 指定的分支,否则是默认分支;结果写进 base_ref。和 GitHub / GitLab 一样,
+# 以远端的最新状态为准:先从 origin 拉取这个分支(只更新 origin/ 下的远程跟踪分支,不动工作区和
+# 本地分支),本地、远端同名时用 origin/ 那个。拉取失败就用本地已有的,并在输出里提示。
+base_source=""
+base_hint=""
+base_stale=""
+fetch_base() { # 分支名(不带 origin/)
+  [ "${CR_FETCH:-1}" != 0 ] || { base_stale="CR_FETCH=0,没有拉取 $1"; return 1; }
+  git remote get-url origin >/dev/null 2>&1 || return 0
+  if GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=10" \
+     git fetch -q --no-tags origin "+refs/heads/$1:refs/remotes/origin/$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  base_stale="无法从 origin 拉取 $1"
+  return 1
+}
+resolve_base_ref() {
+  if [ -n "$base_override" ]; then
+    base_source=user
+    name=${base_override#origin/}
+  else
+    base_source=default
+    name=$(default_branch_ref) || return 1
+    name=${name#origin/}
+  fi
+  fetch_base "$name" || true
+  for r in "origin/$name" "$name"; do
+    if git rev-parse -q --verify "$r^{commit}" >/dev/null 2>&1; then base_ref=$r; return 0; fi
+  done
+  [ "$base_source" = user ] && die "找不到 --base 指定的分支: $base_override"
+  return 1
+}
+
+# 没指定 --base 时,看有没有比默认分支更近的长期分支(develop、release/* 这类):从它拉出来的
+# 分支如果按默认分支对比,会把别人已经合进去的提交也算进来。只提示,不替用户换基准。
+closer_base() { # 默认分支, 被审查的 commit
+  [ "$base_source" = default ] || return 0
+  tip=$(git rev-parse "$2^{commit}" 2>/dev/null) || return 0
+  ahead=$(git rev-list --count "$1..$tip" 2>/dev/null) || return 0
+  best=""; best_n=$ahead
+  for r in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin); do
+    name=${r#origin/}
+    case "$name" in
+      develop|dev|development|staging|test|testing|trunk|main|master|release|release[/-]*|releases/*) ;;
+      *) continue ;;
+    esac
+    [ "$name" != "${1#origin/}" ] && [ "$name" != "$source_branch" ] || continue
+    mb=$(git merge-base "$r" "$tip" 2>/dev/null) || continue
+    [ "$mb" != "$tip" ] || continue   # 这个分支已经包含了被审查的提交
+    n=$(git rev-list --count "$r..$tip")
+    if [ "$n" -lt "$best_n" ]; then best=$r; best_n=$n; fi
+  done
+  [ -z "$best" ] || base_hint="$best $best_n $ahead"
+}
+
 # 取 JSON 文件中点分路径(如 .diff_refs.base_sha)处的值。
 json_get() {
   if command -v jq >/dev/null 2>&1; then
@@ -160,8 +216,10 @@ collect_local() {
   local_path=$1
   head_sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
   if [ -n "$head_sha" ]; then
-    if base_ref=$(default_branch_ref); then
-      base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null || printf '%s' "$head_sha")
+    if resolve_base_ref; then
+      base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null) || die "当前分支与 $base_ref 没有共同的祖先,请用 --base 指定正确的对比基准"
+      source_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
+      closer_base "$base_ref" HEAD
     else
       base_sha=$head_sha
     fi
@@ -188,14 +246,16 @@ collect_local() {
 # 不在工作区里的分支或其他 ref:只看它已提交的内容,不检出。
 collect_ref() {
   ref=$1
+  case "$ref" in origin/*) fetch_base "${ref#origin/}" || base_stale="" ;; esac
   if [ "$(git rev-parse "$ref^{commit}")" = "$(git rev-parse -q --verify HEAD 2>/dev/null || true)" ]; then
     collect_local ""   # 就是当前检出的 commit,按当前分支处理,带上未提交的改动
     return 0
   fi
-  base_ref=$(default_branch_ref) || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 A..B 指定范围"
+  resolve_base_ref || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 --base <分支> 指定,或用 A..B 指定范围"
   ref_key="branch-${ref#origin/}"
   source_branch=${ref#origin/}
   target_branch=$base_ref
+  closer_base "$base_ref" "$ref"
   collect_range "$base_ref...$ref"
 }
 
@@ -232,15 +292,7 @@ collect_via_git() { # 远端 ref,给人看的名称
     die "无法从 origin(${oid})拉取 $2。可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
   fi
   head_sha=$(git rev-parse FETCH_HEAD)
-  if [ -n "$base_override" ]; then
-    base_ref=$base_override
-    git rev-parse -q --verify "$base_ref^{commit}" >/dev/null 2>&1 || base_ref="origin/$base_override"
-    git fetch -q origin "${base_ref#origin/}" >/dev/null 2>&1 || true
-    git rev-parse -q --verify "$base_ref^{commit}" >/dev/null 2>&1 || die "找不到 --base 指定的分支: $base_override"
-  else
-    base_ref=$(default_branch_ref) || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支"
-    git fetch -q origin "${base_ref#origin/}" >/dev/null 2>&1 || true
-  fi
+  resolve_base_ref || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支"
   base_sha=$(git merge-base "$base_ref" "$head_sha" 2>/dev/null) || die "$2 与 $base_ref 没有共同的祖先,请用 --base 指定正确的目标分支"
   $GITDIFF "$base_sha" "$head_sha" >> "$raw"
   printf '(未能读取 %s 的标题和描述:gh/glab 不可用或未登录,本次只用 git 拉取了代码。)\n' "$2" > "$out/description.md"
@@ -739,6 +791,7 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'depth_source=%s\n' "$depth_source"
   printf 'source_branch=%s\n' "$source_branch"
   printf 'target_branch=%s\n' "${target_branch#origin/}"
+  printf 'base_source=%s\n' "$base_source"
   printf 'api_project=%s\n' "$api_project"
   printf 'gitlab_host=%s\n' "$gitlab_host"
   [ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier 2>/dev/null || true)
@@ -763,6 +816,15 @@ sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 
 
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
+if [ -n "$base_stale" ]; then
+  printf 'NOTE: %s,按本地已有的 %s(%s)对比。它可能落后于远端:如果当前分支已经合入或 rebase 了更新的 %s,别人的提交会被算进这次的改动\n' \
+    "$base_stale" "$base_ref" "$(git log -1 --format='最后更新于 %cr' "$base_ref" 2>/dev/null)" "${base_ref#origin/}"
+fi
+if [ -n "$base_hint" ]; then
+  set -- $base_hint
+  printf 'BASE_CHOICE: 对比基准按默认分支 %s 计算(领先 %s 个提交);%s 更近(领先 %s 个提交)。如果这个分支是从 %s 拉出来、要合回 %s 的,应加 --base %s 重新运行\n' \
+    "${target_branch#origin/}" "$3" "${1#origin/}" "$2" "${1#origin/}" "${1#origin/}" "${1#origin/}"
+fi
 case "$pr_source" in
   git*) printf 'NOTE: 没有通过 gh/glab 读到这个 PR/MR 的信息,已改用 git 直接拉取代码。标题和描述不可用;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "${pr_source#git;base=}" ;;
 esac

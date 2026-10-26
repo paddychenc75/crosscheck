@@ -2,8 +2,9 @@
 # guard.sh — 宿主的 hook:cr 审查进行期间,拦截会改变仓库状态的操作。
 #
 # 同一个脚本适配三个宿主,从 stdin 读取 hook 的 JSON,按字段判断是谁在调用:
-#   Claude Code / Codex   hooks/hooks.json         PreToolUse、UserPromptSubmit
-#   Cursor                hooks/cursor-hooks.json  beforeShellExecution、preToolUse、beforeSubmitPrompt
+#   Claude Code / Codex   hooks/hooks.json         PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit
+#   Cursor                hooks/cursor-hooks.json  beforeShellExecution、afterShellExecution、preToolUse、
+#                                                  beforeReadFile、beforeSubmitPrompt、stop
 #
 #   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),为当前会话记下"审查进行中"
 #   结束  collect-diff.sh 报错或没有可审查的内容、成功执行 check-state.sh 或 save-review.sh、
@@ -86,7 +87,6 @@ case "$tool" in
     cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .tool_input.input)
     [ -n "$cmd" ] || cmd=$(get .tool_input.patch)
     [ -n "$cmd" ] || cmd=$(get .tool_input) ;;
-  Task|Agent) kind=agent; cmd="" ;;
   *) kind=file; cmd="" ;;
 esac
 
@@ -183,8 +183,6 @@ if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
   rm -f "$marker"
   allow
 fi
-
-[ "$kind" != agent ] || allow
 
 deny() {
   case "$1" in

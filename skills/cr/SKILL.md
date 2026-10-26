@@ -24,6 +24,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 | 选项 | 用户可能这样说 |
 |---|---|
 | target | 不说:当前分支的全部改动(含未提交的)。分支名:那个分支(不用切过去)。`A..B`:提交范围。路径:该路径下的改动。数字或链接:PR / MR |
+| `--base <分支>` | 「对比 develop」「要合到 release/1.2」。不说就用默认分支;PR/MR 用平台上的目标分支 |
 | `--quick` / `--deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,脚本按 standard 跑并按风险给出建议 |
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules`、`simplify` 中的若干项。默认是 `bug`、`security`、`rules`;用户说「顺便看看能不能简化」时传 `--only bug,security,rules,simplify` |
 | `--intent "…"` | 「这次是为了修复分页丢数据」 |
@@ -61,7 +62,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 ```
 sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <list>] [--full] [--with-tests]
-   [--intent "<一句话>"] [--plan <文件>] [--verifier-model <模型>] [--repo <目录>]
+   [--base <分支>] [--intent "<一句话>"] [--plan <文件>] [--verifier-model <模型>] [--repo <目录>]
 ```
 
 深度:用户说了快速或仔细才传(`--depth quick` / `--depth deep`),没说就不传。其余选项照用户的要求传。
@@ -70,8 +71,11 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 
 输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论,可能没有)、`weakening.txt`(测试或检查被削弱的地方)、`risk.txt`(风险分级)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)。增量时还有 `incremental.txt`、`prev-findings.json`。
 
+对比基准和 GitHub / GitLab 一样以远端为准:脚本先从 origin 拉取基准分支(只更新 `origin/` 下的远程跟踪分支),再算 merge-base。
+
 输出里的几种提示:
 
+- `BASE_CHOICE:` 用户没指定对比基准,而 develop、release/* 这类长期分支比默认分支更近。先问用户这个分支要合到哪里,列出两个选项;用户选了另一个就加 `--base <分支>` 重新运行(先运行 `check-state.sh` 结束这一次)。用户已经说过对比哪个分支时,不会出现这个提示。
 - `SUGGEST:` 风险高,建议用 deep。用一句话转告用户,这次按原深度继续。
 - `WEAKENING:` 有测试或检查被削弱,报告里会单列,不需要额外处理。
 - `NOTE:` 照原话转告用户。说「当前终端没有加载你的 shell 配置」时,原样转告它给出的一劳永逸的办法;不要说用户「没有登录」,也不要去查看那个文件、打印那些变量。说没读到需求单的,告诉用户可以配置 `issue_cmd` 或用 `--intent` 补一句。
@@ -80,6 +84,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 - 无法从 origin 拉取:把脚本的原话告诉用户,由用户决定是放开网络、换个环境还是改审本地分支,然后停止。
 - 无法判断 GitHub 还是 GitLab:告诉用户在配置里加 `gitlab_hosts=<域名>`(脚本的报错里有配置文件的路径),或带 `--platform gitlab` 重新运行。
 - 没读到 PR/MR 信息、改用 git 拉取时:在报告的 `已检查:` 一行后注明;用户说过目标分支不是默认分支时,加 `--base <分支>` 重新运行。
+- 说「按本地已有的 origin/… 对比」的 `NOTE:`:拉取基准分支失败,对比基准可能过期。照原话转告,并在报告的 `已检查:` 一行后注明。
 
 `meta.txt` 中 `batches` 大于 1 时,按第 3 步分批审查,并告诉用户改动较大、已分成几批。
 
