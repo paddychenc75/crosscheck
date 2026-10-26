@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crosscheck CR 方案 · 简化评审版</title>
+<title>Crosscheck CR 方案</title>
 <style>
 :root {
   --bg: #f7f7f5;
@@ -352,25 +352,21 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     <a href="#demo">流程演示</a>
     <a href="#principles">设计原则</a>
     <a href="#overview">总体设计</a>
-    <a href="#layers">分层设计</a>
-    <a href="#learning">项目规则</a>
-    <a href="#knowledge">外部规则</a>
-    <a href="#structure">代码结构</a>
-    <a href="#metrics">效果评测</a>
-    <a href="#data">数据模型</a>
-    <a href="#storage">文件存放</a>
     <a href="#flows">审查流程</a>
+    <a href="#roles">角色</a>
+    <a href="#rules">项目规则</a>
+    <a href="#metrics">判断与度量</a>
+    <a href="#storage">文件存放</a>
     <a href="#security">安全边界</a>
-    <a href="#roadmap">实施计划</a>
-    <a href="#decisions">设计取舍</a>
+    <a href="#industry">业界对照与收敛</a>
     <a href="#discuss">待定事项</a>
   </nav>
 
   <main>
     <header class="hero">
       <h1>Crosscheck CR 方案</h1>
-      <p>本地代码审查与项目规则维护。组织规则由外部统一治理，按配置只读取得；Crosscheck 保留本次材料、查找并核实发现，不承担组织规则的编辑、审批和发布。</p>
-      <p class="muted">关键设计旁的“设计依据”可展开查看。公开实践说明借鉴方向，研究启发不等于效果已验证；具体参数与产品边界单独标为 Crosscheck 的取舍。来源核对日期：2026-10-20。</p>
+      <p>本地 AI 代码审查。先尽量把可疑的地方找出来，再由独立的 verifier 逐条核实、给出依据，只报 80 分以上的；规则就是仓库里的 Markdown；用合并时问题有没有真的解决来衡量效果。</p>
+      <p class="muted">0.2.0（试验性）收敛版：只留业界验证过有效的机制，其余的在有真实使用数据之前不做。关键设计旁的“设计依据”可展开查看。来源核对日期：2026-10-26。</p>
       <div class="toolbar">
         <button type="button" id="themeBtn">切换深浅色</button>
       </div>
@@ -380,7 +376,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="demo-head">
         <div>
           <h2 id="demo-title">流程演示</h2>
-          <p class="muted">按角色分成五条流程：开发者审查一次改动，项目负责人按需沉淀规则和定期复核规则，宿主接入外部规则，插件维护者跑评测。文件名、分数和结果都是演示数据；默认自动播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
+          <p class="muted">三条流程：开发者审查一次改动，合并后看问题有没有被解决，项目负责人从 MR 评论里总结规则。文件名、分数和结果都是演示数据；默认自动播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
         </div>
         <div class="demo-ctrl">
           <button type="button" id="dPrev" aria-label="上一步">‹ 上一步</button>
@@ -393,22 +389,11 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="tracks" role="tablist" aria-label="选择视角" id="dTracks"></div>
       <p class="trackinfo" id="dTrackInfo"></p>
 
-      <div class="actors" id="dActors" aria-label="这一步谁在工作">
-        <span class="actor" data-actor="you">你</span>
-        <span class="actor" data-actor="main">主 agent</span>
-        <span class="actor" data-actor="script">脚本</span>
-        <span class="actor" data-actor="hook">hook</span>
-        <span class="actor" data-actor="bug">bug-hunter</span>
-        <span class="actor" data-actor="sec">security-reviewer</span>
-        <span class="actor" data-actor="rules">rules-auditor</span>
-        <span class="actor" data-actor="simp">simplifier</span>
-        <span class="actor" data-actor="verifier">verifier</span>
-        <span class="actor" data-actor="repo">规则文件</span>
-      </div>
+      <div class="actors" id="dActors" aria-label="这一步谁在工作"></div>
 
       <div class="demo-body">
         <div class="scene-wrap">
-          <div class="scene-title"><span class="scene-no" id="dNo">1 / 10</span><b id="dTitle">发起审查</b></div>
+          <div class="scene-title"><span class="scene-no" id="dNo">1 / 8</span><b id="dTitle">发起审查</b></div>
           <p class="scene-cap" id="dCap" aria-live="polite"></p>
 
           <div class="track" data-track="review">
@@ -421,71 +406,44 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <div class="kv a" style="--i:0"><span class="k">来源</span><span>code.company.com · MR !128（私有化 GitLab）</span></div>
             <div class="frow a" style="--i:1"><code>src/orders/paginate.ts</code><span class="fbar"><span class="add" style="width:62%"></span><span class="del" style="width:10%"></span></span></div>
             <div class="frow a" style="--i:2"><code>src/orders/order_service.go</code><span class="fbar"><span class="add" style="width:80%"></span><span class="del" style="width:14%"></span></span></div>
-            <div class="frow a" style="--i:3"><code>src/orders/cache.ts</code><span class="fbar"><span class="add" style="width:34%"></span><span class="del" style="width:8%"></span></span></div>
-            <div class="frow a" style="--i:4"><code>src/api/export.ts · api.ts · utils/date.ts</code><span class="fbar"><span class="add" style="width:40%"></span><span class="del" style="width:12%"></span></span></div>
-            <div class="frow a" style="--i:5"><code>paginate.test.ts · cache.test.ts · go.sum（跳过）</code><span class="fbar skip"><span class="add" style="width:50%"></span><span class="del" style="width:10%"></span></span></div>
-            <div class="kv a" style="--i:6"><span class="k">结果</span><span>6 个文件 · +214 −37 · 9 段改动行 · 跳过 3 个</span></div>
+            <div class="frow a" style="--i:3"><code>src/api/export.ts · utils/date.ts</code><span class="fbar"><span class="add" style="width:40%"></span><span class="del" style="width:12%"></span></span></div>
+            <div class="frow a" style="--i:4"><code>paginate.test.ts · go.sum（跳过）</code><span class="fbar skip"><span class="add" style="width:50%"></span><span class="del" style="width:10%"></span></span></div>
+            <div class="kv a" style="--i:5"><span class="k">结果</span><span>5 个文件 · +186 −31 · 跳过 2 个</span></div>
+            <div class="kv a" style="--i:6"><span class="k">测试削弱</span><span><code>paginate.test.ts</code> 删掉了 1 条断言 → 报告里单列</span></div>
             <div class="kv a" style="--i:7"><span class="k">只读</span><span>记下仓库状态，审查期间拦截改动仓库的命令</span></div>
           </div>
 
           <div class="scene" data-scene="2" hidden>
             <div class="src a" style="--i:0"><span class="ck">✓</span><b>MR 描述</b><span class="muted">「订单 41 条时只能拿到 40 条」</span></div>
             <div class="src a" style="--i:1"><span class="ck">✓</span><b>需求 PROJ-231</b><span class="muted">验收标准 2 条</span></div>
-            <div class="src a" style="--i:2"><span class="ck">✓</span><b>提交说明</b><span class="muted">3 个提交</span></div>
-            <div class="src a" style="--i:3"><span class="ck">✓</span><b>MR 讨论</b><span class="muted">2 条人工评论</span></div>
-            <div class="src a" style="--i:4"><span class="ck no">—</span><b>计划文件</b><span class="muted">没有提供</span></div>
-            <div class="src a" style="--i:5"><span class="ck">✓</span><b>你补充的</b><span class="muted">「修复分页丢数据」</span></div>
-            <div class="box a" style="--i:7">
-              <div class="t">intent.md</div>
-              <div><b>目标</b>：修复非整数倍时尾页数据被截掉</div>
-              <div><b>验收标准</b>：① total=41、pageSize=20 时返回全部 41 条数据　② 空列表返回 0 页</div>
-              <div><b>刻意的变化</b>：默认 pageSize 从 10 改为 20</div>
-            </div>
+            <div class="src a" style="--i:2"><span class="ck">✓</span><b>提交说明 · MR 讨论</b><span class="muted">3 个提交 · 2 条人工评论</span></div>
+            <div class="src a" style="--i:3"><span class="ck">✓</span><b>你补充的</b><span class="muted">「修复分页丢数据」</span></div>
+            <div class="lrow a" style="--i:5"><span class="lv">项目</span><span><code>REVIEW.md</code>（从 base 读）</span><span class="n">1 份</span></div>
+            <div class="lrow a" style="--i:6"><span class="lv">约定文件</span><span><code>CLAUDE.md</code>、<code>.cursor/rules/orders.mdc</code></span><span class="n">2 份</span></div>
+            <div class="tags a" style="--i:7"><span class="tag2">规则就是 Markdown，不需要编号</span><span class="tag2">风险：中 → 标准深度</span></div>
           </div>
 
           <div class="scene" data-scene="3" hidden>
-            <div class="lrow zero a" style="--i:0"><span class="lv">L3 目录</span><span><code>src/orders/REVIEW.md</code> 不存在</span><span class="n">0</span></div>
-            <div class="lrow a" style="--i:1"><span class="lv">项目约定</span><span>已有 rules 与 <code>REVIEW.md</code>，按作用域装配</span><span class="n">6</span></div>
-            <div class="lrow a" style="--i:2"><span class="lv">L1 组织</span><span><code>platform/rpc</code>、<code>lang/go</code>（v1.4.0）</span><span class="n">8</span></div>
-            <div class="lrow a" style="--i:3"><span class="lv">抑制</span><span><code>.cr/ignore.md</code></span><span class="n">1</span></div>
-            <div class="lrow a" style="--i:4"><span class="lv">代理约定</span><span><code>CLAUDE.md</code>（只读，挑能检查的条目）</span><span class="n">1 个</span></div>
-            <div class="tags a" style="--i:6"><span class="tag2 good">适用 14 条</span><span class="tag2">规则指纹 9f3a2c</span><span class="tag2">末尾核对码 K7Q2</span></div>
-            <div class="tags a" style="--i:7"><span class="tag2">风险：中（分页 + 订单写库）→ 标准深度</span><span class="tag2">测试削弱：无</span></div>
+            <div class="task a" style="--i:0"><span><code>reviewer</code> · bug、安全、需求核对，自己决定往哪查</span><span class="muted">已启动</span></div>
+            <div class="task a" style="--i:1"><span><code>rules-auditor</code> · 对照 rules.txt 里的规则</span><span class="muted">已启动</span></div>
+            <div class="lane a" style="--i:3"><code>reviewer</code><span class="cands"><span class="cc">paginate.ts:42</span><span class="cc">order_service.go:118</span><span class="cc">export.ts:55</span><span class="cc">paginate.ts:12</span></span></div>
+            <div class="lane a" style="--i:4"><code>rules-auditor</code><span class="cands"><span class="cc">REVIEW.md「日期格式化统一用…」</span></span></div>
+            <div class="sum2 a" style="--i:6">合并去重后共 5 条候选，交给核实</div>
           </div>
 
           <div class="scene" data-scene="4" hidden>
-            <div class="task a" style="--i:0"><span><code>bug-hunter</code> · 改动 + 意图</span><span class="muted">已启动</span></div>
-            <div class="task a" style="--i:1"><span><code>security-reviewer</code> · 改动 + 意图</span><span class="muted">已启动</span></div>
-            <div class="task a" style="--i:2"><span><code>rules-auditor</code> · 改动 + 14 条规则原文</span><span class="tag2 good">hook：含规则指纹 ✓</span></div>
-            <div class="task a" style="--i:3"><span><code>simplifier</code> · 完整改动</span><span class="muted">已启动</span></div>
-            <div class="kv a" style="--i:5"><span class="k">说明</span><span>任务里缺了规则指纹，hook 会拒绝启动，要求主 agent 按任务文件原样转交</span></div>
+            <div class="v pass a" style="--i:0"><span class="what"><span>paginate.ts:42 非整数倍时尾页数据被截掉</span><small>读过调用方 api/orders.ts:88，base 版本没有这个问题</small></span><span class="bar"><span style="width:96%"></span></span><span class="score">96</span><span class="mark ok">✓</span></div>
+            <div class="v pass a" style="--i:1"><span class="what"><span>REVIEW.md「日期格式化统一用 src/utils/date.ts」</span><small>脚本核对引文在规则里、规则覆盖这个文件 ✓</small></span><span class="bar"><span style="width:90%"></span></span><span class="score">90</span><span class="mark ok">✓</span></div>
+            <div class="v pass a" style="--i:2"><span class="what"><span>order_service.go:118 写库失败后状态没回滚</span><small>走完错误路径，事务外已改了内存状态</small></span><span class="bar"><span style="width:88%"></span></span><span class="score">88</span><span class="mark ok">✓</span></div>
+            <div class="v fail a" style="--i:3"><span class="what"><span>export.ts:55 SQL 拼接</span><small>实际已经参数绑定</small></span><span class="bar"><span style="width:40%"></span></span><span class="score">40</span><span class="mark no">✗</span></div>
+            <div class="v fail a" style="--i:4"><span class="what"><span>paginate.ts:12 空数组</span><small>以前判为不成立，代码没变</small></span><span class="bar"><span style="width:0%"></span></span><span class="score">0</span><span class="mark no">✗</span></div>
           </div>
 
           <div class="scene" data-scene="5" hidden>
-            <div class="lane a" style="--i:0"><code>bug-hunter</code><span class="cands"><span class="cc">paginate.ts:42</span><span class="cc">order_service.go:118</span><span class="cc">cache.ts:30</span><span class="cc">paginate.ts:12</span><span class="cc">api.ts:77</span></span></div>
-            <div class="lane a" style="--i:1"><code>security-reviewer</code><span class="cands"><span class="cc">export.ts:55</span></span></div>
-            <div class="lane a" style="--i:2"><code>rules-auditor</code><span class="cands"><span class="cc">PRJ-007</span><span class="cc">PRJ-003</span><span class="cc note">清单 14/14 · 核对码 K7Q2 ✓</span></span></div>
-            <div class="lane a" style="--i:3"><code>simplifier</code><span class="cands"><span class="cc">和 utils/page.ts 重复</span></span></div>
-            <div class="sum2 a" style="--i:5">合并去重后共 9 条候选，交给核实</div>
-          </div>
-
-          <div class="scene" data-scene="6" hidden>
-            <div class="v pass a" style="--i:0"><span class="what"><span>paginate.ts:42 非整数倍时尾页数据被截掉</span><small>读过调用方 api/orders.ts:88，base 版本没有这个问题</small></span><span class="bar"><span style="width:96%"></span></span><span class="score">96</span><span class="mark ok">✓</span></div>
-            <div class="v pass a" style="--i:1"><span class="what"><span>PRJ-007 直接调用 dayjs</span><small>规则原文逐字核对一致</small></span><span class="bar"><span style="width:90%"></span></span><span class="score">90</span><span class="mark ok">✓</span></div>
-            <div class="v pass a" style="--i:2"><span class="what"><span>order_service.go:118 调用方未对瞬时写库失败增加重试</span><small>未看到调用方的重试分支</small></span><span class="bar"><span style="width:88%"></span></span><span class="score">88</span><span class="mark ok">✓</span></div>
-            <div class="v pass a" style="--i:3"><span class="what"><span>和 utils/page.ts 重复</span><small>两处逻辑等价</small></span><span class="bar"><span style="width:84%"></span></span><span class="score">84</span><span class="mark ok">✓</span></div>
-            <div class="v fail a" style="--i:4"><span class="what"><span>cache.ts:30 并发写入</span><small>还差一环没确认</small></span><span class="bar"><span style="width:72%"></span></span><span class="score">72</span><span class="mark no">✗</span></div>
-            <div class="v fail a" style="--i:5"><span class="what"><span>export.ts:55 SQL 拼接</span><small>实际已经参数绑定</small></span><span class="bar"><span style="width:40%"></span></span><span class="score">40</span><span class="mark no">✗</span></div>
-            <div class="v fail a" style="--i:6"><span class="what"><span>paginate.ts:12 空数组</span><small>调用方已经校验</small></span><span class="bar"><span style="width:25%"></span></span><span class="score">25</span><span class="mark no">✗</span></div>
-            <div class="v fail a" style="--i:7"><span class="what"><span>PRJ-003 日志字段</span><small>规则作用域不覆盖这个目录</small></span><span class="bar"><span style="width:0%"></span></span><span class="score">0</span><span class="mark no">✗</span></div>
-            <div class="v fail a" style="--i:8"><span class="what"><span>api.ts:77 超时未设置</span><small>以前判为不成立，代码没变</small></span><span class="bar"><span style="width:0%"></span></span><span class="score">0</span><span class="mark no">✗</span></div>
-          </div>
-
-          <div class="scene" data-scene="7" hidden>
             <div class="rep2">
-              <div class="rhead a" style="--i:0"><b>审查：MR !128 — 2 条发现</b><span class="muted">另有规范 1 条 · 简化 1 条</span></div>
+              <div class="rhead a" style="--i:0"><b>审查：MR !128 — 2 条发现</b><span class="muted">另有规范 1 条</span></div>
               <div class="rrow a" style="--i:1"><span class="sev hi">重要</span><code>paginate.ts:42</code><span>非整数倍时尾页数据被截掉</span></div>
-              <div class="rrow a" style="--i:2"><span class="sev hi">重要</span><code>order_service.go:118</code><span>调用方未对瞬时写库失败增加重试</span></div>
+              <div class="rrow a" style="--i:2"><span class="sev hi">重要</span><code>order_service.go:118</code><span>写库失败后状态没回滚</span></div>
               <div class="rfind a" style="--i:3">
                 <div class="rf-t">1. [重要 · bug] total=41、pageSize=20 时最后一条数据被截掉</div>
 <pre class="snip"><code>   41 |   const total = rows.length;
@@ -499,149 +457,62 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
                   </ul>
                 </div>
               </div>
-              <div class="rfoot a" style="--i:5">规则：适用 14 · 已检查 14 · 违反 1 · 另抽查 3 项，未发现违规<br>意图来源：MR 描述、PROJ-231、你的补充</div>
+              <div class="rfoot a" style="--i:5">规则：<code>REVIEW.md</code>、<code>CLAUDE.md</code>、<code>.cursor/rules/orders.mdc</code>，违反 1 条<br>测试和检查被削弱：paginate.test.ts 删了 1 条断言</div>
             </div>
           </div>
 
-          <div class="scene" data-scene="8" hidden>
-            <div class="msg you a" style="--i:0"><span class="who">你</span>第 2 条不对，order_client 已负责这个操作的瞬时失败重试</div>
-            <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>我重新核对一下 order_client.go 的重试逻辑……</div>
-            <div class="msg agent a" style="--i:4"><span class="who">主 agent</span>核对后撤回：<code>order_client.go:61</code> 已对这个操作的瞬时失败重试 3 次，无需调用方叠加重试；最终失败仍须处理。已记录：不成立 · 原因「客户端已有重试，无需重复添加」。</div>
-          </div>
-
-          <div class="scene" data-scene="9" hidden>
-            <div class="flowline a" style="--i:0"><span class="tag2">核对已有保障</span><span class="to">→</span><span class="tag2">提出有条件的忽略候选</span></div>
-            <div class="msg agent a" style="--i:1"><span class="who">主 agent</span>已确认该路径的客户端负责瞬时失败重试。建议仅忽略重复重试建议，最终失败仍须检查，具体改动如下。</div>
-<pre class="diff a" style="--i:2"><code><span class="plus">+ - order_client 已负责该操作的瞬时失败重试时，不再要求调用方叠加重试；最终失败仍须处理。原因：避免重复重试。</span>
-<span class="plus">+   &lt;!-- cr: scope=src/orders/** src=feedback added=2026-10 --&gt;</span></code></pre>
-            <div class="msg you a" style="--i:4"><span class="who">你</span>确认这个条件和范围，改到工作区</div>
-            <div class="tags a" style="--i:6"><span class="tag2 good">rules-lint ✓</span><span class="tag2">改到工作区，由你提交</span><span class="tag2">MR 审查需合入 base 后生效</span></div>
+          <div class="scene" data-scene="6" hidden>
+            <div class="msg you a" style="--i:0"><span class="who">你</span>1 对；第 2 条不对，order_service 外层有事务，失败会整体回滚</div>
+            <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>我重新核对一下调用方……</div>
+            <div class="msg agent a" style="--i:4"><span class="who">主 agent</span>核对后撤回第 2 条：<code>handler.go:40</code> 在事务里调用它，内存状态随请求丢弃。已记录：1 成立；2 不成立 · 原因「外层事务整体回滚」。同一段代码不变时不再报。</div>
           </div>
           </div>
 
-          <div class="track" data-track="mine" hidden>
+          <div class="track" data-track="adoption" hidden>
+            <div class="scene" data-scene="0" hidden>
+              <div class="msg you a" style="--i:0"><span class="who">你</span>看看 review 的效果</div>
+              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>先更新已合并 MR 的采纳情况（只读拉取最终代码），再出统计。</div>
+            </div>
+            <div class="scene" data-scene="1" hidden>
+              <div class="kv a" style="--i:0"><span class="k">已合并</span><span>最近 30 天审过的 MR 中 9 个已合并，报过的问题 21 条</span></div>
+              <div class="kv a" style="--i:1"><span class="k">代码原样还在</span><span>4 条 → 没采纳（确定）</span></div>
+              <div class="kv a" style="--i:2"><span class="k">文件已删除</span><span>1 条 → 不计入</span></div>
+              <div class="kv a" style="--i:3"><span class="k">代码改了</span><span>16 条 → 交给 judge 判断问题是否真的解决</span></div>
+            </div>
+            <div class="scene" data-scene="2" hidden>
+              <div class="v pass a" style="--i:0"><span class="what"><span>paginate.ts:42 尾页截断</span><small>最终代码改用 Math.ceil，失败场景不再发生</small></span><span class="bar"><span style="width:100%"></span></span><span class="score">已解决</span><span class="mark ok">✓</span></div>
+              <div class="v fail a" style="--i:1"><span class="what"><span>cache.ts:30 并发写入</span><small>改的是旁边的日志，问题仍在</small></span><span class="bar"><span style="width:0%"></span></span><span class="score">未解决</span><span class="mark no">✗</span></div>
+              <div class="kv a" style="--i:3"><span class="k">原则</span><span>不因为“代码动过”就判为解决</span></div>
+            </div>
+            <div class="scene" data-scene="3" hidden>
+              <div class="cmp a" style="--i:0">
+                <span class="h">维度</span><span class="h">结果</span><span class="h">样本</span><span class="h">说明</span>
+                <span>采纳率</span><span>13/20</span><span>20</span><span>合并时问题真的解决了</span>
+                <span>判断</span><span>成立 9 · 不成立 3</span><span>12</span><span>不足 10 条时只给数量</span>
+                <span>差一点通过</span><span>70–79 分 3 条</span><span>—</span><span>值得抽几条人工看看</span>
+              </div>
+              <div class="kv a" style="--i:2"><span class="k">用法</span><span>只给人看，不自动改变审查行为；要调整就写进 REVIEW.md</span></div>
+            </div>
+          </div>
+
+          <div class="track" data-track="rules" hidden>
             <div class="scene" data-scene="0" hidden>
               <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>从最近一个月的 MR 评论里总结一下规则</div>
-              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>范围：shop-api · 2026-09-20 至 10-20 · 本次按合并时间筛选，23 个 MR；读取完整性会一并报告。</div>
+              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>只读地取最近合并的 23 个 MR 和上面的人工评论，先读现有的 REVIEW.md、CLAUDE.md。</div>
             </div>
             <div class="scene" data-scene="1" hidden>
-              <div class="kv a" style="--i:0"><span class="k">人工评论</span><span>23 个 MR 上共 41 条，挂在改动行上的 28 条</span></div>
-              <div class="kv a" style="--i:1"><span class="k">有效线索</span><span>去掉机器人、系统消息和「LGTM」等，保留 19 条线索及必要讨论结论</span></div>
-              <div class="kv a" style="--i:2"><span class="k">判断记录</span><span>不成立 6 条、成立 11 条（含团队同步来的）</span></div>
-              <div class="kv a" style="--i:3"><span class="k">漏报线索</span><span>4 条未匹配当时的发现 → 核对代码与审查范围，成立的交插件维护者作为评测候选</span></div>
+              <div class="cand a" style="--i:0"><b>金额计算使用项目 Money 类型</b><span class="tag2 good">候选</span><small>4 个 MR、3 位评论人 · 适用 src/payments/</small></div>
+              <div class="cand a" style="--i:1"><b>订单状态变更要写审计日志</b><span class="tag2 good">候选</span><small>3 个 MR、2 位评论人 · 适用 src/orders/</small></div>
+              <div class="cand no a" style="--i:2"><b>变量名用驼峰</b><span class="tag2">交给 linter</span><small>linter 能查，不写成审查规则</small></div>
+              <div class="cand no a" style="--i:3"><b>这里加个注释</b><span class="tag2">不收</span><small>只出现一次，没有说明失败场景</small></div>
             </div>
             <div class="scene" data-scene="2" hidden>
-              <div class="cand a" style="--i:0"><b>金额计算使用项目 Money 类型</b><span class="tag2 good">项目规则</span><small>证据 4 条 · 建议更新 .claude/rules/payments.md</small></div>
-              <div class="cand a" style="--i:1"><b>订单状态变更要写审计日志</b><span class="tag2 good">项目规则</span><small>证据 3 条 · 建议更新 .claude/rules/orders.md</small></div>
-              <div class="cand no a" style="--i:2"><b>变量名用驼峰</b><span class="tag2">建议改配 lint</span><small>linter 能查，不写成审查规则</small></div>
-              <div class="cand no a" style="--i:3"><b>这里加个注释</b><span class="tag2">证据不足</span><small>评论没有说明具体失败场景</small></div>
-              <div class="cand no a" style="--i:4"><b>已有集中重试时，调用方不再叠加重试</b><span class="tag2">已有</span><small>.cr/ignore.md 已限定路径与条件；最终失败仍须处理</small></div>
-            </div>
-            <div class="scene" data-scene="3" hidden>
-              <div class="msg agent a" style="--i:0"><span class="who">主 agent</span>两条候选已核对现有规则与未合入提案；下面展示维护文件、范围与 diff，来源评论附在 MR 描述中。</div>
-              <div class="kv a" style="--i:1"><span class="k">范围</span><span>保留原 paths，未改动：payments.md → src/payments/**；orders.md → src/orders/**；REVIEW.md 只补正文分级要求</span></div>
-<pre class="diff a" style="--i:2"><code># .claude/rules/payments.md
+              <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>两条都要</div>
+<pre class="diff a" style="--i:1"><code># src/payments/REVIEW.md
 <span class="plus">+ - 金额计算使用项目 Money 类型。原因：对账需要一致的精度。</span>
-# .claude/rules/orders.md
-<span class="plus">+ - 订单状态变更要写审计日志。原因：对账依赖变更记录。</span>
-# REVIEW.md
-<span class="plus">+ - 订单审计记录缺失按重要问题报告。</span></code></pre>
-              <div class="msg agent a" style="--i:4"><span class="who">主 agent</span>格式与路径命中检查通过；预览和创建使用同一基准。确认后创建 MR，只创建不合并。</div>
-              <div class="msg you a" style="--i:5"><span class="who">项目负责人</span>确认按这些文件和范围创建 MR</div>
-            </div>
-            <div class="scene" data-scene="4" hidden>
-              <div class="task a" style="--i:0"><span>MR !342 · 更新两份项目 rules 与 REVIEW.md 审查要求</span><span class="tag2">crosscheck-rule</span></div>
-              <div class="kv a" style="--i:1"><span class="k">审批</span><span>项目维护者在 GitLab 上审查、批准</span></div>
-              <div class="kv a" style="--i:2"><span class="k">合入</span><span>合入 main；后续维护仍修改这几个原文件</span></div>
-              <div class="kv a" style="--i:3"><span class="k">生效</span><span>后续 PR/MR 从相应 base 读取；工作区审查读取当前工作区版本</span></div>
-              <div class="kv a" style="--i:4"><span class="k">没批准的</span><span>MR 被关闭时写明原因；没有足以说明差异的新证据，不重复提出</span></div>
-            </div>
-          </div>
-
-          <div class="track" data-track="health" hidden>
-            <div class="scene" data-scene="0" hidden>
-              <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>复核一下我们的规则</div>
-              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>项目规则 18 条（保留原文件位置）· .cr/ignore.md 5 条 · 组织来源 2 个只读。复核时间缺失或较旧的先看，不自动判定失效。</div>
-            </div>
-            <div class="scene" data-scene="1" hidden>
-              <div class="hrow a" style="--i:0"><code>PRJ-004 ⏰</code><span>上次复核 2025-03(19 个月前)· 提到的 <code>src/utils/export.ts</code> 在代码库里找不到</span><span class="act">逐条看</span></div>
-              <div class="hrow a" style="--i:1"><code>PRJ-011 ⏰</code><span>上次复核 2025-09 · 作用域 src/legacy/** 匹配不到任何文件</span><span class="act">逐条看</span></div>
-              <div class="hrow a" style="--i:2"><code>PRJ-006 ⏰</code><span>上次复核 2026-02 · 和组织规则 ORG-GO-003 几乎一样</span><span class="act">逐条看</span></div>
-              <div class="hrow a" style="--i:3"><code>PRJ-009 ⏰</code><span>没有日期</span><span class="act">逐条看</span></div>
-              <div class="hrow a" style="--i:4"><code>PRJ-012</code><span>上次复核 2026-08 · 没有提示</span><span class="act">—</span></div>
-              <div class="kv a" style="--i:6"><span class="k">说明</span><span>检查提示只是线索。没有日期不等于已过期；禁止的写法没有出现，也可能是大家一直遵守，不能据此删规则。</span></div>
-            </div>
-            <div class="scene" data-scene="2" hidden>
-              <div class="kv a" style="--i:0"><span class="k">替代核对</span><span>组织来源已加载，ORG-GO-003 覆盖 PRJ-006 的同一要求和适用路径，无需新增来源配置</span></div>
-              <div class="msg you a" style="--i:1"><span class="who">项目负责人</span>删除 PRJ-004、PRJ-011、PRJ-006；PRJ-009 还对，保留并记下复核日期</div>
-<pre class="diff a" style="--i:2"><code>- - (PRJ-004) 导出统一走 src/utils/export.ts …
-- - (PRJ-011) legacy 模块禁止新增依赖 …
-- - (PRJ-006) RPC 调用必须设置超时 …（已由 ORG-GO-003 覆盖）
-~   (PRJ-009) &lt;!-- cr: id=PRJ-009 … reviewed=2026-10 --&gt;</code></pre>
-              <div class="msg agent a" style="--i:3"><span class="who">主 agent</span>删除 3 条、确认保留 1 条，格式检查通过。确认后创建 MR。</div>
-            </div>
-            <div class="scene" data-scene="3" hidden>
-              <div class="kv a" style="--i:0"><span class="k">MR</span><span>!351 已创建,只创建不合并,等项目维护者审批</span></div>
-              <div class="kv a" style="--i:1"><span class="k">记下复核</span><span>保留的规则写上 reviewed=2026-10,下次复核按这个日期排序</span></div>
-              <div class="kv a" style="--i:2"><span class="k">提升</span><span>负责人觉得某条规则别的项目也用得上时,说一声,输出候选、证据和来源引用，交外部负责人处理；CR 不发布组织规则</span></div>
-            </div>
-          </div>
-
-          <div class="track" data-track="release" hidden>
-            <div class="scene" data-scene="0" hidden>
-              <div class="kv a" style="--i:0"><span class="k">逻辑来源</span><span>engineering-standards · 正式规则</span></div>
-              <div class="kv a" style="--i:1"><span class="k">选择集合</span><span>HTTP、日志、日期三份规范；由可信配置绑定已连接的知识库</span></div>
-              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>只读已发布材料，组织维护与审批留在外部。</div>
-            </div>
-            <div class="scene" data-scene="1" hidden>
-              <div class="src a" style="--i:0"><span class="ck">✓</span><b>宿主取数</b><span class="muted">按实际工具读取正文，工具名只留在接入处</span></div>
-              <div class="src a" style="--i:1"><span class="ck">✓</span><b>材料完整</b><span class="muted">指定文档 3/3，记录 URI 与可用修订号</span></div>
-              <div class="src a" style="--i:2"><span class="ck">✓</span><b>导入校验</b><span class="muted">保存原文并计算 hash；不使用模型摘要替代原文</span></div>
-            </div>
-            <div class="scene" data-scene="2" hidden>
-              <div class="kv a" style="--i:0"><span class="k">固定快照</span><span>原文、出处和读取结果放在本次审查目录的 materials/ 中（拟新增）</span></div>
-              <div class="kv a" style="--i:1"><span class="k">问题引用</span><span>保留来源、原文及位置；有规则编号就带上，不强制文档编号</span></div>
-              <div class="kv a" style="--i:2"><span class="k">交给审查</span><span>生成 rules-index.json / task-rules.md，所有角色使用同一份材料</span></div>
-            </div>
-            <div class="scene" data-scene="3" hidden>
-              <div class="kv a" style="--i:0"><span class="k">异常分支</span><span>若 HTTP 文档无权限：取得 2/3，标记 partial</span></div>
-              <div class="kv a" style="--i:1"><span class="k">继续检查</span><span>代码 bug / 安全检查继续；组织规则检查未完成</span></div>
-              <div class="kv a" style="--i:2"><span class="k">报告</span><span>列出缺失文档；对应上次发现标为“本轮未能复核”，不计已解决或采纳</span></div>
-            </div>
-          </div>
-
-          <div class="track" data-track="eval" hidden>
-            <div class="scene" data-scene="0" hidden>
-              <div class="kv a" style="--i:0"><span class="k">这次改动</span><span>verifier 的评分标准：带 needs_check 的候选必须先核对那一环</span></div>
-              <div class="msg you a" style="--i:1"><span class="who">插件维护者</span>跑一下评测，和基线比</div>
-              <div class="msg agent a" style="--i:3"><span class="who">主 agent</span>用同一批代码、答案和资料比较新旧插件；这次只改评分标准。</div>
-            </div>
-            <div class="scene" data-scene="1" hidden>
-              <div class="cases a" style="--i:0" aria-label="20 个用例的结果"><span class="hit">1</span><span class="hit">2</span><span class="miss">3</span><span class="hit">4</span><span class="hit">5</span><span class="hit">6</span><span class="hit">7</span><span class="hit">8</span><span class="miss">9</span><span class="hit">10</span><span>11</span><span class="fp">12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span></div>
-              <div class="legend2 a" style="--i:1"><span><i class="hit"></i>命中</span><span><i class="miss"></i>漏掉</span><span><i class="fp"></i>干净用例里有误报</span><span><i></i>其他用例通过（安全、干净用例）</span></div>
-              <div class="kv a" style="--i:2"><span class="k">运行方式</span><span>只读、隔离、不读历史判断、不做增量；用例 / 答案 / 规则快照 / 意图已冻结</span></div>
-            </div>
-            <div class="scene" data-scene="2" hidden>
-              <div class="kv a" style="--i:0"><span class="k">期望</span><span>case-07：paginate.ts:40-44 非整数倍时尾页数据被截掉</span></div>
-              <div class="kv a" style="--i:1"><span class="k">发现</span><span>paginate.ts:42 total=41、pageSize=20 时最后一条数据被截掉</span></div>
-              <div class="tags a" style="--i:2"><span class="tag2 good">行号重叠 ✓</span><span class="tag2 good">LLM：同一个问题 ✓</span><span class="tag2">→ 命中</span></div>
-              <div class="kv a" style="--i:4"><span class="k">答案之外</span><span>case-12 报了 1 条 → LLM 判断站不住，人抽查确认是误报</span></div>
-            </div>
-            <div class="scene" data-scene="3" hidden>
-              <div class="kv"><span class="k">比较前置</span><span>插件回归使用同一组代码、答案和材料；新发现不改本轮答案</span></div>
-              <div class="cmp a" style="--i:0">
-                <span class="h">指标</span><span class="h">基线</span><span class="h">本次</span><span class="h">变化</span>
-                <span>召回</span><span>7/10</span><span>8/10</span><span class="up">+1</span>
-                <span>全用例确认误报</span><span>3</span><span>1</span><span class="up">下降</span>
-                <span>平均用时</span><span>6.1 分</span><span>6.8 分</span><span>+11%</span>
-                <span>平均 token</span><span>210k</span><span>238k</span><span>+13%</span>
-              </div>
-              <div class="kv a" style="--i:2"><span class="k">逐个用例</span><span>case-07 新抓到；没有新漏掉的用例</span></div>
-            </div>
-            <div class="scene" data-scene="4" hidden>
-              <div class="tags a" style="--i:0"><span class="tag2 good">召回不降 ✓</span><span class="tag2 good">全用例确认误报不升 ✓</span><span class="tag2 good">成本 +13%，在预算内 ✓</span></div>
-              <div class="kv a" style="--i:1"><span class="k">结论</span><span>可以合入</span></div>
-              <div class="kv a" style="--i:2"><span class="k">归档</span><span>保存本轮结果与待入库真问题；认可后更新基线，新增用例另行确认，不在本轮改答案</span></div>
+# src/orders/REVIEW.md
+<span class="plus">+ - 订单状态变更要写审计日志。原因：对账依赖变更记录。</span></code></pre>
+              <div class="tags a" style="--i:3"><span class="tag2 good">只改工作区</span><span class="tag2">由你提交，走正常的代码评审</span><span class="tag2">合入后 MR 审查才用上</span></div>
             </div>
           </div>
         </div>
@@ -657,25 +528,23 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
     <section id="principles">
       <h2>一、设计原则</h2>
-      <h3>设计原则</h3>
       <ol class="principles">
         <li><b>精确率优先。</b>两条真实发现好过十条里错三条。作者看到几条错误评论后就不再认真看其余的，报告为空是正当结果。</li>
-        <li><b>查找和核实分开。</b>子代理核实只接收候选结论；无子代理时重新读代码并反证，报告同一宿主顺序核实的独立性限制。</li>
-        <li><b>确定性的工作交给脚本。</b>diff、行范围、材料校验与规则装配由脚本完成；外部获取由宿主适配，agent 做判断。快照固定输入，不保证模型输出完全复现。</li>
-        <li><b>宿主无关。</b>同一套流程在 Claude Code、Cursor、Codex 中运行，宿主专属机制只做增强。</li>
-        <li><b>每项调整都可衡量。</b>改提示词、阈值、流程之前先跑评测，没有数据不改。</li>
-        <li><b>维护边界明确。</b>项目规则经确认后维护在已有规则源，审查专属要求放 REVIEW.md；组织规则由外部统一治理，CR 只读消费。每条规则只维护一份，不自动同步多套格式。</li>
-        <li><b>信号都要回流。</b>人的判断、人工评论和未通过核实的候选保留记录；确认有复用价值的，再进入项目规则建议或评测候选。</li>
+        <li><b>查找负责不漏，核实负责不错。</b>查找阶段放开去查，查到一半的也交；verifier 看不到查找时的推理，先尝试推翻、再打分，必须给出依据。</li>
+        <li><b>确定性的工作交给脚本。</b>diff、行范围、规则装配、依据和规则引文校验、过滤排序、增量都由脚本完成，agent 只做判断。</li>
+        <li><b>规则就是文件。</b>项目的 REVIEW.md 和已有的 CLAUDE.md、AGENTS.md、Cursor / Copilot 规则直接用，不需要编号、元数据或专门格式。</li>
+        <li><b>用结果衡量。</b>主要指标是采纳率：报过的问题，合并时是不是真的被解决了。离线用自己仓库里修过的 bug 检验。</li>
+        <li><b>机制保持简单。</b>只留业界验证过有效的；在有真实使用数据之前，不为“可能有用”加机制。</li>
       </ol>
 
       <h3>不做什么</h3>
       <ul>
-        <li>查找阶段尽量不漏，核实阶段控制误报；用评测同时观察召回与精确率。</li>
         <li>不替代编译器、类型检查器、linter 和 CI，它们能拦住的问题不报。</li>
-        <li>不审查改动之外的存量代码，不做风格和品味上的评判（除非项目写成了规则）。</li>
+        <li>不审查改动之外的存量代码；不报风格、命名、可读性、日志措辞和影响很小的性能优化（除非项目写成了规则）。</li>
         <li>不往 PR/MR 发评论，不 approve、request changes、merge，结果只在本地输出。</li>
         <li>默认不改文件，只有用户明确要求时才修复，且只改工作区、不提交。</li>
-        <li>审查过程中从不往 GitLab 写任何东西。只有两种写操作，而且都要你确认：提交项目规则改动的 MR（只创建、不合并），以及同步共享的判断记录。</li>
+        <li>不往 GitLab / GitHub 写任何东西。审查后唯一的写操作，是你确认后把规则改到工作区里的规则文件。</li>
+        <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
       </ul>
     </section>
 
@@ -683,19 +552,19 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h2>二、总体设计</h2>
       <div class="arch">
         <div class="layer">
-          <div class="layer-head"><b>入口层</b><span>由用户在本地调用</span></div>
+          <div class="layer-head"><b>入口</b><span>由用户在本地用平时说话的方式调用</span></div>
           <div class="chips">
             <span class="chip">审查 /cr</span>
-            <span class="chip">规则提炼</span>
-            <span class="chip">规则复核</span>
-            <span class="chip">效果统计</span>
-            <span class="chip">离线评测</span>
+            <span class="chip">审查之后：表态、质疑、修复</span>
+            <span class="chip">看效果和采纳率</span>
+            <span class="chip">从 MR 评论总结规则</span>
+            <span class="chip">用历史 bug 检验</span>
           </div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
 
         <div class="layer">
-          <div class="layer-head"><b>上下文层</b><span>宿主获取外部资料，脚本验证与装配</span></div>
+          <div class="layer-head"><b>收集</b><span>脚本完成，写进本次审查目录（review_dir）</span></div>
           <div class="subrow"><div class="label">改动</div><div class="chips">
             <span class="chip">diff 收集</span><span class="chip">有效代码过滤</span><span class="chip">行范围</span><span class="chip">分批</span><span class="chip">增量与依赖扩散</span>
           </div></div>
@@ -703,727 +572,267 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <span class="chip">MR 描述 / 提交说明</span><span class="chip">关联需求单</span><span class="chip">MR 人工讨论</span><span class="chip">计划文件</span><span class="chip">--intent</span>
           </div></div>
           <div class="subrow"><div class="label">规则</div><div class="chips">
-            <span class="chip">项目规则读 base</span><span class="chip">外部来源原文快照</span><span class="chip">来源与适用范围</span><span class="chip">历史判断</span>
+            <span class="chip">REVIEW.md（目录级 / 根目录）</span><span class="chip">.cr/ignore.md</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
           </div></div>
           <div class="subrow"><div class="label">信号</div><div class="chips">
-            <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span>
+            <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span><span class="chip">历史判断</span>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
-        <div class="layer"><div class="layer-head"><b>外部资料读取</b><span>目标新增 · 外部只读</span></div><div class="chips"><span class="chip">Git / 文件 / 宿主 MCP</span><span class="chip">取得完整性</span><span class="chip">原文快照</span><span class="chip">出处与原文</span><span class="chip">规则与参考知识分开</span></div></div>
-        <div class="flow"><span class="arrow">↓</span>本次审查目录（review_dir） · <a href="#storage">里面存什么？</a></div>
 
         <div class="layer">
-          <div class="layer-head"><b>多角色审查</b><span>主 agent 编排；有子代理时并行，否则顺序执行</span></div>
-          <div class="subrow"><div class="label">① 查找<br>4 个角色并行<br>尽量不漏</div><div class="roles">
-            <div class="role"><b>bug-hunter</b><span>找逻辑错误、边界、空值、并发、错误处理；从改动处往外看，也从调用方往回看；有验收标准时逐条对照，没做到的报为「意图」类问题</span></div>
-            <div class="role"><b>security-reviewer</b><span>找安全漏洞，含 AI 调用相关的风险；要说清攻击路径</span></div>
-            <div class="role"><b>rules-auditor</b><span>按装配结果检查目录、项目、组织规则及仓库代理约定；检查顺序不代表覆盖权限。只检查作用域内可对照代码的条目，独立条款分别报告，附检查单位身份、原文定位和依据</span></div>
-            <div class="role"><b>simplifier</b><span>找可复用的已有代码、重复和多余的写法</span></div>
-          </div></div>
-          <div class="subrow"><div class="label"></div><div class="role-note">
-            <p>deep 在四个查找角色之外增加三遍：bug-hunter 和 security-reviewer 各按相反的文件顺序查一遍，bug-hunter 再从调用方检查改动影响。测试削弱和风险分级先由脚本提取线索，供现有角色核对，不单设角色。</p>
-            <details class="design-basis" id="deep-basis">
-              <summary>设计依据：哪些有公开参考，哪些是本项目的取舍？</summary>
-              <ul>
-                <li><b>公开实践参考：</b><a href="https://code.claude.com/docs/en/code-review">Claude Code Review 官方说明</a>采用多个 agent 并行查找、再核实发现的流程。它支持“查找与核实分开”的方向，<b>不代表官方采用了 Crosscheck 的角色数量、倒序阅读或三遍配置</b>。</li>
-                <li><b>换序检查的研究启发：</b><a href="https://arxiv.org/abs/2307.03172">Lost in the Middle（Liu 等，TACL 2023）</a>在多文档问答和键值检索中观察到：相关信息的位置会影响所测模型的表现。它提供了改变阅读顺序的研究动机，但<b>没有直接验证倒序审代码能提高召回</b>，也不能据此断言当前模型有相同程度的位置偏差。</li>
-                <li><b>Crosscheck 自身取舍：</b>倒序复查、调用方视角和具体遍数来自本项目的 <code>SKILL.md</code> 与角色说明；测试削弱、风险分级由 <code>collect-context.sh</code> 先扫描，是为了复用可重复的检查、减少重复模型调用。它们是待核实的线索，不是确定的缺陷结论。</li>
-              </ul>
-              <p><b>效果与代价：</b>多遍检查增加用时和 token；换序及额外视角是否值得，需要在同组用例、相同模型与受控调用预算下对照召回和误报，不能把一般研究当成本项目已验证的收益。脚本扫描成本较低，但不能覆盖所有语义变化。</p>
-            </details>
+          <div class="layer-head"><b>审查</b><span>主 agent 编排；有子代理时并行，否则顺序执行</span></div>
+          <div class="subrow"><div class="label">① 查找<br>尽量不漏</div><div class="roles">
+            <div class="role"><b>reviewer</b><span>bug、安全、需求核对。能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；先看测试和检查的改动</span></div>
+            <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
+            <div class="role"><b>simplifier（按需）</b><span>用户要求时才启动：可复用的已有代码、重复、多余的写法</span></div>
           </div></div>
           <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
-            <div class="role"><b>verifier</b><span>逐条复查候选，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分；deep 模式下写脚本实际跑一下。模型可以在调用时指定，所有打分都存档</span></div>
+            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；deep 下写脚本复现。最好用和查找不同的模型</span></div>
           </div></div>
           <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
-            <div class="role"><b>主 agent（编排者）</b><span>合并重复，低于 80 分不报，只报改动的行，限制条数，按严重程度排序，然后出报告</span></div>
-          </div></div>
-          <div class="subrow"><div class="label">审查之外</div><div class="roles">
-            <div class="role"><b>rule-miner</b><span>从人工评论和判断里提炼候选，核对已有规则、建议维护文件；只在「提炼规则」时运行，候选不自动生效</span></div>
-            <div class="role"><b>judge</b><span>评测时判断发现是否对上答案；MR 合并后核实相关代码修改后问题是否已解决（采纳）</span></div>
+            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、合并同一规则、排序、条数上限、编号</span></div>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
 
         <div class="layer">
-          <div class="layer-head"><b>输出层</b><span>只在本地</span></div>
+          <div class="layer-head"><b>输出</b><span>只在本地</span></div>
           <div class="chips">
-            <span class="chip">Markdown 报告</span><span class="chip">问题代码原文摘取</span><span class="chip">测试削弱提示</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
+            <span class="chip">Markdown 报告</span><span class="chip">问题代码原文摘取</span><span class="chip">每条附依据</span><span class="chip">测试削弱单列</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
           </div>
         </div>
-        <div class="flow"><span class="arrow">↓</span>通过的发现 · 被否决的候选 · 人的判断 · 人工评论</div>
+        <div class="flow"><span class="arrow">↓</span>人的判断 · 合并后的最终代码 · MR 人工评论</div>
 
         <div class="pair">
           <div class="layer">
-            <div class="layer-head"><b>项目反馈与规则沉淀</b></div>
+            <div class="layer-head"><b>判断与度量</b></div>
             <div class="chips">
-              <span class="chip">收集反馈</span><span class="chip">核对已有规则</span><span class="chip">确定维护位置</span><span class="chip">确认 diff</span><span class="chip">项目 MR</span><span class="chip">定期复核</span>
+              <span class="chip">判断记录（同一段代码不再报）</span><span class="chip">采纳率（judge）</span><span class="chip">历史 bug 检验</span>
             </div>
           </div>
           <div class="bi" aria-hidden="true">⇄</div>
           <div class="layer">
-            <div class="layer-head"><b>度量与评测层</b></div>
+            <div class="layer-head"><b>规则沉淀</b></div>
             <div class="chips">
-              <span class="chip">线上指标</span><span class="chip">离线评测集</span><span class="chip">回归门禁</span>
+              <span class="chip">总结 MR 评论</span><span class="chip">检查规则</span><span class="chip">确认后改工作区</span>
             </div>
           </div>
         </div>
-        <div class="flow"><span class="arrow">↓</span></div>
-
-        <div class="layer">
-          <div class="layer-head"><b>规则层</b></div>
-          <div class="chips">
-            <span class="chip">L0 插件内置</span><span class="chip">L1 组织来源（只读）</span><span class="chip">项目已有 rules / 通用约定</span><span class="chip">项目 / 目录 REVIEW.md</span><span class="chip">抑制 .cr/ignore.md</span><span class="chip">候选不自动生效</span>
-          </div>
-          <div class="loop-note">↺ 回流到上下文层的「规则装配」</div>
-        </div>
+        <div class="loop-note">↺ 规则文件合入后，回到「收集」的规则装配</div>
       </div>
-    </section>
-
-    <section id="layers">
-      <h2>三、分层设计</h2>
-
-      <h3>1. 入口层：怎么使用</h3>
-      <p><b>不需要记参数。</b>直接用平时说话的方式告诉它审什么、审多细、审完要做什么；下表右列的参数只是熟练之后的简写，用不用都行。说法有歧义时（比如「看看 128」分不清是 MR 还是 Issue），它会先问一句再开始。</p>
-
-      <p><b>审什么</b></p>
-      <div class="table-wrap"><table>
-        <tr><th>你想审的</th><th>可以这样说</th><th>简写</th></tr>
-        <tr><td>当前分支的全部改动，包括还没提交的</td><td>「review 一下」「帮我看看这次的改动」</td><td><code>/cr</code></td></tr>
-        <tr><td>另一个分支（不用切过去）</td><td>「看看 feature/pay 分支」</td><td><code>/cr feature/pay</code></td></tr>
-        <tr><td>一个 MR</td><td>「review MR 128」，或者直接贴 MR 链接</td><td><code>/cr 128</code></td></tr>
-        <tr><td>某几个提交</td><td>「看看最近 3 个提交」</td><td><code>/cr HEAD~3..HEAD</code></td></tr>
-        <tr><td>某个目录下的改动</td><td>「只看 src/orders 下面的改动」</td><td><code>/cr src/orders</code></td></tr>
-      </table></div>
-
-      <p><b>审多细</b>（什么都不说就是标准深度，适合大多数情况）</p>
-      <div class="table-wrap"><table>
-        <tr><th>你想要的</th><th>可以这样说</th><th>会怎样</th><th>简写</th></tr>
-        <tr><td>快速过一遍</td><td>「快速看一下」「简单过一遍」</td><td>只查 bug 和安全问题，最多报 5 条，最快</td><td><code>--quick</code></td></tr>
-        <tr><td>上线前仔细审</td><td>「仔细看看」「上线前深度审一下」</td><td>换个顺序多查几遍，并尝试写脚本复现问题；明显更慢、更贵</td><td><code>--deep</code></td></tr>
-        <tr><td>只关心某一方面</td><td>「只看安全问题」「只对照一下团队规范」</td><td>只启动对应的角色</td><td><code>--only security</code></td></tr>
-        <tr><td>连测试一起看</td><td>「测试也一起看」</td><td>测试文件也按缺陷审查（默认只检查测试有没有被削弱）</td><td><code>--with-tests</code></td></tr>
-        <tr><td>从头完整审一遍</td><td>「重新审」「全量审一遍」</td><td>忽略上次的记录。默认只看上次审过之后变了的文件</td><td><code>--full</code></td></tr>
-      </table></div>
-
-      <p><b>补充背景</b>（可选，能让结果更准）</p>
-      <div class="table-wrap"><table>
-        <tr><th>你想告诉它的</th><th>可以这样说</th><th>简写</th></tr>
-        <tr><td>这次改动想做什么</td><td>「这次是为了修复分页丢数据」</td><td><code>--intent "…"</code></td></tr>
-        <tr><td>方案或计划写在哪</td><td>「方案在 docs/plan.md」</td><td><code>--plan docs/plan.md</code></td></tr>
-        <tr><td>核实用哪个模型</td><td>「核实换成某某模型」</td><td><code>--verifier-model …</code></td></tr>
-      </table></div>
-
-      <p><b>审完之后</b>：直接回复就行，比如「第 2 条不对，上游已经校验过了」「把第 1、3 条修掉」「以后这种别报了」。各种回复怎么处理，见第十节「报告之后」。修复只有你明确要求时才做（简写 <code>--fix</code>），只改工作区、不提交。</p>
-
-      <p><b>其他功能</b></p>
-      <div class="table-wrap"><table>
-        <tr><th>你想做的</th><th>可以这样说</th><th>简写</th></tr>
-        <tr><td>从人工评审记录里总结规则</td><td>「从最近 3 个月的 MR 评论里总结一下规则」</td><td><code>/cr 提炼规则 --since 90d</code></td></tr>
-        <tr><td>复核规则</td><td>「复核一下我们的规则」「检查一下我们的规则」</td><td><code>/cr 规则复核</code></td></tr>
-        <tr><td>看审查效果</td><td>「看看 review 的效果怎么样」</td><td><code>/cr 统计</code></td></tr>
-        <tr><td>改了插件后跑评测</td><td>「跑一下评测」</td><td><code>/cr 评测</code></td></tr>
-        <tr><td>忘了能做什么</td><td>「cr 能做什么」</td><td><code>/cr 帮助</code></td></tr>
-      </table></div>
-
-      <p><b>确认它理解对了。</b>报告第一行写明这次实际按什么审的，理解错了可以马上纠正：</p>
-<pre><code>审查范围:MR !128(feature/pay → main)· 深度:标准 · 增量(上次审过的 4 个文件及其有效审查上下文均未变)
-意图来源:MR 描述、关联需求 PROJ-231</code></pre>
-
-      <h3>2. 上下文层（宿主获取，脚本校验与装配）</h3>
-      <ul>
-        <li><b>改动收集</b>（<code>collect-diff.sh</code>）：
-          <ul>
-            <li>不检出、不切分支：被审查的代码不在工作区时，一律用 <code>git show</code> / <code>git grep</code> 从目标 ref 读取。</li>
-            <li>只留有效代码：过滤 lock、生成、vendored、二进制、测试、日志和各类产物，原因写进 <code>skipped.txt</code>。</li>
-            <li>算出每个文件新侧的改动行范围（<code>ranges.txt</code>），发现只能落在这些行上。</li>
-            <li>大改动按路径顺序切成约 1000 行一批，每批独立审查。</li>
-            <li>增量：先保留当前目标完整 diff，再读取项目规则、外部规范、实际使用的参考资料与意图。材料、来源选择、适用范围或审查配置（含实际模型与插件版本）变化，或无法确认一致时，重审当前目标全部 diff，不扫描全仓。只有材料与配置均可确认一致时，才沿用现有代码增量逻辑；不做条款到文件的精细依赖图。</li>
-          </ul>
-        </li>
-        <li><b>意图</b>：这次改动想做什么、验收标准是什么、哪些行为变化是刻意的。来源和用法见本节末尾的「意图收集」。</li>
-        <li><b>规则装配</b>（<code>collect-rules.sh</code>）：
-          <ul>
-            <li>设计约定：PR/MR 模式从 base 读取项目规则，新规则需先合入 base；工作区模式读取工作区规则。当前 base 不可读时的回退缺口见第四节，不能把工作区副本当成可信 base。</li>
-            <li>扫描已支持的规则位置，用 paths / globs / applyTo 等范围匹配改动文件，再把适用正文交给角色。无范围的全局规则仍会一起加载；任意自建 rules 目录不会自动识别。</li>
-            <li>按配置取得指定外部资料，结合项目规则装配。旧 Git extends 用法保留；忽略项不能静默取消外部要求，冲突明确交人判断。</li>
-            <li>生成现有 rules-index.json 与 task-rules.md；检查项区分来源，保存原文与读取结果。缺失、截断或冲突要说明。</li>
-          </ul>
-        </li>
-        <li><b>历史判断</b>：保留项目判断记录。外部规范的旧判断先作参考，本轮仍核对代码与原文；项目判断也不能跨不同问题套用。</li>
-        <li><b>测试削弱扫描</b>，保留现有检测范围，产出 <code>weakening.txt</code>。即使默认不完整审查测试文件，也照常扫描：
-          <ul>
-            <li>删掉的测试文件或断言；修改断言期望值等可能迎合错误实现的变化；</li>
-            <li>新加的 <code>skip</code>、<code>xit</code>、<code>@Disabled</code>、<code>t.Skip</code>，以及 <code>only</code> 导致其他测试不再运行；</li>
-            <li>调低的覆盖率阈值；</li>
-            <li>新增的 <code>ts-ignore</code>、<code>eslint-disable</code>、<code>nolint</code>；</li>
-            <li>CI 配置里删掉检查步骤、放宽失败条件（如允许失败）。这些是需要核实的削弱线索，不把每次修改期望值都直接认定为错误。</li>
-          </ul>
-        </li>
-        <li><b>风险分级</b>，产出 <code>risk.txt</code>，只用确定性的信号：命中根 <code>REVIEW.md</code> 配置的高风险路径、迁移文件、鉴权和支付相关路径、diff 大小、是否有测试削弱。用户没指定深度时据此建议深度，只建议、不强制。</li>
-      </ul>
-
-      <details class="design-basis" id="context-basis">
-        <summary>设计依据：项目规则版本、分批与增量</summary>
-        <ul>
-          <li><b>公开实践：</b><a href="https://code.claude.com/docs/en/code-review-customize#which-branch-reviewmd-is-read-from">Claude Code Review</a>依据分支保护情况从 base 或默认分支读取 REVIEW.md；<a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-code-review">GitHub Copilot Code Review</a>当前说明从 PR 的 head 读取指令。行业没有统一的版本选择。</li>
-          <li><b>本项目取舍：</b>PR/MR 使用 base 规则，工作区审查使用工作区规则，避免改动同时放宽本轮标准；约 1000 行分批是本项目的工作量控制参数。材料或配置变化后重审当前 diff，是为了简化缓存，不是外部产品的通用要求。</li>
-          <li><b>收益边界：</b>base 读取需要先合入规则才能生效；分批与保守重审可能增加上下文和调用成本。效果与成本须用项目用例验证。</li>
-        </ul>
-      </details>
-
-      <p><b>意图收集</b></p>
-      <p>需求材料帮助审查判断“是否做到了要求”，并区分刻意的行为变化与错误。Crosscheck 收集作者说明、关联需求和用户提供的计划；具体参考与本项目的扩展见下方“设计依据”。</p>
-      <p>Crosscheck 按下表收集，脚本汇总成一份 <code>intent.md</code>：</p>
-      <div class="table-wrap"><table>
-        <tr><th>来源</th><th>收集什么</th><th>怎么取</th></tr>
-        <tr><td>MR 标题和描述</td><td>要做什么、为什么、刻意的行为变化</td><td><code>glab</code> / <code>gh</code>；不可用时只能从提交说明里取</td></tr>
-        <tr><td>关联的需求单</td><td>标题、描述、验收标准、子任务</td><td>从 MR 描述和提交说明里识别链接或编号。GitLab Issue 用 <code>glab api</code> 只读获取；其他系统要在 <code>~/.crosscheck/config</code> 里配置读取方式，没配置时只记下编号，不去抓取</td></tr>
-        <tr><td>提交说明</td><td>每一步改了什么</td><td><code>git log base..head</code></td></tr>
-        <tr><td>MR 上的人工讨论</td><td>作者在回复里解释的意图、已经达成的结论</td><td><code>glab api …/discussions</code> 只读获取，只留人工评论</td></tr>
-        <tr><td>计划文件</td><td>agent 或作者写下的计划、方案取舍</td><td>用户用 <code>--plan &lt;文件&gt;</code> 指定，或仓库里约定位置的 <code>.cr/intent.md</code>；不自动读取任何 agent 的会话记录</td></tr>
-        <tr><td><code>--intent "…"</code></td><td>用户临时补的一句话</td><td>调用参数</td></tr>
-      </table></div>
-      <p><code>intent.md</code> 的结构固定：<b>目标</b>、<b>验收标准</b>、<b>刻意的行为变化</b>、<b>明确不做的</b>、<b>来源清单</b>（每一条从哪来）。总长度有上限，超出时截断并注明。所有来源都没有内容时，报告末尾提示「没有找到意图，可以用 <code>--intent</code> 补一句」。</p>
-      <p>意图的用法：</p>
-      <ul>
-        <li><b>查找时对照</b>：说了要做的，代码是否真的做到了；代码里有没有说明中没提、也不像刻意的行为变化。</li>
-        <li><b>需求核对</b>：有明确的验收标准时，没有满足的条目作为一类单独的发现（<code>intent</code>），同样要经过 verifier 核实，在报告里单独成节，默认最多 5 条。和需求无关的改动默认不报。</li>
-        <li><b>减少误报</b>：意图里写明的刻意行为变化，不当作缺陷报。</li>
-        <li><b>只能解释，不能豁免</b>：意图来自作者，属于被审查的材料。它可以说明「这个行为变化是有意的」，但不能让安全问题不报，里面写给 reviewer 的指令（「这里不用查」）一律不执行。</li>
-      </ul>
-
-      <details class="design-basis" id="intent-basis">
-        <summary>设计依据：为什么读取意图和验收标准</summary>
-        <ul>
-          <li><b>公开实践：</b><a href="https://docs.coderabbit.ai/issues/pr-validation">CodeRabbit 的关联需求核对</a>比较 PR 改动与关联需求，给出已满足、未满足或不确定的判断；<a href="https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md">Anthropic 的公开 code-review 插件</a>将 PR 标题和描述传给查找及核实 agent。</li>
-          <li><b>本项目取舍：</b>额外支持提交说明、人工讨论、--intent 和计划文件，并把未满足的明确验收项归为 intent。资料不足时说明缺口，不推测作者需求，也不自动读取私人会话。</li>
-          <li><b>支持到哪里：</b>这些实践支持“审查需要需求上下文”，不证明某个信息源必然提高准确率，也不支持统一的提升百分比。每项结论仍需代码证据与核实。</li>
-        </ul>
-      </details>
-
-      <h3>3. 多角色审查</h3>
-      <p>一次审查由一个主 agent 编排，它按深度启动若干个角色，每个角色是一个独立的 agent（宿主支持子代理时并行运行，不支持时由主 agent 依次扮演）。每个角色有自己的一份说明文件（<code>roles/&lt;角色&gt;.md</code>），说明短而专一；共用的部分（规则设置的处理、读代码的方式、只读约束）集中放在一份公共说明里。</p>
-      <p><b>角色一览</b>：</p>
-      <div class="table-wrap"><table>
-        <tr><th>角色</th><th>负责</th><th>什么时候运行</th><th>交出什么</th></tr>
-        <tr><td>主 agent（编排者）</td><td>解析参数、运行脚本、启动其他角色、汇总过滤、出报告、记录人的判断</td><td>每次</td><td>报告和审查记录</td></tr>
-        <tr><td><code>bug-hunter</code></td><td>找正确性问题，并对照验收标准</td><td>每次（quick 由主 agent 兼任）</td><td>候选发现</td></tr>
-        <tr><td><code>security-reviewer</code></td><td>找安全问题</td><td>每次（quick 由主 agent 兼任）</td><td>候选发现</td></tr>
-        <tr><td><code>rules-auditor</code></td><td>对照团队规则</td><td>standard、deep，且有适用的规则时</td><td>候选发现及规则检查清单</td></tr>
-        <tr><td><code>simplifier</code></td><td>找可以简化的地方</td><td>standard、deep</td><td>简化建议</td></tr>
-        <tr><td><code>verifier</code></td><td>独立核实每条候选并打分</td><td>有发现候选或可抽查规则检查项时；每批最多 5 条，一批一个</td><td>带分数和理由的候选</td></tr>
-        <tr><td><code>rule-miner</code></td><td>从人工评论和判断记录里提炼候选规则</td><td>只在 <code>/cr 提炼规则</code> 时</td><td>候选规则</td></tr>
-        <tr><td><code>judge</code></td><td>评测时判断发现是否对上答案；MR 合并后判断报过的问题在最终代码里是否解决</td><td>只在跑评测、统计采纳时</td><td>对上 / 没对上、已解决 / 未解决，附理由</td></tr>
-      </table></div>
-      <p><b>查找角色的细节</b>：</p>
-      <div class="table-wrap"><table>
-        <tr><th>角色</th><th>查什么</th><th>要求的证据</th></tr>
-        <tr><td><code>bug-hunter</code></td><td>逻辑错误、边界、空值、并发、错误处理、资源泄漏、API 误用。<code>local</code> 从改动处向外查，<code>impact</code> 从使用方向内查漏改的地方</td><td>具体的输入或状态 → 错误的结果</td></tr>
-        <tr><td><code>security-reviewer</code></td><td>注入、鉴权越权、密钥、反序列化、SSRF、路径穿越；以及 LLM 类风险：不可信输入拼进提示词、模型输出直接当作命令或 SQL 执行、密钥或个人信息发给模型、无上限的调用、引用不存在的包</td><td>攻击者可控的值从哪进入、经过哪几步、造成什么后果</td></tr>
-        <tr><td><code>rules-auditor</code></td><td>违反各层规则的地方，附原文与出处；有原生编号则保留。检查顺序见下</td><td>逐字引用规则原文和出处</td></tr>
-        <tr><td><code>simplifier</code></td><td>可复用的已有代码、重复、多余的机制、没被用上的新代码</td><td>已有的等价代码在哪里</td></tr>
-      </table></div>
-      <p><b><code>rules-auditor</code> 的检查顺序</b>：</p>
-      <ol>
-        <li><b>先读会改变审查方式的部分。</b>根 <code>REVIEW.md</code> 的支持配置由脚本执行；根或目录正文提供相应范围的审查重点、证据和分级要求，分级处理顺序见第四节。另核对 <code>.cr/ignore.md</code> 的有条件抑制。项目抑制不得静默取消外部要求；冲突交人判断。</li>
-        <li><b>作用域与治理权限分开。</b>按装配结果检查目录、项目、组织规则与仓库代理约定。不同来源冲突时提示原文和出处，不按返回顺序覆盖，也不由 CR 自动批准例外。</li>
-        <li><b>筛出这次要查的规则。</b>只留作用域覆盖改动文件、并且能对照代码检查的条目：命名、必须用或禁止用的 API、错误处理约定、代码放在哪里、必须同步修改的地方、日志里不能出现的内容。怎么跑测试、用哪个包管理器这类操作说明跳过。</li>
-        <li><b>逐个改动文件对照改动行。</b>只看这次 diff 改到的行；只凭 hunk 判断不了时打开整个文件。改动行明显违反规则的字面才报，要引申才能套上的不报。</li>
-        <li><b>查反证。</b>核对是否已有处理、是否误读原文。大量现有代码与规范相反时提示疑似过时并给出反证，不静默取消外部规范。</li>
-        <li><b>合并后交出。</b>覆盖检查单位与发现去重依据分开。同一条具体要求、同一文件、同一缺陷在多处重复时才合并，并保留全部相关依据；不同条款或不同失败场景分别保留摘要、证据和建议。同属一份文档不能单独作为合并依据；每条附原文位置与出处，交给 verifier 核实。同时交出检查清单，由脚本核对有没有漏掉的规则（见第五节「保留必要的可追溯性」）。</li>
-      </ol>
-      <p><b>深度</b>：</p>
-      <div class="table-wrap"><table>
-        <tr><th>深度</th><th>查找</th><th>核实</th></tr>
-        <tr><td>quick</td><td>主 agent 一次完成 bug 和安全</td><td>主 agent 自己核实</td></tr>
-        <tr><td>standard</td><td>四个角色并行，大改动按批次运行</td><td>verifier 子代理，只读代码</td></tr>
-        <tr><td>deep</td><td>再加倒序的 bug-hunter、impact 视角的 bug-hunter、倒序的 security-reviewer；同一候选被几遍查到记为命中次数（不传给 verifier）</td><td>verifier 可以写最小脚本复现，或运行项目已有的类型检查和测试</td></tr>
-      </table></div>
-      <p><b>保留现有规则保障</b>：有规则检查清单时，先用 <code>check-rules.sh</code> 核对覆盖和核对码；缺项、无效项或核对码不符时补查一次，仍未通过就在报告里列为未检查。再由 <code>prepare-verify.sh</code> 抽取“未违反”项交给 verifier：standard 默认 3 条、deep 5 条，不足时取全部可抽查项。<strong>普通发现候选为零，也不能跳过已有可抽查项。</strong>没有可抽查项就如实说明，不伪造抽查结果。</p>
-      <p><b>核实</b>：</p>
-      <ul>
-        <li>verifier 只拿到符合结构的候选，不拿到查找者的推理，先尝试推翻，再按评分标准打分。</li>
-        <li>按顺序执行封顶检查：不在改动行上、base 版本就有、有守卫使其不可达、代码没被用上、CI 会拦住、命中仍有效的历史判断或误报清单等，第一条适用的决定分数上限。外部规范历史不自动抑制本轮发现；材料变化或适用性不确定时重新核对。</li>
-        <li>候选带 <code>needs_check</code> 时，先核对那一环。</li>
-        <li>verifier 的模型按用户调用时指定（<code>--verifier-model</code>），默认和当前宿主同一个模型；记录实际使用的模型，不把配置值当成调用事实；便于比较结果。</li>
-        <li><b>打分必须附依据</b>：核实时读过、能支撑结论的代码位置（文件:行）；排除了哪些可能（守卫、调用方、base 版本是否已有）；deep 模式下的复现命令和结果。脚本会检查依据里引用的位置在被审查的那一版代码里真实存在，引用不存在的依据作废，这条最高 50 分。</li>
-        <li>每条候选的分数都留档：80 分以上进报告，其余写进 <code>rejected.json</code>，用于校准阈值。</li>
-      </ul>
-      <p><b>汇总</b>：核实前合并同根因、同一失败事实且一个局部修复能解决的候选，保留各触发场景与验收出处；规范、简化与其他判断维度分别核实，规范发现仍按同一具体要求汇总，文档单位相同不代表同一个缺陷；核实后丢弃 80 分以下和不在改动行上的；缺陷、规范、简化各自计数上限（默认 10 / 5 / 5，可通过根 <code>REVIEW.md</code> 的 limits 配置调整）；按严重程度和置信度排序。</p>
-
-      <details class="design-basis" id="verification-basis">
-        <summary>设计依据：高置信过滤、规则清单与参数</summary>
-        <ul>
-          <li><b>公开实践：</b><a href="https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md">Anthropic 的公开插件</a>要求验证问题、引用被违反的规则，并过滤未验证的发现；<a href="https://cursor.com/docs/bugbot#see-which-rules-a-review-used">Bugbot</a>可显示实际使用及被截断、遗漏的规则。</li>
-          <li><b>本项目取舍：</b>rules-index 清单、核对码、缺项补查一次、对“未违反”项抽查，都是 Crosscheck 用于降低漏检风险的机制。80 分门槛、每批最多 5 条、standard 抽查 3 条 / deep 5 条以及报告条数上限，是本项目参数，不是行业标准。</li>
-          <li><b>验证边界：</b>核对码只能辅助核对材料，清单只能核对检查结果是否齐全；两者均不能证明模型理解正确。评分不是统计概率，80 分也不是“80% 真实”，参数应通过召回、误报与成本对照调整。</li>
-        </ul>
-      </details>
-
-      <h3>4. 输出层</h3>
-      <ul>
-        <li><b>报告</b>：开头一张概览表；每条发现包含位置、问题代码原文（由脚本从被审查的那一版摘取，带行号）、失败场景、修复建议（能确定时用 diff），必要时附兼容性说明和之前的判断。</li>
-        <li><b>每条发现都附依据</b>，默认折叠，展开可以核对：置信度分数、核实时读过的代码位置、排除了什么、复现的命令和结果（deep 模式）、由哪个角色查到。<code>rules</code> 发现另附原文、位置和出处；有原生规则编号则保留；<code>security</code> 发现另附攻击路径的每一步。读报告的人不用重新查一遍，就能判断这条站不站得住。</li>
-        <li><b>分节</b>：缺陷、需求核对、规范、可简化、测试削弱各自成节；复审另列“本轮未能复核”及原因。末尾注明意图和规则来源；因仍有效历史判断而未报的折叠列出，可以核对。</li>
-        <li><b>末尾</b>：查了哪些维度、深度和范围、跳过了多少文件、本次消耗、记录的链接。</li>
-        <li><b>记录</b>：报告、发现、被否决的候选、元数据保存到用户目录，下一次审查据此做增量。</li>
-        <li><b>只在本地输出</b>，不往 PR/MR 发任何内容。</li>
-        <li><b><code>--fix</code></b>：只应用通过核实的发现，最小改动，只改工作区、不暂存不提交，修完运行项目已有的检查并如实报告结果。</li>
-      </ul>
-      <p>一条发现在报告里的样子（示例）：</p>
-<pre><code>### 1. [重要 · bug] total=41、pageSize=20 时最后一条数据被截掉
-
-位置:src/orders/paginate.ts:42
-
-问题代码
-   41 |   const total = rows.length;
-&gt;  42 |   const pageCount = Math.floor(total / pageSize);
-   43 |   return rows.slice(0, pageCount * pageSize);
-
-问题:total=41、pageSize=20 时 pageCount 算出 2,rows.slice(0, 40) 只返回 40 条,第 41 条被截掉；预期页数为 3。
-
-修复建议
--   const pageCount = Math.floor(total / pageSize);
-+   const pageCount = Math.ceil(total / pageSize);
-
-▸ 依据(置信度 96)
-  - 读过:paginate.ts:38-47(改动处);api/orders.ts:88(唯一调用方,pageSize 来自请求参数)
-  - 排除:调用方没有对 total 取整;base 版本用的是 Math.ceil,问题由本次改动引入
-  - 复现示意(非实测日志):total=41、pageSize=20 → floor=2，截取 40 条；ceil=3，截取全部 41 条
-  - 对照边界:total=40、pageSize=20 → floor=ceil=2，均返回 40 条
-  - 查到:bug-hunter(deep 两遍都查到)</code></pre>
-
-      <h3>5. 私有化 GitLab</h3>
-      <p>支持私有化部署的 GitLab。和代码托管平台有关的设置都写在 <code>~/.crosscheck/config</code> 这一个文件里：</p>
-<pre><code># ~/.crosscheck/config
-gitlab_hosts=code.company.com            # 按 GitLab 处理的域名,多个用逗号分隔;部署在子路径时写成 company.com/gitlab
-rules_repo=https://code.company.com/eng/crosscheck-rules.git # 可选旧 Git 来源
-rules_ref=v1.4.0
-data_repo=https://code.company.com/eng/crosscheck-data.git  # 可选:共享人的判断</code></pre>
-      <div class="table-wrap"><table>
-        <tr><th>环节</th><th>怎么处理</th></tr>
-        <tr><td>识别平台</td><td>按顺序判断：<code>--platform</code> 参数 → 环境变量 <code>CR_PLATFORM</code> → 配置里的 <code>gitlab_hosts</code> → 域名里含 <code>gitlab</code> → MR 链接里含 <code>/merge_requests/</code>。都判断不了时报错，并提示在配置里加上域名</td></tr>
-        <tr><td>登录</td><td>用 <code>glab auth login --hostname code.company.com</code> 登录一次，token 由 glab 自己保存；Crosscheck 不读取、不保存 token</td></tr>
-        <tr><td>没有 glab 或没登录</td><td>改用 <code>git fetch origin merge-requests/&lt;编号&gt;/head</code> 拉取代码，用的是仓库已经配好的 git 凭证。代码照常审查，但拿不到标题、描述、人工讨论和关联的需求单，报告里会注明</td></tr>
-        <tr><td>自签名证书</td><td>由用户在 glab（<code>ca_cert</code> 或 <code>skip_tls_verify</code>，按域名设置）和 git（<code>http.sslCAInfo</code>）里配置；Crosscheck 不修改这些设置</td></tr>
-        <tr><td>内网访问</td><td>运行环境要能连上 GitLab。在沙箱或连不上内网的环境里，脚本会直接说明拉取失败的可能原因，不反复重试</td></tr>
-        <tr><td>部署在子路径</td><td>例如 <code>https://company.com/gitlab/group/proj</code>：在 <code>gitlab_hosts</code> 里写成 <code>company.com/gitlab</code>，解析 MR 链接时先去掉这段前缀，再取项目路径</td></tr>
-        <tr><td>API 版本</td><td>只用 REST API v4 的只读接口：MR 信息、diff 基准、讨论、Issue</td></tr>
-        <tr><td>来源认证</td><td>GitLab Issue 和讨论使用现有 glab 登录；Git 规则读取保留兼容。MCP 等来源使用宿主独立连接，不能假设所有组织资料共用 GitLab 登录。</td></tr>
-      </table></div>
-    </section>
-
-    <section id="learning">
-      <h2>四、项目规则</h2>
-      <p class="muted">作为目录约定读取的 AGENTS.md、CLAUDE.md 等文件只作用于所在目录；原生 rules 文件按各自的 paths/globs/applyTo 装配。.claude/CLAUDE.md 与 .github/copilot-instructions.md 是明确的全局入口，不能把其下任意目录文件都当成全局。</p>
-      <p><b>项目负责人确认规则，Crosscheck 帮助整理和提出改动。</b>从近期 MR 人工评论中提炼的长期约束，优先维护在项目已有的 rules；审查专属要求放 <code>REVIEW.md</code>。规则与代码一起走项目 MR 流程，组织规范仍由外部维护。</p>
-      <p class="muted">本轮已补齐项目规则的共用读取、原生格式正文维护、路径验收与采集完整性。脚本检查与模型判断分开验证；语义去重、规则是否值得长期保留仍由角色和负责人核对。</p>
-
-      <h3>1. 确认成立后，维护在哪里？</h3>
-      <div class="table-wrap"><table>
-        <tr><th>提炼出的内容</th><th>维护位置</th><th>例子</th></tr>
-        <tr><td>编码时也必须遵守的项目约束</td><td>项目已有的 rules 或通用约定文件；已有同义规则就修改原处</td><td>金额使用本项目 Money 类型；新增事件类型须同步注册序列化器；切换账号清理用户缓存</td></tr>
-        <tr><td>审查重点、证据要求、严重程度及报告设置</td><td>正文要求放根或目录 <code>REVIEW.md</code>；<code>skip / limits / severity</code> 等脚本设置只放根文件 frontmatter</td><td>迁移重点核对回滚路径；不可恢复的数据损坏按严重问题报告；根配置限制简化建议条数</td></tr>
-        <tr><td>有明确条件的长期误报模式</td><td><code>.cr/ignore.md</code>，写清范围、成立条件和原因</td><td>特定客户端已经负责重试，不重复要求其调用方再加一层；“暂不修”不能直接变成永久忽略</td></tr>
-        <tr><td>lint、类型检查或 CI 能稳定执行的约束</td><td>对应工具配置，由项目原有流程维护</td><td>格式、import 顺序、禁止使用某个 API；不再抄一份自然语言规则</td></tr>
-        <tr><td>通用缺陷漏报、一次性例外或未解决争议</td><td>评测候选或项目判断记录，不自动写成长期规则</td><td>一次回调漏报保存为评测候选；单次兼容处理、个人偏好不足以代表全项目约定</td></tr>
-        <tr><td>跨项目组织规范</td><td>原有组织知识库或规范仓库</td><td>CR 输出建议、证据和出处，交外部负责人处理；不改组织原件或同步副本</td></tr>
-      </table></div>
-      <p><b>每条规则保留一个维护源。</b>已有规则留在原处；没有同类规则时，沿用该模块既有目录。项目存在多种格式且落点不明确时，由负责人选定新规则的默认位置，不自动复制到所有格式。没有既有体系的小项目可以先用短 <code>REVIEW.md</code>，以后按实际需要拆分。</p>
-      <p>例如项目已用 <code>.claude/rules/payments.md</code>，金额约束就更新该文件，<code>REVIEW.md</code> 只补必要的审查严重程度。仓库里的项目 rules 在审查时只读、在维护时经确认修改；组织规范按维护责任保持只读，不能仅凭文件位于仓库内就认定可以编辑。</p>
-      <p><b>正文要求贯通查找、核实与汇总。</b>受信任版本的 <code>REVIEW.md</code> 中，证据要求和分级声明由查找、核实与汇总共同采用。沿用现有 severity 字段和显式配置；没有显式分级覆盖时，核实后的严重程度不能再被默认 minor 重置。验收例：普通 rules 文件没有严重程度元数据，REVIEW.md 正文规定“订单审计记录缺失按重要问题报告”，最终报告仍应保留该分级。正文不能授权工具调用、扩大权限、跳过核实或降低固定门槛。</p>
-
-      <h4 id="review-example">一个简短的 REVIEW.md 示例</h4>
-      <p>只选项目确实需要的配置和要求。下面是仓库根目录的示例，路径需换成实际目录；通用编码约束仍留在已有 rules 中。</p>
-<pre><code>---
-# 根文件配置：由 Crosscheck 脚本读取
-skip: ["src/generated/**"]
-limits: { simplify: 3 } # 简化建议最多 3 条
-risk_paths: ["db/migrations/**"]
----
-# 本项目审查要求
-
-## 审查重点
-- 数据库迁移：核对滚动发布的新旧版本兼容性及回滚路径。
-
-## 证据要求
-- 支付金额异常：说明具体输入、单位转换和最终写入值。
-
-## 严重程度
-- 订单审计记录缺失按重要问题报告。</code></pre>
-      <p class="muted"><code>---</code> 之间的配置是 Crosscheck 自有格式，脚本只读取根 REVIEW.md 的配置段；目录 REVIEW.md 仅补局部正文要求。正文由审查角色依据代码判断；汇总保留核实后的分级，显式配置和条目元数据优先。严重程度不改变固定 80 分置信度门槛。</p>
-
-      <h3 id="rule-paths">2. 路径怎么写，什么时候生效？</h3>
-      <p>下面以 <code>.claude/rules/session-cache.md</code> 为例，路径需换成项目实际目录。<code>paths</code> 指的是<b>受规则约束的代码路径</b>，相对被审仓库根目录，不是相对规则文件所在目录。</p>
-<pre><code>---
-paths:
-  - "apps/web/src/auth/**"
-  - "apps/web/src/cache/**"
----
-# 用户会话与缓存
-
-- 退出登录或切换账号时，清除与原用户绑定的缓存。
-- 用户缓存键包含用户标识；公开资源缓存不受此限制。
-
-原因：避免切换账号后展示上一位用户的数据。
-参考：apps/web/src/cache/userCache.ts</code></pre>
-      <div class="table-wrap"><table>
-        <tr><th>规则格式</th><th>作用域写法</th><th>Crosscheck 当前读取方式</th></tr>
-        <tr><td><code>.claude/rules/**/*.md</code></td><td><code>paths</code> 列表</td><td>匹配本次改动才装配；没有 paths 时按全局规则读取</td></tr>
-        <tr><td><code>.cursor/rules/**/*.mdc</code></td><td><code>globs</code> 或 <code>alwaysApply: true</code></td><td>全局规则或 glob 命中的规则进入审查；不照搬 Cursor 的智能选择机制</td></tr>
-        <tr><td><code>.github/instructions/**/*.instructions.md</code></td><td><code>applyTo</code></td><td>按声明的 glob 匹配；未声明范围时按全局处理</td></tr>
-        <tr><td>根目录 / 子目录 <code>REVIEW.md</code></td><td>所在目录；条目可保留现有 scope 元数据</td><td>目录正文作用于其下改动；脚本配置仅从根 REVIEW.md 的 frontmatter 读取</td></tr>
-      </table></div>
-      <p class="muted">读取器支持列表、逗号分隔多模式及花括号展开；原生格式的路径从仓库根目录匹配。没有宣称兼容宿主的全部 YAML 和 glob 语法；遇到未支持或错误范围会提示，不能静默变为全局规则。</p>
-      <p><b>用途排除也要生效。</b>自动发现 Copilot instructions 时，默认尊重 <code>excludeAgent: "code-review"</code>：即使 <code>applyTo: "**"</code> 命中，也不纳入本次审查，并记录排除原因。提炼时仍可将它作为已有编码约束核对，保留其用途限制，不把它当成已启用的审查要求或自动改成审查规则。排除原因记录在 rules-excluded.json；这是 Crosscheck 选择沿用的语义，并非所有第三方工具必须遵守的标准。</p>
-      <ul>
-        <li><b>匹配后自动装配。</b>上例会匹配 <code>apps/web/src/auth/login.ts</code>，不匹配 <code>apps/ios/Login.swift</code>。<code>**</code> 覆盖多级目录；目录名叫 web、ios 不会自动产生作用域。</li>
-        <li><b>保存与生效分开看。</b>工作区审查读取可被扫描到的工作区规则；PR/MR、其他分支和提交范围正常情况下读取 base 版本。规则先进入相应 base 再生效，不允许用同一 MR 新增的规则改写标准；base 无法读取时停止，不回退工作区。</li>
-        <li><b>核对实际命中。</b>现有 <code>rules-index.json</code> 的适用文件及 <code>task-rules.md</code> 可确认本轮装配结果。原生规则提案同时展示命中与不命中的示例路径，全局规则无需虚构不命中路径。</li>
-        <li><b>字段不能混用。</b>Claude 用 <code>paths</code>，不是 <code>path</code>。读取器会提示这类错误字段，并标记规则检查未完成；不能只看文件保存成功。</li>
-      </ul>
-      <p><b>两项路径验收：</b></p>
-      <ul>
-        <li><b>区分路径层级。</b>按 Claude / Copilot 的来源语义验证：<code>*.py</code> 匹配根目录 <code>a.py</code>，不匹配 <code>src/a.py</code>；<code>**/*.py</code> 两者都匹配。分别验证各来源格式，不把现有读取器的同名模式行为当成行业统一语义。</li>
-        <li><b>新条目不默默扩大旧条目的范围。</b>已有文件仅适用于 <code>src/payments/**</code>，新增退款规则需要 <code>src/refunds/**</code> 时，优先选择相应范围的文件或另建小文件。本轮写回拒绝顺带扩大旧文件范围；确需调整时单独人工展示文件级 diff，包括旧规则新增覆盖的路径，经确认后修改。</li>
-      </ul>
-      <p><b>拆文件不等于少读。</b>全局规则再多也会一起加载。按主题保持文件简短，按真实代码范围装配，完整检查适用条目；不按“前几条”截掉规范。没有编号的外部格式目前按文件建立检查单位，清单覆盖不代表每一句都经过机械验证。</p>
-
-      <h3 id="rule-mining">3. 从近期人工评论到规则 MR</h3>
-      <p>正式规则保存在<b>业务代码仓库</b>的选定文件中。扫描评论和候选默认放本机 <code>~/.crosscheck/rule-work/&lt;项目&gt;/mined-&lt;日期&gt;/</code>，它们只是提案材料；审查快照和本机判断记录都不是团队正式规范的维护源。</p>
-      <ol>
-        <li><b>确认扫描范围并收集材料。</b>项目负责人指定项目与时间段。列明日期口径、MR 数量、评论范围及是否读全；取得原评论、讨论结论和相关代码。已解决或代码有变更只是采纳线索，不等于长期规则已被批准。</li>
-        <li><b>先核对已有规则与提案，再提候选。</b>审查和提炼复用规则来源识别与解析，保留作用域和用途限制；同时查询尚未合入的 <code>crosscheck-rule</code> MR。已有同义提案就引用原 MR，不再创建一份；已有约束不重复新增，不够准确的改写原处。每条候选附规则、原因、范围、例外、来源评论和具体目标文件。通用缺陷进入评测候选，不靠项目 rules 提示模型记住每个测试答案。</li>
-        <li><b>让负责人确认具体 diff。</b>一并展示新增、改写或删除的正文与作用域，检查原格式，再由负责人确认内容和落点。使用 <code>--mr --preview &lt;仓库外文件&gt;</code> 固定预览；创建时用同一文件加 <code>--yes</code>。基准、操作或未合入提案改变时重新展示差异。创建前再核对有无同义未合入提案，随后按授权创建项目规则 MR，只创建、不合并；不自动修改或关闭已有 MR。</li>
-        <li><b>沿项目原流程审阅和维护。</b>由现有维护者、CODEOWNERS 与分支保护处理合入；之后按规则所在版本生效。保留来源评论链接与修改理由，复核时回到同一文件修改或删除。关闭的候选保留原因，有新证据才重新提出。</li>
-      </ol>
-      <p>正文保留规则、理由和必要例外，评论证据放在提案或 MR 描述中，不把整段讨论堆进规则文件。沿用已有编号；没有编号也可按文件、标题与原文定位，不要求所有工具改成 PRJ 编号。使用现有 Git 记录，不新增候选数据库或审批状态机。</p>
-      <p><b>成立不等于值得沉淀。</b>一次有充分依据的架构约束可以成为候选；重复很多次的个人偏好仍可能不适合。负责人按需复核过时、冲突和重复条目，不因“长期没有命中”自动删除规则，也不把“不修”自动升级为永久忽略。规则不能关闭独立核实或降低固定 80 分门槛。</p>
-
-      <h3>4. 本轮落地与验收</h3>
-      <div class="table-wrap"><table>
-        <tr><th>修复前的差距</th><th>本轮处理</th></tr>
-        <tr><td>审查已读取 Claude / Cursor / Copilot 等格式；提炼时的 existing-rules.md 尚未纳入这些文件</td><td>复用来源枚举和解析逻辑，补齐去重材料；提案明确“更新已有文件”或“新增到选定位置”</td></tr>
-        <tr><td>原来仅收集已关闭的规则 MR，没有核对未合入的规则提案</td><td>通过现有 GitLab 查询未合入的 crosscheck-rule MR；同义候选引用原 MR，创建前再核对，不增加候选数据库</td></tr>
-        <tr><td>propose-rules 只写 REVIEW.md / ignore；health 也围绕现有格式工作</td><td>先为项目实际选用的格式提供可审阅 diff 与写回、复核支持，保留原 frontmatter、范围与已有编号；不做多格式自动镜像</td></tr>
-        <tr><td>规则汇总会按显式配置、条目元数据或默认 minor 重设严重程度，正文分级未贯通</td><td>统一角色说明、核实与汇总对 REVIEW.md 正文的处理；无显式覆盖时保留经核实的分级，并验证“审计记录缺失按重要问题报告”的示例</td></tr>
-        <tr><td>Copilot 读取仅按 applyTo 匹配，尚未处理 excludeAgent 的审查排除</td><td>默认排除明确不用于 code-review 的文件，装配结果记录原因；提炼保留原用途，不能自动升级为审查规则</td></tr>
-        <tr><td>默认查询近期更新的已合并 MR，最多 300 个；只保留 diff 行评论，discussions 未分页，关闭候选也有数量限制，API 失败可能被当成结束</td><td>明确日期口径，补分页、必要讨论上下文及完整 / 部分 / 失败状态，保留评论 ID 与直链；未读全只对已取得材料提出建议</td></tr>
-        <tr><td>候选主要示范新增；改写的范围等元数据及预览基准处理仍有限</td><td>候选明确操作、目标文件及已有条目；改写能更新范围与来源，确认的 diff 与实际 MR 一致</td></tr>
-        <tr><td>base 不在本地时，collect-rules 仍会回退读取工作区；部分原生多 glob 写法及路径层级语义未完整兼容</td><td>base 不可读时明确失败或规则检查未完成，不静默换标准；补格式解析与路径正反例验证，避免误扩或漏装配</td></tr>
-      </table></div>
-      <p class="muted">以上脚本与角色约定已补齐，自动化测试验证确定性行为；模型审查效果仍需固定材料实测。验收覆盖：已有规则与未合入提案不重复、正文分级到达最终报告、用途排除生效、两项路径验收、错误字段有提示、采集缺失可见、预览与提交一致、组织来源不可写。不增加规则平台。</p>
-
-      <details class="design-basis" id="learning-basis">
-        <summary>业界实践与本项目取舍</summary>
-        <ul>
-          <li><b>区分通用约束和审查要求：</b><a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review</a>区分 CLAUDE.md 与 REVIEW.md，支持目录级补充；查找、核实及最终汇总都会参考审查要求，包括严重程度。其托管服务与本地审查命令读取入口不同，不能把一种入口的支持推断给所有工具。</li>
-          <li><b>小文件与明确范围：</b><a href="https://code.claude.com/docs/en/memory#organize-rules-with-clauderules">Claude rules</a>按主题拆分并用 paths 限定范围；<a href="https://cursor.com/docs/rules">Cursor Agent</a>使用 .mdc 规则；<a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions">Copilot</a>支持 applyTo 路径说明。格式与加载方式并非统一标准。</li>
-          <li><b>不要混淆 Agent 和审查产品：</b><a href="https://cursor.com/docs/bugbot#rules">Cursor Bugbot</a>有自己的 .cursor/BUGBOT.md，不能假定它使用 Agent 的 .cursor/rules。Crosscheck 已支持的输入格式，以本项目读取器为准。</li>
-          <li><b>保留规则用途：</b><a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions#creating-path-specific-custom-instructions">Copilot 官方说明</a>用 excludeAgent 区分编码与审查用途。Crosscheck 默认尊重 code-review 排除，是本项目的兼容取舍。</li>
-          <li><b>反馈可以形成可审阅改动：</b><a href="https://docs.coderabbit.ai/configuration/path-instructions">CodeRabbit</a>可根据过去 7 天的审查建议生成 path instructions 并创建 PR；这不等于自动批准所有人工评论。其 <a href="https://docs.coderabbit.ai/knowledge-base/learnings">Learnings</a>适合增量偏好，正式规范更适合规范文件或审查说明；我们不照搬其知识库存储与自动批准策略。</li>
-          <li><b>复用已有提案状态：</b><a href="https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests">GitLab MR API</a>支持按状态和标签查询。利用未合入 MR 避免重复提案，是本项目据此作出的流程选择，不需要另建审批系统。</li>
-          <li><b>本项目取舍：</b>规则留在已有项目维护源，审查要求放 REVIEW.md；候选由负责人确认后经项目 MR 合入，组织规范只读。MR 来源、正反例和作用域用于复核，不设置统一评论数量门槛，也不把某个行数当作有效性的硬界限。</li>
-          <li><b>优势与代价：</b>开发与审查共用项目约束、改动可追溯；代价是人工确认与多工具格式兼容仍需验证。规则冲突交负责人处理，不按加载顺序擅自覆盖外部要求。上述机制有官方依据，具体落点与流程是 Crosscheck 的设计选择。</li>
-        </ul>
-      </details>
-    </section>
-
-    <section id="knowledge">
-      <h2>五、外部规则</h2>
-      <p class="muted">组织规范只读接入，维护与发布留在外部。</p>
-      <p><b>外部统一维护，CR 读取并使用。</b>组织规范可以在知识库、Git 或文件中；CR 不负责其编辑、审批、发布、废弃或例外管理。项目维护见<a href="#learning">第四节</a>。</p>
-      <h3>1. 首版只做一条可替换的读取路径</h3>
-      <div class="arch">
-        <div class="layer"><div class="layer-head"><b>选择来源与资料</b><span>配置要读的文档、目录或已有规则包</span></div><div class="chips"><span class="chip">现有 Git 规则</span><span class="chip">本地文件</span><span class="chip">宿主已连接的 MCP</span></div></div>
-        <div class="flow"><span class="arrow">↓</span>只读取得 · 平台工具名和字段留在接入处</div>
-        <div class="layer"><div class="layer-head"><b>保存本次材料</b><span>正文、出处、适用范围、读取结果</span></div><p>不同来源交付同样简单的材料记录。平台有自己的版本号或规则编号就保留，没有也能按文档使用；不要求知识库改成 CR 的格式。</p></div>
-        <div class="flow"><span class="arrow">↓</span>结合项目规则，交给现有角色查找、核实和汇总</div>
-        <div class="layer"><div class="layer-head"><b>报告有据可查</b><span>用了什么，哪里没读到，问题依据是什么</span></div><p>违规发现引用原文和出处；查找与核实使用同一份材料。读取失败或文档截断要明说，不能把“未检查”说成“通过”。</p></div>
-      </div>
-      <h3>2. 配置什么，不配置什么</h3>
-      <div class="table-wrap"><table>
-        <tr><th>配置内容</th><th>首版做法</th></tr>
-        <tr><td>从哪里取</td><td>选 Git、文件或宿主已有连接；先接一个真实知识库。连接和认证复用宿主，不另写 MCP 客户端。</td></tr>
-        <tr><td>读哪些内容</td><td>指定规范文档、目录或规则包。项目可以选择既有来源，不能通过 PR 注册任意命令、地址或凭证。</td></tr>
-        <tr><td>用于什么</td><td>明确指定的规范作为 <code>rules</code>；搜索到的设计说明、事故资料作为 <code>context</code>，帮助理解但不自动变成规范。</td></tr>
-        <tr><td>适用于哪里</td><td>复用路径作用域；没有范围时按本次配置的范围使用。保留来源标识，避免同号规则混淆。</td></tr>
-      </table></div>
-      <p class="muted">配置语法与第一个知识库接口一起确定。只统一 CR 收到的材料，不设计通用平台字段映射语言或动态适配器注册框架。</p>
-      <h3>3. 保留必要的可追溯性</h3>
-      <ul>
-        <li>保存本次实际读到的原文、链接 / 路径和可用版本信息，不只留模型摘要。</li>
-        <li>固定文档清单要核对是否读齐；目录接口按实际分页读取；正文被截断或无法确认读全时注明。搜索结果只代表本次检索所得，不代表全部组织规范。</li>
-        <li>没有统一规则编号也能使用；内部按来源与文档 / 已有规则编号区分检查项。原编号只作可读引用，不能覆盖别的来源同号规则。</li>
-        <li>同一篇文档里的不同要求可以产生多条发现。只合并确实相同的问题；无法确认重复就分别保留，不新建永久条款身份体系。</li>
-      </ul>
-      <h3>4. 边界情况用简单策略处理</h3>
-      <div class="table-wrap"><table>
-        <tr><th>情况</th><th>首版处理</th></tr>
-        <tr><td>材料、意图或审查配置变化</td><td>重审当前目标的全部 diff，不计算精细受影响文件图；不是扫描全仓存量代码。</td></tr>
-        <tr><td>读取失败、只读到部分或被截断</td><td>继续代码检查；列出缺失内容，说明对应规范未检查完。上次相关发现保留为“本轮未能复核”，不算解决。</td></tr>
-        <tr><td>多份规范冲突</td><td>保留出处并提示冲突，不按返回顺序自动覆盖，也不新增复杂优先级语言。</td></tr>
-        <tr><td>旧反馈或迁移前记录是否仍适用不确定</td><td>仅作参考，重新核对；首版不自动迁移组织规则抑制。</td></tr>
-        <tr><td>外部批准、强制性或例外不明确</td><td>给出代码事实与原文，交人判断。CR 不授予例外，也不提供组织合规认证。</td></tr>
-      </table></div>
-      <p><b>代价：</b>材料变化时可能多跑一次审查，部分旧发现需要重新确认；换来更少的状态、映射和维护成本。等真实规模与成本问题出现，再考虑精细缓存和历史迁移。</p>
-      <details class="design-basis" id="external-basis">
-        <summary>设计依据：外部资料只读接入与失败可见</summary>
-        <ul>
-          <li><b>公开实践：</b><a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers">GitHub Copilot</a>提供 MCP 工具配置并建议只读工具白名单；<a href="https://docs.coderabbit.ai/connections/mcp-servers">CodeRabbit</a>通过 MCP 取得外部工具和资料。<a href="https://cursor.com/docs/bugbot#see-which-rules-a-review-used">Bugbot</a>说明本次使用了哪些规则及哪些被截断或省略。</li>
-          <li><b>本项目取舍：</b>认证和连接复用宿主，仅保存本次原文、出处和读取结果；指定规范与搜索背景资料分开，缺失就提示。组织维护留在外部，是本产品的范围选择，不是 MCP 协议或行业共同要求。</li>
-          <li><b>限制：</b>配置好连接不等于本轮已经读到资料；工具返回全文、权限及截断情况仍需实际验证。不宣称组织规范全覆盖或自动合规。</li>
-        </ul>
-      </details>
-    </section>
-
-    <section id="structure">
-      <h2>六、代码结构</h2>
-      <p><b>不预先拆成五个新模块。</b>保留现有脚本入口、角色和输出文件，先把组织来源读取从规则装配中分离；需要多少辅助文件由实际实现决定。</p>
-      <div class="table-wrap"><table>
-        <tr><th>现有部分</th><th>本轮最小改动</th></tr>
-        <tr><td>collect-rules.sh</td><td>保留项目读取和装配；组织资料通过一个可替换的获取 / 导入入口传入。旧 Git 路径继续支持。</td></tr>
-        <tr><td>宿主接入说明</td><td>说明如何用已连接工具读取指定资料并保存；工具名、参数只留在接入处，不写进审查角色。</td></tr>
-        <tr><td>check-rules / aggregate / 报告</td><td>检查项区分来源；保留原文引用和读取失败提示；不同条款不因同属文档而误合并。</td></tr>
-        <tr><td>增量与历史</td><td>材料或配置变化时重审当前目标；无法确认一致就不复用。外部规范历史仅供参考，不建立精细迁移机制。</td></tr>
-        <tr><td>mine-reviews / miner</td><td>明确时间口径和采集完整性；将审查已支持的项目规则纳入去重，候选标明新增或改写、具体文件和来源。</td></tr>
-        <tr><td>propose-rules / health</td><td>补齐所选项目规则格式的写回与复核，保持作用域；预览与实际变更使用同一基准。保留 REVIEW/ignore 兼容，组织来源仍只读。</td></tr>
-        <tr><td>评测</td><td>用例与基线不依赖组织仓库；支持固定资料回放，不在运行中修改答案。</td></tr>
-      </table></div>
-      <p>现有 <code>rules_repo / rules_ref / extends</code> 作为 Git 兼容配置保留。<code>sync-data.sh</code> 的可选共享判断不在本轮扩展。</p>
-    </section>
-
-    <section id="metrics">
-      <h2>七、效果评测</h2>
-      <p>保留能回答“是否更准、是否更吵、成本是否合理”的指标。先做可重复的小规模回归，不新增评测平台或强制比例配额。</p>
-      <h3>日常记录</h3>
-      <div class="table-wrap"><table>
-        <tr><th>指标</th><th>口径</th></tr>
-        <tr><td>成立 / 误报</td><td>只依据明确判断，保留理由；未判断单列，样本少只展示数量。</td></tr>
-        <tr><td>解决 / 采纳</td><td>相关代码修改且核实问题消失才计采纳；代码动过、规则撤销或本轮没报都不自动算采纳。</td></tr>
-        <tr><td>漏报</td><td>人工指出后核实是真问题，并确认属于当时审查范围；未匹配到评论只是线索。</td></tr>
-        <tr><td>成本</td><td>记录用时和可获取的 token；没统计到就写未统计。</td></tr>
-      </table></div>
-      <h3>最小回归流程</h3>
-      <ol>
-        <li>选一组有明确答案的代表性提交，包含真实缺陷、干净改动和规则用例；同时保存当时的意图和实际规则材料。</li>
-        <li>比较已认可版本与候选版本，固定输入和非比较变量。隔离历史记录，不做增量。</li>
-        <li>逐项核对命中、漏报及<strong>全部用例</strong>中的确认误报，不只看干净用例。新发现经核实后单列，留作下次数据更新，不改本轮答案。</li>
-        <li>真假未判断完时只给暂定结果；已核实真实、等待入库的候选不影响本轮判断。不能靠把疑难发现留在待判断列表来宣布通过。</li>
-        <li>查看是否出现新的重要漏报、误报增加或不合理成本，维护者据此决定是否接受。保留逐项差异，不只看总分。</li>
-      </ol>
-      <p>评测数据更新后，用上一个已认可的插件版本重建同一新集合的基线，再比较候选。规则维护者想验证项目 rules 或 REVIEW.md 改动时，用同一批代码和目标要求分别跑新旧规则，明确这次比较的变量是规则，不与插件回归混为一谈。</p>
-      <p class="muted">评测集、运行结果和基线可以放插件仓库或指定目录，不需要组织规则仓库。先保留脚本和人工核对；自动评测平台、统计门禁配置和复杂基线管理后置。</p>
-      <details class="design-basis" id="evaluation-basis">
-        <summary>设计依据：回归比较与问题解决判断</summary>
-        <ul>
-          <li><b>公开实践：</b><a href="https://github.blog/ai-and-ml/github-copilot/reviewbench-an-open-benchmark-for-ai-code-review/">GitHub ReviewBench</a>使用标注问题、语义匹配和统一判定标准，并记录评测版本；它区分固定答案指标与认可答案外真问题的扩展指标。<a href="https://www.uber.com/us/en/blog/ureview/">Uber uReview</a>使用人工标注提交评估精确率和召回率，并通过最终提交上的多次复查评估评论是否已处理。</li>
-          <li><b>本项目取舍：</b>先做固定输入的小规模回归和人工核对，新真问题留作下次数据更新；不在运行中改答案。采纳以代码改变且核实问题消失为准，不把“代码动过”当采纳，也不直接照搬 Uber 的复跑次数。</li>
-          <li><b>支持到哪里：</b>借鉴的是可比输入、明确答案和复核，不是复刻其他产品的完整指标体系；外部的效果数字不能作为 Crosscheck 的指标。样本少时展示数量和逐项差异，不宣称统计显著提升。</li>
-        </ul>
-      </details>
-    </section>
-
-    <section id="data">
-      <h2>八、数据模型</h2>
-      <p>现有发现结构继续使用。外部材料补足出处与读取结果；项目规则候选补充维护文件、操作和原条目定位，不引入组织审批模型、全局规则实例或永久条款 ID。</p>
-<pre><code>// 材料记录示意，最终字段随第一个接入验证
-{
-  "source": "公司研发规范",
-  "ref": "外部文档链接、ID 或本地路径",
-  "purpose": "rules 或 context",
-  "scope": ["src/**"],
-  "text": "本次读取的原文",
-  "status": "完整、部分或失败",
-  "note": "缺失、截断或失败原因；有版本号则记录"
-}</code></pre>
-      <ul>
-        <li>原文可另存文件。通过本次材料整体的内容摘要判断是否变化，不维护每条规范的依赖图。</li>
-        <li>规范发现附材料出处、原文引句及位置；有原生规则编号则保留。检查项编号只为本次引用与覆盖核对服务，不承诺跨系统永久不变。</li>
-        <li>发现的固定 id 沿用现有机制。指纹只用于寻找相似候选，不能单独认定同一问题；不同要求或不同缺陷不能共用历史判断。</li>
-        <li>旧发现未能复核时保留上次依据和原因；不把“没再出现”当作已解决。</li>
-      </ul>
-    </section>
-
-    <section id="storage">
-      <h2>九、文件存放</h2>
-      <p>核实回复不完整时停止汇总，不把旧发现标为已解决。<code>verification-errors.json</code> 记录待补项。<code>final.json</code> 与 <code>findings.json</code> 保留独立结果；主 agent 用 <code>display-groups.json</code> 指明已确认同根因的展示分组，报告脚本生成 <code>report.json</code>，只减少重复叙述，保留关联编号、规则原文与证据。</p>
-      <p><b>这一节回答：审查会生成哪些文件、它们有什么用、最后放在哪里。</b>这些文件主要由脚本和审查角色自动生成，通常只需要打开最终报告，不需要手工管理每个中间文件。</p>
-
-      <h3>1. “本次审查目录”是什么？</h3>
-      <p>它是一次审查用来放工作文件的文件夹。<code>review_dir</code> 是脚本和说明里对这个文件夹的称呼，<b>不是固定文件夹名，也不是新的仓库</b>。</p>
-      <p><b>现有插件已经有这个机制。</b><code>collect-diff.sh</code> 默认在系统临时目录下新建一个文件夹（例如 <code>cr.ABC123</code>），并输出实际路径；也可以用 <code>--out</code> 指定位置。后面的查找、核实和汇总步骤都使用这个目录中的文件。</p>
-
-      <h3>2. 里面存什么，有什么用？</h3>
-      <div class="table-wrap"><table>
-        <tr><th>文件</th><th>存的内容</th><th>谁生成</th><th>作用</th></tr>
-        <tr><td><code>diff.patch</code><br><code>files.txt / ranges.txt</code></td><td>这次改了哪些代码、文件及行范围</td><td>收集脚本</td><td>让角色审查指定改动，避免把未改的旧问题混进报告</td></tr>
-        <tr><td><code>meta.txt / state.txt</code></td><td>审查目标、代码版本、深度，以及开始时的仓库状态</td><td>收集与状态检查脚本</td><td>记录本次审查条件，结束时检查仓库有没有被意外改动</td></tr>
-        <tr><td><code>intent.md</code><br><code>weakening.txt</code></td><td>需求和验收标准；测试或检查被削弱的线索</td><td>上下文收集脚本</td><td>核对有没有做到需求，以及是否靠削弱测试让错误通过</td></tr>
-        <tr><td><code>rules.txt</code><br><code>rules-index.json / task-rules.md</code></td><td>本次适用的规则原文、检查清单、交给角色的规则材料</td><td>规则装配脚本</td><td>各角色使用同一份规则，核对有没有漏查</td></tr>
-        <tr><td><code>candidates.json</code><br><code>verify/</code></td><td>查找角色提出的问题，以及核实角色的评分和依据</td><td>审查角色与编排步骤</td><td>把“疑似问题”和“核实成立的问题”分开，保留判断过程</td></tr>
-        <tr><td><code>final.json / findings.json</code><br><code>rejected.json</code></td><td>汇总结果、成立的发现，以及未通过核实的候选</td><td>汇总脚本</td><td>生成报告、记录反馈，并供以后复审和效果统计使用</td></tr>
-        <tr><td><code>report.md</code></td><td>给用户看的中文审查报告</td><td>主审查角色依据汇总结果编写</td><td><b>平时主要看这个文件</b>：问题位置、原因、依据和修复建议</td></tr>
-        <tr><td><code>materials/</code>（拟新增）</td><td>本次从外部读到的规范原文、出处和读取结果</td><td>外部资料获取步骤</td><td>以后能核对“当时用了哪份规范”；只是本地副本，不修改知识库原件</td></tr>
-      </table></div>
-      <p class="muted">这里列的是主要文件。有些材料可能没有，例如没有关联需求时 intent.md 的信息较少。materials/ 是本次方案拟新增的部分，其余上述审查文件已有对应流程。</p>
-
-      <h3>3. 审查结束后放在哪里？</h3>
-      <ul>
-        <li><b>保存审查记录：</b>现有 <code>save-review.sh</code> 将报告、发现、元信息及部分辅助材料复制到默认的 <code>~/.crosscheck/reviews/&lt;项目&gt;/&lt;目标&gt;/&lt;时间&gt;/</code>。不是把临时目录里的所有文件都保存。</li>
-        <li><b>记录人的判断：</b>你对发现说“成立、误报、不修”等，会另记到项目级的 <code>~/.crosscheck/reviews/&lt;项目&gt;/feedback.jsonl</code>，便于同项目后续审查参考。</li>
-        <li><b>外部材料副本：</b>方案要求保存报告时一并保留本次实际使用的外部原文和出处；这一保存能力尚待实现。</li>
-        <li><b>只测试或不保存：</b>按用户要求跳过保存记录步骤，工作文件仍留在本次指定或临时目录中；临时目录不能当成长期归档。</li>
-      </ul>
-      <p>以上是默认位置；隔离测试或自定义配置可以改到其他目录。项目已有 rules、REVIEW.md 和忽略项仍在业务仓库里；评论提炼目录只放候选材料，组织规范原件仍在外部平台，评测用例和基线放在单独选择的评测目录。</p>
-
-      <h3>4. 会自动共享吗？</h3>
-      <p><b>不会。</b>审查报告和工作文件默认在本机，不自动发给同事，也不自动上传知识库。只有启用现有团队判断同步、并经用户确认时，才同步相应判断记录；不代表同步整份审查目录。认证仍交给宿主管理，凭证不写入这些审查材料。</p>
-      <details class="design-basis" id="storage-basis">
-        <summary>设计依据：哪些已有实现，哪些是拟新增</summary>
-        <ul>
-          <li><b>本项目实现依据：</b>临时目录、--out 和主要材料由 <code>collect-diff.sh</code> 定义；归档位置与保存清单来自 <code>save-review.sh</code>；项目判断文件来自 <code>feedback.sh</code>。这是现有实现说明，不借用外部产品背书。</li>
-          <li><b>本项目取舍：</b>materials/ 外部原文副本及其随报告保存属于拟新增设计；本地保存是为了核对依据，不是永久存储或模型结果完全复现的保证。</li>
-        </ul>
-      </details>
     </section>
 
     <section id="flows">
-      <h2>十、审查流程</h2>
-      <h3>单次审查</h3>
-      <ol>
-        <li>用户调用 <code>/cr</code>。</li>
-        <li>记录仓库状态，收集完整 diff、项目规则、外部资料、意图和历史；保存本次材料。材料或配置变化就重审当前目标，否则才使用代码增量；扫描测试削弱。</li>
-        <li>按深度选择角色；宿主支持时并行查找，否则顺序执行。</li>
-        <li>有规则清单时先核对，缺项或无效项补查一次；再准备发现候选及“未违反”项抽查，零发现不跳过可抽查项。</li>
-        <li>verifier 根据同一材料核实候选和抽查项，全部评分留档；同宿主执行时说明独立性限制。</li>
-        <li>过滤、合并、排序。</li>
-        <li>核对仓库状态没有被改动，结束只读阶段。</li>
-        <li>出报告，分别说明来源完整性与检查覆盖；保存本次快照。用户要求只测试时不写共享审查记录。</li>
-        <li>等待用户回复，按下面「报告之后」的流程处理。</li>
-      </ol>
-
-      <h3>复审发现的去向</h3>
+      <h2>三、审查流程</h2>
       <div class="table-wrap"><table>
-        <tr><th>状态</th><th>判定依据</th><th>统计</th></tr>
-        <tr><td>新发现</td><td>本轮有效材料与代码核实后新确认</td><td>计入本轮发现</td></tr>
-        <tr><td>已确认遗留</td><td>本轮已核实仍成立；或代码、完整材料和审查配置均未变，明确标注沿用上次核实</td><td>保留未解决</td></tr>
-        <tr><td>已解决</td><td>有有效依据证明原问题已消失，写明原因</td><td>仅代码改动且经判断问题已消失时才计采纳；规则撤销等另列原因</td></tr>
-        <tr><td>本轮未能复核 / unverified</td><td>来源缺失、材料冲突或核实未完成；保留上次发现与快照引用</td><td>不计 resolved、采纳或本轮通过，不宣称已确认仍存在</td></tr>
+        <tr><th>步骤</th><th>谁做</th><th>产出</th></tr>
+        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>weakening.txt</code>、<code>risk.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
+        <tr><td>2. 装配规则</td><td><code>collect-rules.sh</code></td><td><code>rules.txt</code>、<code>rules-index.json</code></td></tr>
+        <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>（并行）</td><td><code>candidates.json</code></td></tr>
+        <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
+        <tr><td>5. 汇总</td><td><code>aggregate.sh</code></td><td><code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code></td></tr>
+        <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录</td></tr>
+        <tr><td>7. 修复（仅要求时）</td><td>主 agent</td><td>工作区改动，修好的记为成立</td></tr>
       </table></div>
-      <p>“本轮没再报出”不是已解决的证据。上轮 HTTP 规范有违规、本轮文档无权限时，报告必须显示该项未能复核；来源恢复后再决定遗留或解决。</p>
 
-      <h3>报告之后：用户回复了怎么办</h3>
-      <p>用户可以用报告里的编号指代发现（「第 2 条」），主 agent 通过 <code>findings.json</code> 对应到发现的固定编号；换了会话也能接着处理。</p>
+      <h3>深度</h3>
       <div class="table-wrap"><table>
-        <tr><th>用户说的</th><th>怎么处理</th><th>记录什么</th></tr>
-        <tr><td>质疑：「第 2 条不对吧」「这为什么是问题」</td><td>不马上认错，也不坚持原结论。把用户的理由当作新信息，重新打开依据里的代码核对：
-          <ul>
-            <li>仍然成立 → 解释原因，给出具体的代码位置；</li>
-            <li>站不住 → 撤回，说明是哪一环错了；</li>
-            <li>双方都说不清 → 标为有争议，写明分歧在哪。</li>
-          </ul></td><td>撤回记为不成立（原因必填）；有争议记为 disputed；仍然成立的不记，等用户表态</td></tr>
-        <tr><td>表态：「对，确实是问题」「知道了，先不改」「误报」</td><td>直接记下。判为不改或误报时必须有原因，用户没说就问一句</td><td>成立 / 不修 / 不成立，带原因和那段代码的指纹</td></tr>
-        <tr><td>要求修复：「修掉第 1、3 条」</td><td>进入 <code>--fix</code>：只修指定的几条，最小改动，只改工作区；修完运行项目已有的检查，并让 verifier 确认问题已经消失；如实报告结果，包括失败</td><td>修好的记为成立</td></tr>
-        <tr><td>问没报的：「还有别的吗」「72 分那条是什么」</td><td>从 <code>rejected.json</code> 列出差一点通过的候选，写明分数和没通过的理由，并标明「未通过核实」</td><td>用户确认是真问题的，记为成立，同时作为阈值校准的样本</td></tr>
-        <tr><td>指出漏报：「你漏了 cache.ts 的并发问题」</td><td>按用户的描述走一遍核实；成立就补进报告</td><td>记为漏报，保存为评测候选；独立确认后纳入后续评测集，不修改本轮答案</td></tr>
-        <tr><td>要求深挖：「cache.ts 用 deep 再看一遍」</td><td>只对指定的文件或维度做一次定向审查，结果附在原报告后面，已经报过的不重复</td><td>同一次审查记录里追加一段</td></tr>
-        <tr><td>要求定规则：「以后这种别报了」「以后都要查 X」</td><td>先核对规则是否值得长期保留及是否已有；项目约束写回现有 rules，审查要求放 <code>REVIEW.md</code>，有明确条件的忽略项放 <code>.cr/ignore.md</code>。按第四节展示文件、范围与 diff，确认后修改；不隐式扩大旧规则范围</td><td>规则来源记为这次判断</td></tr>
-        <tr><td>改完代码后再审：「再看一下」</td><td>先比较代码、本次材料和配置；材料变化就重审当前目标；报告分为新发现、已确认遗留、已解决、本轮未能复核四类。未复核项保留上次依据，不冒充本轮确认</td><td>每条发现的去向</td></tr>
+        <tr><th>档位</th><th>查找</th><th>核实</th><th>上限</th></tr>
+        <tr><td>quick</td><td>主 agent 自己做 reviewer</td><td>主 agent 自己核实</td><td>5 条</td></tr>
+        <tr><td>standard（默认）</td><td>reviewer、rules-auditor 并行</td><td>verifier 子代理，只读代码</td><td>缺陷 10 条；需求核对、规范、简化各 5 条</td></tr>
+        <tr><td>deep</td><td>再加一个 <code>lens=impact</code> 的 reviewer，从使用方往回查</td><td>verifier 可以跑项目已有的类型检查和测试来复现</td><td>同 standard</td></tr>
       </table></div>
-      <ul>
-        <li><b>先核对再回应。</b>不因为用户质疑就撤回，也不因为自己报过就坚持；结论以重新读到的代码为准。</li>
-        <li><b>主动提议变成规则。</b>重复出现的误报原因可提议写进 <code>.cr/ignore.md</code>；用户同意才写。</li>
-        <li><b>记录失败要明说。</b>判断没记下来（比如缺少 <code>python3</code>）时直接告诉用户，不假装已记录。</li>
-        <li><b>报告记录同步更新。</b>撤回、补充和修复都追加到这次审查记录的末尾，保留时间顺序，原报告正文不改。</li>
-      </ul>
-      <h3>项目反馈与规则沉淀</h3>
+      <p>用户要求简化建议时，任何档位都再加一个 simplifier。风险高（命中 <code>risk_paths</code>、数据库迁移、改动很大、测试被削弱等）时只建议 deep，不自己换。改动较大时按约 1000 行一批，reviewer 和 rules-auditor 每批各跑一次。</p>
+
+      <details class="design-basis">
+        <summary>设计依据：为什么从四个查找角色合并成两个？</summary>
+        <ul>
+          <li><b>成本：</b>四个查找角色各自从头读一遍 diff 和材料，重复阅读是 token 的大头；bug 和安全的查法本来就相近，都是顺着调用链和数据流往下追。</li>
+          <li><b>公开实践：</b><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor 的 Bugbot</a> 把固定的多遍流水线换成能自己决定往哪查的 agent，是他们效果提升最大的一次；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 也报告了给 reviewer 仓库访问和执行能力后，严重问题抓得更多、误报更少。</li>
+          <li><b>保留独立的 rules-auditor：</b>“只认写下来的规则、不许用自己的偏好”和 reviewer 的判断标准差别最大，合在一起最容易互相稀释。</li>
+          <li><b>simplifier 改为按需：</b><a href="https://www.uber.com/blog/ureview/">Uber uReview</a> 的数据显示，可读性挑刺、小的重构建议这类评论开发者评分一直最差。</li>
+          <li><b>deep 去掉同模型换序重复查：</b>同一模型的盲区相同；要加强核实，换一个和查找不同的模型。</li>
+        </ul>
+        <p><b>待验证：</b>合并后的召回和 token 变化，要在同一批改动上用采纳率和历史 bug 检验对比。</p>
+      </details>
+    </section>
+
+    <section id="roles">
+      <h2>四、角色</h2>
       <div class="cards">
-        <div class="card"><h4>每次审查</h4><p>记录用户判断、确认的解决情况和未通过核实的候选。</p></div>
-        <div class="card"><h4>按需提炼</h4><p>收集人工评论及必要上下文，报告读取完整性 → 核对已有规则与未合入提案 → 候选标明原文件与具体 diff → 负责人确认 → 项目 MR 审阅合入。组织建议交上游；通用缺陷漏报核实后作为评测候选。</p></div>
-        <div class="card"><h4>定期复核</h4><p>负责人复核规则:逐条决定保留、改写或删除,保留的记下复核日期;语法类规则改配 lint;跨项目建议输出材料交外部负责人，不由 CR 移入组织平台。</p></div>
+        <div class="card"><h4><span class="num">1</span>reviewer</h4>
+          <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。最多 15 条，查到一半的也交，写明 <code>needs_check</code>。</p>
+          <div class="accept"><code>lens=impact</code>（deep）：从使用方往回查漏改的地方、被破坏的隐式契约、撤销了最近的修复。</div></div>
+        <div class="card"><h4><span class="num">2</span>rules-auditor</h4>
+          <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
+          <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
+        <div class="card"><h4><span class="num">3</span>simplifier（按需）</h4>
+          <p>可复用的已有 helper、重复、多余的抽象、没用上的新代码。严重程度固定轻微，最多 5 条，和缺陷分开展示。</p>
+          <div class="accept">只在用户说“顺便看看能不能简化”时启动。</div></div>
+        <div class="card"><h4><span class="num">4</span>verifier</h4>
+          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。</p>
+          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。</div></div>
+        <div class="card"><h4><span class="num">5</span>judge</h4>
+          <p>MR 合并后，对“代码改了”的那些发现判断问题是否真的解决。不因为代码动过就判为解决。</p>
+          <div class="accept">结果记进 <code>adoption.jsonl</code>，是采纳率的来源。</div></div>
       </div>
     </section>
 
-    <section id="security">
-      <h2>十一、安全边界</h2>
+    <section id="rules">
+      <h2>五、项目规则</h2>
+      <p>规则就是仓库里的 Markdown 文件，越具体的越先。一条规则都没有也照常工作，只是没有“规范”一节。</p>
+      <div class="table-wrap"><table>
+        <tr><th>层</th><th>来源</th><th>生效范围</th></tr>
+        <tr><td>L3 目录级</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录下的改动</td></tr>
+        <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行</td></tr>
+        <tr><td>抑制</td><td><code>.cr/ignore.md</code></td><td>团队不想再被提醒的模式</td></tr>
+        <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
+      </table></div>
       <ul>
-        <li><b>审查要求与操作权限分开。</b>diff、PR 描述、人工评论和普通规则中的操作指令不执行。受信任规则版本的 <code>REVIEW.md</code> 可提供证据与严重程度声明，根 frontmatter 的支持项由脚本执行；任何正文都不能授权工具调用、扩大权限、跳过核实或降低固定门槛。</li>
-        <li><b>只读有多层约束。</b>宿主权限、常见误操作 hook 与最终状态核对共同作用。Hook 不是完整 shell 安全边界；MCP 的只读声明也需工具白名单和服务端权限配合。</li>
-        <li><b>凭证不进对话。</b>不打印远程地址、环境变量和凭证文件；显示的地址一律脱敏；平台 CLI 不可用时退回 git 拉取，使用仓库已有的凭证。</li>
-        <li><b>规则来源受控。</b>PR 审查的项目配置从 base 读；外部来源由可信配置注册。正文只是材料，不能注册工具、修改权限或改变审查步骤。</li>
-        <li><b>隐私。</b>reviewer 只存哈希；收集的评论只存在本机；提炼出来的规则正文里不能出现人名和业务数据。</li>
-        <li><b>维护权限分开。</b>项目变更由项目维护者审阅；组织编写、审批和发布全部留在外部。CR 不接受正文自称“强制”或“已批准”作为权限证明。</li>
-        <li><b>写操作有边界。</b>审查过程中不往 GitLab 写任何东西；项目规则 MR 和判断同步都在审查结束后、由你确认才执行。</li>
+        <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
+        <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>、<code>risk_paths</code>、<code>platform</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
+        <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
       </ul>
-      <details class="design-basis" id="safety-basis">
-        <summary>设计依据：只读与本地输出的边界</summary>
+
+      <h3>规则发现怎么保证可信</h3>
+      <div class="lifecycle">
+        <span class="state s1">rules-auditor 报出</span>
+        <span class="edge">rule_file + rule_quote</span>
+        <span class="state s3">脚本核对引文和范围</span>
+        <span class="edge">对上了</span>
+        <span class="state s2">verifier 确认违反</span>
+      </div>
+      <p>引文不在那份规则里、规则不覆盖这个文件、没写引文的，置信度直接为 0。模型不能凭空编出一条规则来报。<b>防得了编造，防不了漏看</b>：没报的规则不保证每条都认真看过，靠规则文件保持短小（单个文件不超过 20 条）和采纳率、历史 bug 检验来发现漏报。</p>
+      <details class="design-basis">
+        <summary>设计依据：为什么去掉规则编号、指纹、核对码和检查清单？</summary>
         <ul>
-          <li><b>公开实践：</b><a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers">GitHub Copilot 的 MCP 配置</a>建议启用明确的只读工具；其代码审查会筛选带只读声明的工具。此实践支持收窄工具权限，但声明本身不等于服务端权限控制。</li>
-          <li><b>本项目取舍：</b>默认只读、报告留本地、不自动向 MR 发评论，以及 hook 配合最终仓库状态核对，属于 Crosscheck 的产品边界。用户授权的项目维护与审查分开执行。</li>
-          <li><b>限制：</b>本地报告减少自动发布带来的干扰；也意味着用户需要自行分享结果。Hook 只覆盖常见误操作，不能替代真实权限或声称阻止任意程序写入。</li>
+          <li><b>公开实践：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是一个普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>的规则违反要求引用原文，再由核实步骤确认。没有哪家做规则编号、指纹或核对码。</li>
+          <li><b>实际问题：</b>指纹、核对码、检查清单、补跑、抽查能证明规则在上下文里、每条都给了结论，但证明不了判断是对的；而清单格式、核对码不一致、补跑这些衔接点，正是端到端测试里 bug 最多的地方。</li>
+          <li><b>写规则的门槛：</b>编号和 <code>&lt;!-- cr: --&gt;</code> 元数据让写规则变成一件要学格式的事。</li>
         </ul>
       </details>
     </section>
 
-    <section id="roadmap">
-      <h2>十二、实施计划</h2>
-      <div class="cards">
-        <div class="card"><h4><span class="num">1</span>补齐项目规则维护</h4><p>补采集完整性、现有规则去重与原处写回；保留 REVIEW/ignore 及旧配置，组织规范保持只读。</p><div class="accept">验收：已有规则不重复；路径不误扩；确认的 diff 与 MR 一致；组织来源不可写。</div></div>
-        <div class="card"><h4><span class="num">2</span>接一个真实来源</h4><p>先读取同事知识库中的几份规范。宿主负责工具调用，获取入口保存正文、出处、范围和结果，再交给现有审查流程。</p><div class="accept">验收：能引用实际原文；不同来源同号不串；同一文档中的不同问题不误合并；失败和截断有提示。</div></div>
-        <div class="card"><h4><span class="num">3</span>验证简单回退</h4><p>规则或参考材料变化、配置变化或无法确认一致时，重审当前目标全部 diff。旧规范判断不确定就重新检查。</p><div class="accept">验收：代码未变但材料改变仍重审；来源失败不算通过、不把旧发现算解决；固定资料可以离线回放。</div></div>
-      </div>
-      <h3>效果能力保留验收</h3>
+    <section id="metrics">
+      <h2>六、判断与度量</h2>
+      <h3>你的判断会被记住</h3>
       <ul>
-        <li>规则清单漏项仍触发一次补查；普通候选为零时，有可抽查项仍会核实；无法完成的检查明确标注。</li>
-        <li>原有“改断言期望值＋新增 skip”案例继续检出；only 和 CI 放宽失败条件也保留扫描。</li>
-        <li>多角色查找、deep 多遍、需求核对、反证与证据校验、反馈沉淀和效果评测保持。实现简化前后使用同组用例比较，不能仅凭方案声称效果相同。</li>
+        <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在项目级的 <code>feedback.jsonl</code>，对所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
+        <li>判断记着那段代码的样子（出问题的一行加上下各两行的哈希）。代码没变就不再报，代码变了重新评估并注明之前的判断。</li>
+        <li>不在核实前删除候选：历史判断交给 verifier 判断是不是同一个问题；因此没报的在报告里折叠列出，可以核对。</li>
+        <li>团队共享常见误报：写进 <code>.cr/ignore.md</code>，随代码一起评审。</li>
       </ul>
-      <h3>明确后置</h3>
-      <ul>
-        <li>精细到条款 / 文件的变化影响图、跨平台规则身份迁移。</li>
-        <li>组织强制规则、批准例外、撤销和到期的自动治理状态机。</li>
-        <li>自建 MCP 连接与认证、动态插件框架、任意平台字段映射语言。</li>
-        <li>规则双向同步、自动组织发布、评测服务与复杂门禁配置。</li>
-      </ul>
-      <p><b>增加复杂度的条件：</b>有真实接入差异、审查成本或误报数据证明简单方式不够，再补对应能力。当前优先多跑一次、明确提示和人工判断。</p>
+
+      <h3>效果：以采纳率为主</h3>
+      <div class="table-wrap"><table>
+        <tr><th>维度</th><th>内容</th><th>回答的问题</th></tr>
+        <tr><td><b>采纳</b></td><td>MR 合并后，报过的问题在最终代码里是否真的解决了（<code>adoption.sh</code> + judge）</td><td>报的东西有没有用</td></tr>
+        <tr><td>判断</td><td>成立、成立但不修、不成立、有争议、未表态</td><td>报的东西对不对</td></tr>
+        <tr><td>去向</td><td>仍在、代码已改、代码没变但不再报、文件已不在改动里</td><td>代码层面发生了什么</td></tr>
+        <tr><td>校准</td><td>不同置信度区间里，有人判断过的发现实际成立的比例</td><td>打分有没有区分度</td></tr>
+        <tr><td>差一点通过</td><td>70–79 分的候选（<code>rejected.json</code>）</td><td>80 分门槛是不是太严</td></tr>
+      </table></div>
+      <p>样本不足 10 条时只给数量；“代码已改”不等于被采纳；统计只给人看，不自动改变审查行为。</p>
+
+      <h3>离线：用自己的历史 bug 检验</h3>
+      <p>从 <code>git log</code> 挑修 bug 的提交，找到引入 bug 的那次改动，对它跑一次审查看抓没抓到；再挑几个普通改动做对照看误报。由 agent 按 <code>maintenance.md</code> 现场做，不需要用例格式和基线。</p>
+      <details class="design-basis">
+        <summary>设计依据：为什么不做评测框架？</summary>
+        <ul>
+          <li><b>公开实践：</b>Cursor 在合并时用 AI 判断报过的问题是否已修，解决率从 52% 提到 70% 以上；Uber 在最终提交上重跑判断评论是否已处理；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 统计评论引发代码修改的比例。线上指标是各家迭代的主要依据。</li>
+          <li><b>公开基准互相矛盾：</b>同一个工具厂商自测和第三方复测能差一倍（见 <a href="https://blog.kilo.ai/p/martians-independent-benchmark-tested">Martian 基准的报道</a>），共识是拿自己仓库的历史 bug 来测。</li>
+          <li><b>Crosscheck 的取舍：</b>完整的评测框架（用例 JSON、基线、配对、judge 对答案、用例 MR）在用例积累起来之前只能发现明显的倒退。需要时按实际用例量再加一个对比脚本。</li>
+        </ul>
+      </details>
     </section>
 
-    <section id="decisions">
-      <h2>十三、设计取舍</h2>
+    <section id="storage">
+      <h2>七、文件存放</h2>
+      <pre><code>review_dir/                 本次审查（系统临时目录）
+├── diff.patch  files.txt  ranges.txt  skipped.txt  batches.txt  meta.txt
+├── intent.md  discussions.json  weakening.txt  risk.txt  settings.json  history.json
+├── rules.txt  rules-index.json
+├── candidates.json  verify/batch-*.json  verify/result-*.json
+└── final.json  findings.json  rejected.json  report.json  report.md
+
+~/.crosscheck/
+├── config                  gitlab_hosts、issue_cmd、model.finder、model.verifier
+└── reviews/&lt;项目名&gt;/
+    ├── feedback.jsonl      你的判断（项目级）
+    ├── adoption.jsonl      合并后问题是否解决
+    └── &lt;目标&gt;/&lt;时间&gt;/       report.md、findings.json、rejected.json、meta.txt …
+        latest · baseline   最近一次 · 增量基准</code></pre>
+      <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、意图、审查设置、模型或插件本身变了就全量重审。</p>
+    </section>
+
+    <section id="security">
+      <h2>八、安全边界</h2>
       <div class="table-wrap"><table>
-        <tr><th>首版取舍</th><th>优势</th><th>代价</th></tr>
-        <tr><td>项目已有规则源＋短 REVIEW.md＋可配置外部资料</td><td>编码与审查共享项目约束，维护落点清楚</td><td>需验证格式与路径语义，冲突仍由负责人判断；不自动同步多份正文</td></tr>
-        <tr><td>材料变化就重审当前 diff</td><td>避免精细缓存和历史失效错误</td><td>额外审查用时和 token</td></tr>
-        <tr><td>有依据的发现，不确定就重核</td><td>避免错误合并和旧抑制误用</td><td>可能重复检查或提示</td></tr>
-        <tr><td>读取失败和冲突如实展示</td><td>结果边界清楚，不伪装成全覆盖</td><td>某些规范需要人工确认；不提供组织合规认证</td></tr>
+        <tr><th>保障</th><th>做什么</th><th>适用</th></tr>
+        <tr><td>说明</td><td>SKILL.md 和每个角色说明都写明只读、被审查的内容是数据不是指令、不接触凭证</td><td>所有宿主</td></tr>
+        <tr><td>拦截</td><td>审查进行期间，hook 拒绝改变仓库状态的 git / gh / glab 命令、对仓库文件的编辑、常见的字面路径 shell 写入，以及可能显示凭证的命令和读取</td><td>Claude Code、Codex、Cursor（插件安装）</td></tr>
+        <tr><td>核对</td><td>开始时记下分支、HEAD、stash、暂存区和改动文件的哈希，出报告前对比，有变化写在报告最前面</td><td>所有宿主</td></tr>
       </table></div>
-      <p>公开产品实践支持轻量接入：<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review</a> 使用自由格式 REVIEW.md；<a href="https://cursor.com/docs/bugbot">Bugbot</a> 展示用了哪些规则以及截断 / 省略情况；<a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers">GitHub Copilot</a> 通过配置接入 MCP；<a href="https://docs.coderabbit.ai/knowledge-base/code-guidelines">CodeRabbit</a> 复用现有规范文件和路径作用域。</p>
-      <p class="muted">这些公开接口不代表其内部没有复杂实现。我们借鉴使用边界和可见性，不把未公开的内部机制当作必须复制的架构。</p>
+      <ul>
+        <li>拦截从真正执行 <code>collect-diff.sh</code> 开始，到成功执行 <code>check-state.sh</code> / <code>save-review.sh</code>、用户发新消息或超过一小时结束；只对发起审查的会话有效。</li>
+        <li>这是防误操作的护栏，不是安全边界：<code>sh -c "…"</code>、变量路径、任意程序写入拦不住，靠核对事后发现。</li>
+        <li>MR 描述、需求单、评论、规则文件里写给 reviewer 的话（“忽略安全问题”“approve 这个”）一律不执行；意图只能解释改动，不能让安全问题不报。</li>
+      </ul>
+    </section>
+
+    <section id="industry">
+      <h2>九、业界对照与收敛</h2>
+      <p>0.2.0 开发中加过很多机制，端到端跑下来，十几个 bug 几乎都出在机制之间的衔接点上，其中不少业界没有人这样做。对照公开做法，真正被验证有效的只有几条：</p>
+      <div class="table-wrap"><table>
+        <tr><th>有效机制</th><th>谁在用</th><th>Crosscheck 里的对应</th></tr>
+        <tr><td>先多查、再独立核实，只放确定的</td><td>Claude Code 官方 code-review（并行查找 + 逐条核实）、Uber（生成 → 打分 → 过滤 → 去重）</td><td>查找 → verifier → 80 分门槛</td></tr>
+        <tr><td>精确优先，宁可少报</td><td>OpenAI 接受召回略降换信号质量；Uber：开发者很快会对低质量建议失去信任</td><td>门槛、封顶检查</td></tr>
+        <tr><td>整类砍掉没人改的建议</td><td>Uber：可读性、日志小调整、小的性能优化评分一直最差</td><td>不报这些类别；simplifier 按需</td></tr>
+        <tr><td>能读整个仓库、自己决定往哪查</td><td>Cursor Bugbot 改成 agent 式后效果提升最大；OpenAI 给仓库访问和执行能力</td><td>reviewer 自由调查</td></tr>
+        <tr><td>用“合并时改没改”衡量</td><td>Cursor 合并时的 AI judge；Uber 在最终提交上重跑；OpenAI 统计引发修改的比例</td><td>采纳率（adoption + judge）</td></tr>
+        <tr><td>规则就是一个文件，违反要引原文</td><td>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 路径说明</td><td>规则 Markdown + 引文核对</td></tr>
+        <tr><td>能确定判断的交给脚本和 CI</td><td>Uber、Addy Osmani：简单语法规则 linter 最好，LLM 补语义</td><td>依据校验、汇总、测试削弱扫描</td></tr>
+        <tr><td>用自己的历史 bug 评估</td><td>公开基准互相矛盾后的共识</td><td>历史 bug 检验</td></tr>
+      </table></div>
+
+      <h3>收敛时去掉的</h3>
+      <div class="table-wrap"><table>
+        <tr><th>去掉的</th><th>为什么</th><th>替代</th></tr>
+        <tr><td>规则编号、<code>&lt;!-- cr: --&gt;</code> 元数据、复核日期</td><td>写规则要学格式；业界都是普通文件</td><td>出处文件 + 逐字引文</td></tr>
+        <tr><td>组织规则包、按 tag 同步、规则仓库模板和 CI、外部资料导入</td><td>没有真实使用，链路最长</td><td>各项目的 REVIEW.md / AGENTS.md</td></tr>
+        <tr><td>规则指纹、hook 检查子代理任务、核对码、检查清单和补跑、抽查</td><td>只能证明读到，证明不了判断对；衔接点 bug 最多</td><td>引文核对 + verifier 确认</td></tr>
+        <tr><td>mine-reviews、rule-miner、propose-rules、open-mr</td><td>门槛和格式写死在脚本里，维护成本远高于收益</td><td>agent 按 maintenance.md 现场总结，确认后改工作区</td></tr>
+        <tr><td>rules-lint、rules-health</td><td>为编号和元数据服务</td><td>agent 现场检查规则</td></tr>
+        <tr><td>评测框架 eval.sh</td><td>用例少时只能发现明显倒退</td><td>采纳率 + 历史 bug 检验</td></tr>
+        <tr><td>团队数据同步 sync-data</td><td>没有团队真实使用数据</td><td><code>.cr/ignore.md</code> 随代码评审</td></tr>
+        <tr><td>四个查找角色、deep 的同模型重复查找</td><td>重复阅读占大头成本；同一模型盲区相同</td><td>reviewer + rules-auditor；换模型核实</td></tr>
+      </table></div>
+      <p class="muted">结果：脚本从 30 个降到 21 个，净删约 3900 行，测试 33 个全部通过。以后真有需要，按数据再加回来。</p>
+
+      <details class="design-basis">
+        <summary>来源</summary>
+        <ul>
+          <li><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Building a better Bugbot（Cursor）</a></li>
+          <li><a href="https://alignment.openai.com/scaling-code-verification/">A Practical Approach to Verifying Code at Scale（OpenAI）</a></li>
+          <li><a href="https://www.uber.com/blog/ureview/">uReview（Uber Engineering）</a></li>
+          <li><a href="https://addyosmani.com/blog/agentic-code-review/">Agentic Code Review（Addy Osmani）</a></li>
+          <li><a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code code-review 命令</a></li>
+          <li><a href="https://blog.kilo.ai/p/martians-independent-benchmark-tested">Martian's Independent Benchmark Tested 13 Code Review Tools</a></li>
+          <li><a href="https://coderabbit.ai/changelog">CodeRabbit changelog</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="discuss">
-      <h2>十四、待定事项</h2>
-      <div class="table-wrap"><table>
-        <tr><th>问题</th><th>需要的答案</th></tr>
-        <tr><td>项目规则维护在哪里？</td><td>已有主题规则优先原处更新；新规则的默认目录及维护负责人，沿项目实际习惯确定。</td></tr>
-        <tr><td>先读哪些资料？</td><td>几份规范的链接 / ID，以及哪些只是背景说明。</td></tr>
-        <tr><td>宿主怎么读到？</td><td>实际 MCP 工具或导出方式、权限、是否分页或截断。</td></tr>
-        <tr><td>哪些代码需要它们？</td><td>项目或路径范围；规则冲突时由谁判断。</td></tr>
-      </table></div>
-      <p>这些信息足够开始最小接入；不要求先确定组织全部规则格式、审批元数据或跨平台身份标准。</p>
+      <h2>十、待定事项</h2>
+      <div class="cards">
+        <div class="card"><h4><span class="num">1</span>合并后的实际效果</h4><p>两个查找角色相比四个，召回和 token 各变化多少，需要在同一批改动上用采纳率和历史 bug 检验对比。</p></div>
+        <div class="card"><h4><span class="num">2</span>核实换模型</h4><p>查找和核实用不同模型是否明显降低误报，需要实测；默认仍用宿主当前的模型。</p></div>
+        <div class="card"><h4><span class="num">3</span>80 分门槛</h4><p>用 <code>rejected.json</code> 里 70–79 分的候选和采纳率积累数据后再调。</p></div>
+        <div class="card"><h4><span class="num">4</span>真实 GitLab</h4><p>采纳判断、读取需求和讨论主要用模拟的 glab 测过，只在本地 GitLab 上端到端跑过一次。</p></div>
+      </div>
     </section>
-
-    <footer>
-      本版调研参考（2026-10-21）：
-      <a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review 项目规则</a> ·
-      <a href="https://cursor.com/docs/bugbot">Bugbot 规则与使用情况</a> ·
-      <a href="https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers">GitHub Copilot MCP 接入</a> ·
-      <a href="https://docs.coderabbit.ai/knowledge-base/code-guidelines">CodeRabbit 规范作用域</a> ·
-      <a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit 项目反馈</a>
-    </footer>
   </main>
 </div>
 
@@ -1449,119 +858,67 @@ paths:
   // 流程演示:按视角分成几条流程;静止时显示当前步骤的完整内容,点播放后逐步推进
   var demo = document.getElementById('demo');
   var ACTOR_NAMES = {
-    you: '你', lead: '项目负责人', owner: '外部规则负责人', maint: '插件维护者', main: '主 agent', script: '脚本', hook: 'hook',
-    bug: 'bug-hunter', sec: 'security-reviewer', rules: 'rules-auditor', simp: 'simplifier', verifier: 'verifier',
-    miner: 'rule-miner', ci: '导入校验', gitlab: 'GitLab', repo: '规则文件'
+    you: '你', lead: '项目负责人', main: '主 agent', script: '脚本', hook: 'hook',
+    reviewer: 'reviewer', rules: 'rules-auditor', verifier: 'verifier', judge: 'judge',
+    gitlab: 'GitLab', repo: '规则文件'
   };
   var tracks = [
     { id: 'review', label: '开发者', sub: '审查一次改动',
       info: '谁：每个开发者 · 什么时候：提 MR 之前或审别人的 MR 时',
-      actors: ['you', 'main', 'script', 'hook', 'bug', 'sec', 'rules', 'simp', 'verifier', 'repo'],
+      actors: ['you', 'main', 'script', 'hook', 'reviewer', 'rules', 'verifier', 'repo'],
       scenes: [
         { title: '发起审查', actors: ['you', 'main'],
           cap: '你用平时说话的方式发起审查，主 agent 把理解到的范围、深度和意图复述一遍，理解错了可以马上纠正。',
           log: [['你', '/cr 128 --intent "修复分页丢数据"'], ['主 agent', '目标 MR !128 · 深度 standard']] },
         { title: '拉取改动', actors: ['script', 'hook'],
-          cap: '脚本从私有化 GitLab 拉取 MR 的改动，过滤掉测试和 lock 文件，算出改动行的范围；同时记下仓库状态，开始只读保护。',
-          log: [['collect-diff', '拉取 MR !128(code.company.com)'], ['collect-diff', '6 个文件 · +214 −37 · 跳过 3 个'], ['guard', '审查开始,拦截写操作']] },
-        { title: '收集意图', actors: ['script'],
-          cap: '从 MR 描述、关联需求、提交说明、人工讨论和你的补充里，整理出这次改动的目标、验收标准和刻意的变化。',
-          log: [['collect-intent', 'MR 描述 · PROJ-231 · 提交 3 · 讨论 2'], ['collect-intent', '→ intent.md(验收标准 2 条)']] },
-        { title: '装配规则', actors: ['script', 'repo'],
-          cap: '按来源和范围装配本次材料，生成规则清单与任务正文；缺失或截断要说明，材料变化就重审当前目标。',
-          log: [['collect-rules', 'L2 6 · L1 8(v1.4.0)· 抑制 1 · 仓库代理约定 1'], ['collect-rules', '适用 14 条 · 指纹 9f3a2c'], ['risk', '中 → standard · 测试削弱 0']] },
-        { title: '派发任务', actors: ['main', 'hook', 'bug', 'sec', 'rules', 'simp'],
-          cap: '主 agent 同时启动 4 个查找角色。规则原文直接写在任务里，hook 检查指纹与完整规则段落；无子代理时顺序执行。',
-          log: [['主 agent', '启动 4 个查找角色(并行)'], ['hook', 'rules-auditor 任务含规则指纹 9f3a2c ✓']] },
-        { title: '查找候选', actors: ['bug', 'sec', 'rules', 'simp'],
-          cap: '4 个角色查找并交出规则检查清单。脚本核对覆盖和核对码，缺项或无效项补查一次；仍不完整就说明，不能把清单齐全当成没有漏判。',
-          log: [['bug-hunter', '5 条候选'], ['security', '1 条候选'], ['rules-auditor', '2 条候选 · 清单 14/14 · 核对码 K7Q2 ✓'], ['simplifier', '1 条候选'], ['主 agent', '合并去重 → 9 条']] },
-        { title: '独立核实', actors: ['verifier'],
-          cap: 'verifier 逐条重新读代码、先反证再打分，并抽查规则清单的未违反项。即使普通候选为零，也保留可执行的抽查。本例 9 条普通候选加 3 项规则抽查，共 12 项；普通候选成立 4 条、否决 5 条，抽查未发现违规。所有打分留档。',
-          log: [['verifier ×3', '共 12 项(每批最多 5 项)'], ['verifier', '依据引用 11 处 · 脚本核对存在 ✓'], ['verifier', '规则抽查 3 项：未发现违规'], ['verifier', '普通候选：成立 4 · 否决 5 → rejected.json']] },
+          cap: '脚本拉取 MR 的改动，过滤测试和 lock 文件，算出改动行的范围，扫出被削弱的测试和检查；同时记下仓库状态，开始只读保护。',
+          log: [['collect-diff', '拉取 MR !128(code.company.com)'], ['collect-diff', '5 个文件 · +186 −31 · 跳过 2 个'], ['collect-context', '测试削弱 1 处'], ['guard', '审查开始,拦截写操作']] },
+        { title: '意图与规则', actors: ['script', 'repo'],
+          cap: '从 MR 描述、关联需求、提交说明、人工讨论和你的补充里整理出意图和验收标准；规则直接读仓库里的 Markdown，PR/MR 从 base 读。',
+          log: [['collect-context', '→ intent.md(验收标准 2 条)'], ['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc'], ['risk', '中 → standard']] },
+        { title: '查找候选', actors: ['main', 'reviewer', 'rules'],
+          cap: '两个查找角色并行。reviewer 自己决定往哪里深挖，先看被削弱的测试；rules-auditor 只对照写下来的规则，每条违反写出出处和原文。查到一半的也交。',
+          log: [['主 agent', '启动 reviewer、rules-auditor(并行)'], ['reviewer', '4 条候选'], ['rules-auditor', '1 条候选 · 引文 REVIEW.md'], ['主 agent', '合并去重 → 5 条']] },
+        { title: '独立核实', actors: ['verifier', 'script'],
+          cap: 'verifier 只拿到候选结论，逐条重新读代码，先尝试推翻再打分，并给出读过的代码和排除的可能。脚本核对依据位置和规则引文，低于 80 分的不报但留档。',
+          log: [['verifier ×1', '5 条候选'], ['aggregate', '依据位置 ✓ · 规则引文 ✓'], ['aggregate', '通过 3 · 否决 2 → rejected.json']] },
         { title: '出报告', actors: ['main', 'script'],
-          cap: '主 agent 汇总出报告：问题代码由脚本从原文摘取，每条附上依据；末尾写明规则和意图的使用情况。',
+          cap: '问题代码由脚本从原文摘取，每条附上依据；测试削弱单列；末尾写明用了哪些规则文件。',
           log: [['check-state', '仓库未被改动 ✓ · 解除拦截'], ['save-review', '报告已保存']] },
         { title: '你回复', actors: ['you', 'main'],
-          cap: '你质疑第 2 条。主 agent 重新核对客户端，确认已有瞬时失败重试，撤回要求调用方重复添加重试的建议；最终失败仍须检查，并记录撤回原因。',
-          log: [['主 agent', '重新核对 order_client.go:55-70'], ['feedback', 'invalid #2 「客户端已有重试，无需重复添加」']] },
-        { title: '沉淀成规则', actors: ['you', 'main', 'repo'],
-          cap: '核对已有保障后，才提出有范围、有条件的忽略候选；展示具体 diff，确认后改工作区，不因评论次数自动生效。PR/MR 使用相应 base，工作区审查使用工作区规则。',
-          log: [['主 agent', '已有重试保障 → 有条件的忽略候选'], ['确认', '范围与条件已确认，格式检查通过'], ['工作区', '.cr/ignore.md +2 行(未提交)']] }
+          cap: '你确认第 1 条、质疑第 2 条。主 agent 重新核对调用方，确认外层有事务后撤回；两条判断都记下来，同一段代码不变时不再报。',
+          log: [['主 agent', '重新核对 handler.go:30-48'], ['feedback', 'valid #1'], ['feedback', 'invalid #2「外层事务整体回滚」']] }
       ] },
-    { id: 'mine', label: '项目负责人', sub: '按需沉淀规则',
-      info: '负责人按需提炼 · 保留原维护位置和用途 · 规则经项目 MR 合入',
-      actors: ['lead', 'main', 'script', 'miner', 'gitlab'],
+    { id: 'adoption', label: '开发者 / 负责人', sub: '看效果和采纳率',
+      info: '主要指标：报过的问题，合并时是不是真的被解决了',
+      actors: ['you', 'main', 'script', 'judge', 'gitlab'],
       scenes: [
-        { title: '发起提炼', actors: ['lead', 'main'],
-          cap: '项目负责人发起提炼，明确项目、日期口径与时间范围；同时报告读取完整性，不能把截断结果说成全量。',
-          log: [['项目负责人', '/cr 提炼规则 --since 30d'], ['主 agent', '本次按合并时间 · shop-api · 23 个 MR（演示）']] },
-        { title: '收集反馈', actors: ['script', 'gitlab'],
-          cap: '读取人工评论及必要讨论结论，明确分页与失败状态；和当时发现对照得到漏报线索，核实后才计入。已解决不等于规则已批准。',
-          log: [['mine-reviews', '拉取 23 个 MR 的讨论(只读)'], ['mine-reviews', '41 条 → 过滤后 19 条'], ['mine-reviews', '对照当时的发现 → 待核实线索 4 条']] },
-        { title: '提炼候选', actors: ['miner'],
-          cap: '核对已有规则及未合入 crosscheck-rule MR，再提候选并建议维护文件；同义提案引用原 MR，不重复创建。保留规则用途限制，通用漏报保存为评测候选，不按次数自动晋升。',
-          log: [['rule-miner', '聚类 → 5 组'], ['提案检查', '本例无同义未合入 MR'], ['rule-miner', '保留 2 条 · 改配 lint 1 · 证据不足 1 · 已有 1']] },
-        { title: '确认改动', actors: ['lead', 'main'],
-          cap: '展示正文、作用域、维护文件及具体 diff；确认后、创建前再核对同义未合入提案。沿用原格式与编号，预览和创建使用同一基准，只创建不合并。',
-          log: [['检查', '原格式与路径正反例 ✓'], ['glab', '确认后创建 MR !342 · 项目 rules + 审查要求'], ['评测候选', '漏报线索另行核实，不改本轮答案']] },
-        { title: '审批生效', actors: ['gitlab'],
-          cap: '项目维护者审批合入；后续 PR/MR 从相应 base 读取，工作区审查读取当前版本。关闭候选保留原因，没有足以说明差异的新证据时不重复提出。',
-          log: [['GitLab', '!342 已批准,合入 main'], ['下次审查', '从相应 base 读取 rules；后续回到原文件维护']] }
+        { title: '发起统计', actors: ['you', 'main'],
+          cap: '先更新采纳情况，再出统计。只读拉取已合并 MR 的最终代码，不往 GitLab 写任何东西。',
+          log: [['你', '看看 review 的效果'], ['主 agent', 'adoption.sh scan']] },
+        { title: '自动判定', actors: ['script', 'gitlab'],
+          cap: '能确定的由脚本判：那段代码原样还在算没采纳，文件删了不计入；代码改了的交给 judge。',
+          log: [['adoption', '已合并 MR 9 个 · 报过的问题 21 条'], ['adoption', '原样还在 4 · 文件已删 1 · 待判断 16']] },
+        { title: 'judge 判断', actors: ['judge'],
+          cap: 'judge 打开最终代码，判断失败场景还会不会发生。不因为“代码动过”就判为解决。',
+          log: [['judge', 'paginate.ts:42 → resolved'], ['judge', 'cache.ts:30 → not_resolved(改的是日志)']] },
+        { title: '看统计', actors: ['main', 'script'],
+          cap: '采纳率、判断、去向、校准、差一点通过分开给出，互不折算；样本不足 10 条只给数量。统计只给人看，不自动改变审查行为。',
+          log: [['stats', '采纳 13/20 · 判断 12 条'], ['stats', '70–79 分 3 条,值得抽看']] }
       ] },
-    { id: 'health', label: '项目负责人', sub: '定期复核规则',
-      info: '复核所选项目规则与忽略项，保持原维护位置；组织问题只输出材料交外部负责人',
-      actors: ['lead', 'main', 'script', 'gitlab'],
+    { id: 'rules', label: '项目负责人', sub: '从 MR 评论总结规则',
+      info: '按需做 · agent 现场总结 · 确认后只改工作区，由你提交',
+      actors: ['lead', 'main', 'gitlab', 'repo'],
       scenes: [
-        { title: '发起复核', actors: ['lead', 'main'],
-          cap: '规则的去留由负责人定期主动复核决定,不看命中次数这类统计。脚本只读规则文件和代码库,生成复核清单。',
-          log: [['项目负责人', '/cr 规则复核'], ['规则清单', '已有项目规则 18 · ignore 5 · 外部来源只读诊断']] },
-        { title: '看复核清单', actors: ['script', 'lead'],
-          cap: '日期缺失或超过 6 个月未复核的先看。本例为 3 条超过 6 个月、1 条没有日期；缺日期不等于已过期。作用域失效、引用找不到或疑似重复也只是复核线索。',
-          log: [['rules-health', '日期缺失或超过 6 个月未复核 4 条'], ['rules-health', '其他检查提示 3 条']] },
-        { title: '负责人决定', actors: ['lead', 'main'],
-          cap: '先确认组织来源已加载并覆盖同一要求与路径，再删除重复的本地规则。本例无需新增来源配置：删除 3 条、确认保留 1 条；展示完整 diff 后再创建 MR。',
-          log: [['替代核对', 'ORG-GO-003 已覆盖原要求与范围'], ['propose-rules', 'remove 3 · confirm 1'], ['rules-lint', '✓']] },
-        { title: '创建 MR', actors: ['main', 'gitlab'],
-          cap: '确认后在临时 worktree 里创建 MR,只创建不合并,不碰工作区。保留的规则记下 reviewed=本月。',
-          log: [['glab', '创建 MR !351 · 标签 crosscheck-rule']] }
-      ] },
-    { id: 'release', label: '外部规则接入', sub: '只读获取与快照',
-      info: '首版方案 · 按配置只读资料，保留本次材料；组织维护留在外部',
-      actors: ['main', 'script', 'repo'],
-      scenes: [
-        { title: '选择既有来源', actors: ['main'],
-          cap: '选好来源、文档和适用范围。以三份规范为例，不要求遍历知识库或先建立统一规则编号。',
-          log: [['来源配置', 'engineering-standards · rules · required'], ['选择', 'HTTP · 日志 · 日期']] },
-        { title: '宿主读取并导入', actors: ['main', 'script'],
-          cap: '宿主调用已连接的 MCP 工具；适配层处理工具和字段差异。保存原文、出处和修订信息，校验选择集合是否取全。',
-          log: [['宿主适配', '已取得 3/3 文档'], ['资料导入', '正文及来源已保存']] },
-        { title: '冻结本次输入', actors: ['script', 'repo'],
-          cap: '保存本次原文和出处，生成适用清单。不追踪跨平台身份迁移；材料变化或无法确认一致时，重审当前目标。',
-          log: [['材料', '正文 + 出处 + 读取结果'], ['collect-rules', '生成 rules-index.json / task-rules.md']] },
-        { title: '缺失时如实降级', actors: ['main', 'script'],
-          cap: '另一条分支：若只取得两份文档，代码检查继续，组织规则检查未完成。对应上次发现保留为未能复核，不因本轮没报就计已解决。',
-          log: [['来源状态', 'partial · 2/3 · HTTP 无权限'], ['报告', '组织规则检查未完成'], ['旧发现', 'unverified · 不计 resolved / 采纳']] }
-      ] },
-    { id: 'eval', label: '插件维护者', sub: '改插件前跑评测',
-      info: '谁：插件维护者 · 什么时候：改角色说明、评分标准、换模型或调门槛之前 · 普通开发者不需要做',
-      actors: ['maint', 'main', 'script', 'verifier', 'gitlab'],
-      scenes: [
-        { title: '发起评测', actors: ['maint', 'main'],
-          cap: '插件维护者改了 verifier 的评分标准，合入前跑一次评测。深度和模型与基线保持一致，只改这一项。',
-          log: [['插件维护者', '/cr 评测'], ['主 agent', '20 个用例 · 基线 2026-10-12(v0.1.6)']] },
-        { title: '逐个用例审查', actors: ['main', 'verifier', 'script'],
-          cap: '对每个用例按提交范围审查一次：只读、用隔离的记录目录、不读历史判断、不做增量。',
-          log: [['eval', '运行 20 个用例'], ['eval', '命中 8/10 · 本例全用例确认误报 1 条']] },
-        { title: '对答案', actors: ['script', 'main'],
-          cap: '先比较文件行号，再核实是否同一问题。答案外真问题进入 pending，不改本轮 expect；误报与待判断分别记录。',
-          log: [['eval', 'case-07 行号重叠 ✓ · 同一问题 ✓ → 命中'], ['eval', 'case-12 额外 1 条 → 人工确认为误报'], ['pending', 'case-07 补充真问题 · 本轮 expect 不变']] },
-        { title: '和基线对比', actors: ['main'],
-          cap: '用相同输入逐项看漏报与所有用例的误报。真假未判完只给暂定结论；已确认真问题先留作下次用例。',
-          log: [['eval', '召回 7/10 → 8/10 · 全用例误报 3 → 1'], ['eval', '用时 +11% · token +13%']] },
-        { title: '决定与归档', actors: ['maint', 'gitlab'],
-          cap: '完成判断后核对全部用例的漏报、误报和成本，维护者决定是否接受；未判完不宣布通过，不写组织来源。',
-          log: [['结论', '可以合入'], ['评测维护', '更新独立配置的 baseline.json']] }
+        { title: '发起总结', actors: ['lead', 'main', 'gitlab'],
+          cap: 'agent 只读地取最近合并的 MR 和人工评论，先读现有规则，已经写过的不重复。',
+          log: [['项目负责人', '从最近一个月的 MR 评论里总结一下规则'], ['glab', 'mr list --merged · 23 个 MR(只读)']] },
+        { title: '筛选候选', actors: ['main'],
+          cap: '只收在两个以上 MR 里、被不同的人反复指出的问题；linter 能查的、一次性的意见不收。每条写成能对照代码检查的一句话，加原因和证据。',
+          log: [['主 agent', '41 条评论 → 候选 2 条'], ['主 agent', '交给 linter 1 · 证据不足 1']] },
+        { title: '确认后改工作区', actors: ['lead', 'main', 'repo'],
+          cap: '你挑中的规则加进对应目录的 REVIEW.md，只改工作区、不提交，规则改动走团队正常的代码评审。',
+          log: [['项目负责人', '两条都要'], ['工作区', 'src/payments/REVIEW.md +1 · src/orders/REVIEW.md +1(未提交)']] }
       ] }
   ];
 
