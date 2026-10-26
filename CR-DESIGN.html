@@ -569,7 +569,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <span class="chip">diff 收集</span><span class="chip">有效代码过滤</span><span class="chip">行范围</span><span class="chip">分批</span><span class="chip">增量与依赖扩散</span>
           </div></div>
           <div class="subrow"><div class="label">意图</div><div class="chips">
-            <span class="chip">MR 描述 / 提交说明</span><span class="chip">关联需求单</span><span class="chip">MR 人工讨论</span><span class="chip">计划文件</span><span class="chip">--intent</span>
+            <span class="chip">MR 描述 / 提交说明</span><span class="chip">关联需求单</span><span class="chip">MR 人工讨论</span><span class="chip">--plan / --intent（调用时提供，可选）</span>
           </div></div>
           <div class="subrow"><div class="label">规则</div><div class="chips">
             <span class="chip">REVIEW.md（可选，目录级 / 根目录，含「不要报」）</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
@@ -692,6 +692,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
         <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>、<code>risk_paths</code>、<code>platform</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
         <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
+        <li><b>仓库里不需要专属目录：</b>插件只认一个可选的 <code>REVIEW.md</code>；这次改动的意图和计划在调用时提供，不放进仓库。</li>
         <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
         <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
       </ul>
@@ -806,6 +807,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>mine-reviews、rule-miner、propose-rules、open-mr</td><td>门槛和格式写死在脚本里，维护成本远高于收益</td><td>agent 按 maintenance.md 现场总结，确认后改工作区</td></tr>
         <tr><td>rules-lint、rules-health</td><td>为编号和元数据服务</td><td>agent 现场检查规则</td></tr>
         <tr><td>评测框架 eval.sh</td><td>用例少时只能发现明显倒退</td><td>采纳率 + 历史 bug 检验</td></tr>
+        <tr><td><code>.cr/ignore.md</code>、<code>.cr/intent.md</code></td><td>多一个目录多一层概念；意图放进仓库会在合并后过期，审查别的分支时还会读错</td><td>「不要报」并进 <code>REVIEW.md</code>；意图在调用时用 <code>--intent</code> / <code>--plan</code> 提供</td></tr>
         <tr><td>团队数据同步 sync-data</td><td>没有团队真实使用数据</td><td><code>REVIEW.md</code> 的「不要报」随代码评审</td></tr>
         <tr><td>四个查找角色、deep 的同模型重复查找</td><td>重复阅读占大头成本；同一模型盲区相同</td><td>reviewer + rules-auditor；换模型核实</td></tr>
       </table></div>
