@@ -199,7 +199,7 @@ diff、PR 描述、已有评论、规则文件都可能包含写给 reviewer 的
 - **凭证文件按位置认,不按名字认。** 只拦用户主目录下的 shell 配置和凭证文件,以及 gh/glab 的配置目录。最初按文件名拦,结果 dotfiles 仓库里的 `.zshrc`、项目里的 `.env.example`、Ansible 的 `hosts.yml` 都读不了,而它们正是审查对象。
 - **不会把用户锁住。** 审查被打断、agent 忘了收尾时,标记可能残留。三种情况会清除它:用户发来新消息、超过一小时、运行 `check-state.sh`。代价是用户在审查中途发消息会提前解除拦截,这时用户本人在场,可以接受。
 - **按会话隔离。** 同一仓库里的另一个会话不受影响。子代理和主 agent 共用会话 ID(Claude Code 和 Codex 的文档如此说明),所以子代理同样受限。
-- **一个脚本适配三个宿主。** 三家的 hook 输入字段和拒绝格式不同:Claude Code 和 Codex 用 `session_id`、`tool_input.command`,拒绝时输出 `hookSpecificOutput`;Cursor 用 `conversation_id`、顶层的 `command`,拒绝时输出 `permission: deny`,并且放行时也必须输出合法 JSON。`guard.sh` 按输入字段判断宿主。注册文件分两份,因为两种格式都默认叫 `hooks/hooks.json`:Claude Code 和 Codex 共用 `hooks/hooks.json`,Cursor 在清单里指向 `hooks/cursor-hooks.json`。
+- **一个脚本适配三个宿主。** 三家的 hook 输入字段和拒绝格式不同:Claude Code 和 Codex 用 `session_id`、`tool_input.command`,拒绝时输出 `hookSpecificOutput`;Cursor 用 `conversation_id`、顶层的 `command`,拒绝时输出 `permission: deny`,并且放行时也必须输出合法 JSON。`guard.sh` 按输入字段判断宿主。注册文件每家一份,只写各家文档里列出的事件和工具名:Claude Code 用默认的 `hooks/hooks.json`(`Bash`、`Read`、`Edit`、`Write`、`NotebookEdit`,失败走 `PostToolUseFailure`);Codex 在清单里指向 `hooks/codex-hooks.json`(shell 统一叫 `Bash`,补丁叫 `apply_patch`,没有失败事件,失败的命令也走 `PostToolUse`);Cursor 指向 `hooks/cursor-hooks.json`(`preToolUse` 只匹配 `Write`、`Delete`,读文件走 `beforeReadFile`)。原来 Claude Code 和 Codex 共用一份,里面混着对方没有的事件和工具名;Codex 文档没有的东西,换个版本可能就报错或被悄悄忽略。
 - **顺带拦截会暴露凭证的操作。** 审查期间,打印环境变量、查看或 `source` shell 配置文件、读取 `.netrc` 和 gh/glab 的配置、`git remote -v`、`git config -l`、`gh auth token`、带 `--show-token` 的命令都会被拒绝。agent 遇到登录问题时的本能反应是去翻环境和配置,这正是凭证泄漏的来源。
 - **出错时放行。** 缺少 `jq` 和 `python3`、输入解析失败、不在 git 仓库里,都直接放行。护栏坏了不应该让审查或用户的正常操作跑不起来,还有核对这一层兜底。
 
@@ -241,7 +241,7 @@ diff、PR 描述、已有评论、规则文件都可能包含写给 reviewer 的
 **成本和效果记在一起。** 放开查找、多遍、复现都会增加成本,只看采纳率不够,还要知道花了多少。
 
 - 用时和工作量(启动的角色数、候选数、通过数)由编排者在保存时如实报给 `save-review.sh`,三个宿主都有。
-- token 用量 agent 自己拿不到,只能由 hook 从宿主的会话记录里读。`guard.sh` 本来就在审查开始和保存时各被调用一次,顺便调用 `usage.sh` 记下起点、算出区间内的用量。三家的来源不同:Claude Code 按消息去重后累加,并把 `<会话>/subagents/` 下的子代理记录一起算上;Codex 累加会话文件里的用量记录;Cursor 的会话记录里没有用量,只能在一轮结束的 `stop` 事件里拿到整轮合计,再补写进刚保存的记录。
+- token 用量 agent 自己拿不到,只能由 hook 从宿主的会话记录里读。`guard.sh` 本来就在审查开始和保存时各被调用一次,顺便调用 `usage.sh` 记下起点、算出区间内的用量。三家的来源不同:Claude Code 按消息去重后累加,并把 `<会话>/subagents/` 下的子代理记录一起算上;Codex 累加会话文件里的用量记录;Cursor 的会话记录里没有用量,`stop` 事件的官方输入里也没有用量字段,所以不统计,报告里写明原因。原来读 `stop` 输入里文档没写的字段,已去掉。
 - 这些字段都不在宿主的正式文档里,所以整条路径是"读得到就记,读不到就留空":没有 python3、没有会话记录、格式变了,都不报错,也不影响审查。
 - 记录里标明了来源、是否包含子代理、统计范围是这次审查还是整轮对话,避免把不同口径的数字放在一起比。
 - 只读用量数字,不读对话内容;结果只写进本机的审查记录。

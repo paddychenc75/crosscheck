@@ -165,6 +165,7 @@ if ! num "$tok"; then
   case "$(saved usage_status)" in
     no_start) why="hook 在运行,但审查开始时没拿到会话记录" ;;
     no_records) why="hook 在运行,但会话记录里读不到用量" ;;
+    unsupported) why="Cursor 的 hook 不提供用量" ;;
     *) why="hook 没有运行:没有以插件方式安装,或在 Codex 里还没有用 /hooks 信任" ;;
   esac
   cost="${cost:+$cost · }token 未统计(${why})"

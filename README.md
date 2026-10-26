@@ -409,7 +409,7 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
   |---|---|---|
   | Claude Code | 会话记录里每次模型调用的用量,加上子代理的记录 | 审查开始到保存之间,包含子代理 |
   | Codex | 会话文件里的用量记录 | 审查开始到保存之间;是否包含子代理未知 |
-  | Cursor | 一轮结束时 hook 给出的合计 | 整轮对话,不只是审查;命令行版不提供 |
+  | Cursor | 不统计:会话记录里没有用量,hook 的官方输入里也没有 | — |
 
 数据都存在本机,不上传:
 
@@ -455,7 +455,8 @@ skills/cr/
 ├── templates/      REVIEW.md 模板、配置示例
 └── scripts/        审查流程、规则、记录、统计的脚本,以及共用的 crlib.py
 hooks/
-├── hooks.json          Claude Code 和 Codex 的 hook 注册
+├── hooks.json          Claude Code 的 hook 注册
+├── codex-hooks.json    Codex 的 hook 注册(在 .codex-plugin/plugin.json 里指定)
 └── cursor-hooks.json   Cursor 的 hook 注册
 tests/                  python3 -m unittest discover -s tests
 ```

@@ -3,13 +3,11 @@
 #
 # 用法: usage.sh start  STATE TRANSCRIPT   记下会话记录当前的位置,作为这次审查的起点
 #       usage.sh finish STATE OUT          汇总起点之后的用量,以 key=value 写入 OUT
-#       usage.sh cursor DIR IN OUT CACHE_READ CACHE_WRITE
-#                                          Cursor 在一轮结束时才给出用量:补写进 DIR 对应的已保存记录
 #
 # 数据来源是宿主自己的会话记录,只读取其中的用量数字,不读取对话内容:
 #   Claude Code  每次模型调用的 usage;子代理的记录在 <会话>/subagents/ 下,一并计入
 #   Codex        会话文件里的 token_usage_record
-#   Cursor       会话记录里没有用量,只能用 stop hook 给出的整轮合计
+#   Cursor       会话记录里没有用量,hook 的输入里也没有写明的用量字段,不统计
 # 只由 hook 调用、读 hook 给出的那份会话记录;不会去猜或扫描其他会话的记录。读不到就什么都不写,不影响审查。这些字段都没有写进宿主的正式文档,版本变化后可能失效。需要 python3。
 
 set -eu
@@ -137,28 +135,4 @@ if mode == "finish":
     write_kv(out, data)
     sys.exit(0)
 
-if mode == "cursor":
-    rdir = args[1]
-    try:
-        nums = [int(x or 0) for x in args[2:6]]
-    except Exception:
-        sys.exit(0)
-    meta_path = os.path.join(rdir, "meta.txt")
-    if not os.path.isfile(meta_path) or not any(nums):
-        sys.exit(0)
-    store = read_kv(meta_path).get("store_dir", "")
-    try:
-        latest = open(os.path.join(store, "latest"), encoding="utf-8").readline().strip()
-    except Exception:
-        sys.exit(0)
-    saved = os.path.join(store, latest, "meta.txt")
-    if not os.path.isfile(saved) or "usage_total_tokens=" in open(saved, encoding="utf-8").read():
-        sys.exit(0)
-    inp, outp, cr, cw = nums
-    fresh = max(0, inp - cr - cw)      # Cursor 的 input_tokens 含缓存部分
-    write_kv(saved, {
-        "usage_input_tokens": fresh, "usage_cache_read_tokens": cr, "usage_cache_write_tokens": cw,
-        "usage_output_tokens": outp, "usage_total_tokens": fresh + cr + cw + outp,
-        "usage_source": "cursor", "usage_subagents": "unknown", "usage_scope": "turn",
-    }, append=True)
 PY

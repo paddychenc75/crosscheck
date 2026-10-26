@@ -2,9 +2,11 @@
 # guard.sh — 宿主的 hook:cr 审查进行期间,拦截会改变仓库状态的操作。
 #
 # 同一个脚本适配三个宿主,从 stdin 读取 hook 的 JSON,按字段判断是谁在调用:
-#   Claude Code / Codex   hooks/hooks.json         PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit
-#   Cursor                hooks/cursor-hooks.json  beforeShellExecution、afterShellExecution、preToolUse、
-#                                                  beforeReadFile、beforeSubmitPrompt、stop
+#   Claude Code   hooks/hooks.json         PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit
+#   Codex         hooks/codex-hooks.json   PreToolUse、PostToolUse、UserPromptSubmit
+#   Cursor        hooks/cursor-hooks.json  beforeShellExecution、afterShellExecution、preToolUse、
+#                                          beforeReadFile、beforeSubmitPrompt
+# 只用各家文档里写明的事件、工具名和字段。
 #
 #   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),为当前会话记下"审查进行中"
 #   结束  collect-diff.sh 报错或没有可审查的内容、成功执行 check-state.sh 或 save-review.sh、
@@ -44,7 +46,7 @@ print("" if d is None else d)' "$1" 2>/dev/null
 
 event=$(get .hook_event_name) || exit 0
 case "$event" in
-  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse|stop) host=cursor ;;
+  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse) host=cursor ;;
   *) if [ -n "$(get .cursor_version)" ]; then host=cursor; else host=claude; fi ;;
 esac
 
@@ -67,26 +69,15 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 
 case "$event" in
   UserPromptSubmit|beforeSubmitPrompt) rm -f "$marker"; allow ;;
-  stop)
-    # Cursor 只在一轮结束时给出 token 用量:补记到刚保存的那次审查上。
-    if [ -f "$dir/$sid.last" ]; then
-      last_review=$(head -n 1 "$dir/$sid.last"); rm -f "$dir/$sid.last"
-      sh "$script_dir/usage.sh" cursor "$last_review" "$(get .input_tokens)" "$(get .output_tokens)" "$(get .cache_read_tokens)" "$(get .cache_write_tokens)" >/dev/null 2>&1 || true
-    fi
-    printf '{}\n'; exit 0 ;;
 esac
 
 tool=$(get .tool_name)
 case "$event" in beforeShellExecution|afterShellExecution) tool=Shell ;; esac
 [ "$event" = beforeReadFile ] && tool=Read
 case "$tool" in
-  Bash|Shell|shell|exec_command|functions.exec_command) kind=shell
-    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .tool_input.cmd)
-    [ -n "$cmd" ] || cmd=$(get .command) ;;
-  apply_patch|functions.apply_patch) kind=patch
-    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .tool_input.input)
-    [ -n "$cmd" ] || cmd=$(get .tool_input.patch)
-    [ -n "$cmd" ] || cmd=$(get .tool_input) ;;
+  Bash|Shell) kind=shell   # Claude Code、Codex 的 shell 都叫 Bash;Cursor 的 shell 事件按 Shell 处理
+    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command) ;;
+  apply_patch) kind=patch; cmd=$(get .tool_input.command) ;;
   *) kind=file; cmd="" ;;
 esac
 
@@ -122,9 +113,8 @@ case "$event" in
   PostToolUse|PostToolUseFailure|afterShellExecution)
     result=$(get .tool_response.stdout); [ -n "$result" ] || result=$(get .output)
     [ -n "$result" ] || result=$(get .tool_response); [ -n "$result" ] || result=$(get .error)
-    code=$(get .exit_code); [ -n "$code" ] || code=$(get .tool_response.exit_code)
+    # 只有 Claude Code 有单独的失败事件;Codex 和 Cursor 的输入里没有退出码,靠脚本自己的报错前缀识别。
     failed=no
-    case "$event:$code" in PostToolUseFailure:*|*:0|*:) ;; *) failed=yes ;; esac
     [ "$event" = PostToolUseFailure ] && failed=yes
     if [ "$kind" = shell ] && [ -f "$marker" ]; then
       if runs collect-diff.sh; then
@@ -162,11 +152,10 @@ if [ "$kind" = shell ]; then
           sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
           # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"。
           if [ ! -s "$review_dir/usage.txt" ]; then
-            if [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
+            if [ "$host" = cursor ]; then reason=unsupported
+            elif [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
             printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
           fi
-          # Cursor 的用量要等这一轮结束(stop)才有,先记下是哪次审查。
-          if [ "$host" = cursor ]; then printf '%s\n' "$review_dir" > "$dir/$sid.last" 2>/dev/null || true; fi
         fi
         rm -f "$dir/$sid.usage"
       fi
@@ -176,7 +165,7 @@ if [ "$kind" = shell ]; then
     mkdir -p "$dir" && date +%s > "$marker"
     rm -f "$dir/$sid.review"
     transcript=$(get .transcript_path)
-    rm -f "$dir/$sid.usage" "$dir/$sid.last"
+    rm -f "$dir/$sid.usage"
     [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true
   fi
 fi
@@ -236,13 +225,13 @@ secret_file() {
 
 if [ "$kind" = file ]; then
   case "$tool" in
-    Read|read|ReadFile|read_file)
+    Read)
       path=$(get .tool_input.file_path); [ -n "$path" ] || path=$(get .tool_input.path); [ -n "$path" ] || path=$(get .file_path)
       [ -n "$path" ] && secret_file "$path" && deny "!读取 ${path##*/}"
       allow ;;
   esac
   case "$tool" in
-    Edit|Write|MultiEdit|NotebookEdit|Delete|StrReplace|edit|write|delete) ;;
+    Edit|Write|NotebookEdit|Delete) ;;
     *) allow ;;
   esac
   for key in .tool_input.file_path .tool_input.notebook_path .tool_input.path .tool_input.target_file; do

@@ -102,6 +102,30 @@ class BaseRegressions(fixture.Base):
         self.assertEqual(self.kv(os.path.join(self.review_dir(out), 'meta.txt'))['target_branch'], 'develop')
 
 
+class HookRegistration(fixture.Base):
+    """注册文件只用各家文档里写明的事件和工具名。"""
+    OFFICIAL = {
+        'hooks.json': ({'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit'},
+                       {'Bash', 'Read', 'Edit', 'Write', 'NotebookEdit'}),
+        'codex-hooks.json': ({'PreToolUse', 'PostToolUse', 'UserPromptSubmit'}, {'Bash', 'apply_patch'}),
+        'cursor-hooks.json': ({'beforeShellExecution', 'afterShellExecution', 'preToolUse', 'beforeReadFile',
+                               'beforeSubmitPrompt'}, {'Write', 'Delete'}),
+    }
+
+    def test_only_documented_events_and_tools(self):
+        hooks = Path(fixture.SCRIPTS).parents[2] / 'hooks'
+        for name, (events, tools) in self.OFFICIAL.items():
+            with self.subTest(name=name):
+                d = json.loads((hooks / name).read_text(encoding='utf-8'))['hooks']
+                self.assertLessEqual(set(d), events)
+                for groups in d.values():
+                    for g in groups:
+                        if g.get('matcher'):
+                            self.assertLessEqual(set(g['matcher'].split('|')), tools)
+        manifest = json.loads((hooks.parent / '.codex-plugin' / 'plugin.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['hooks'], './hooks/codex-hooks.json')
+
+
 class GuardRegressions(fixture.Base):
     def setUp(self):
         super().setUp()
@@ -123,6 +147,12 @@ class GuardRegressions(fixture.Base):
         cmd = 'sh /example/collect-diff.sh target'
         self.hook('beforeShellExecution' if cursor else 'PreToolUse', tool, {'command': cmd}, command=cmd)
 
+    def test_codex_failed_collect_releases_without_exit_code(self):
+        self.start()
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response='collect-diff: 找不到默认分支')
+        self.assertFalse(self.denied())
+
     def test_usage_reason_is_recorded_when_hook_ran(self):
         self.start()
         cmd = 'sh /example/save-review.sh %s' % self.rd
@@ -139,19 +169,17 @@ class GuardRegressions(fixture.Base):
                 self.start()
                 self.hook(inp={'command': command})
                 self.assertTrue(self.denied())
-                self.hook('PostToolUseFailure', inp={'command': command}, tool_response={'exit_code': 1})
+                self.hook('PostToolUseFailure', inp={'command': command}, error='exit 1')
                 self.assertTrue(self.denied())
         command = 'sh /example/check-state.sh /review'
         self.start(); self.hook(inp={'command': command})
         self.assertTrue(self.denied())
-        self.hook('PostToolUse', inp={'command': command}, tool_response={'stdout': 'OK: unchanged', 'exit_code': 0})
+        self.hook('PostToolUse', inp={'command': command}, tool_response={'stdout': 'OK: unchanged'})
         self.assertFalse(self.denied())
 
     def test_common_tool_shapes_and_literal_shell_writes(self):
         self.start()
-        for tool, inp in [('exec_command', {'cmd':'git commit -m test'}),
-                          ('apply_patch', {'input':'*** Begin Patch\n*** Update File: a.ts\n*** End Patch'}),
-                          ('apply_patch', '*** Begin Patch\n*** Update File: a.ts\n*** End Patch'),
+        for tool, inp in [('apply_patch', {'command':'*** Begin Patch\n*** Update File: a.ts\n*** End Patch'}),
                           ('Bash', {'command':'echo changed > a.ts'}),
                           ('Bash', {'command':'printf changed | tee a.ts'}),
                           ('Bash', {'command':'touch a.ts'})]:
@@ -165,5 +193,5 @@ class GuardRegressions(fixture.Base):
         for event in ['afterShellExecution', 'PostToolUseFailure']:
             self.start(cursor=event=='afterShellExecution')
             cmd='sh /example/collect-diff.sh target'
-            self.hook(event, inp={'command':cmd}, command=cmd, exit_code=1, output='fatal: invalid revision')
+            self.hook(event, inp={'command':cmd}, command=cmd, output='collect-diff: git 无法对 x 做 diff', error='exit 1')
             self.assertFalse(self.denied())
