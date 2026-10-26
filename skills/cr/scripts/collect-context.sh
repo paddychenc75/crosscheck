@@ -143,8 +143,6 @@ if plan:
     plan_text, plan_label = read_file(p), plan
     if plan_text is None:
         notes.append("计划文件 %s 读不到" % plan)
-elif os.path.isfile(os.path.join(root, ".cr", "intent.md")):
-    plan_text, plan_label = read_file(os.path.join(root, ".cr", "intent.md")), ".cr/intent.md"
 if plan_text:
     sections.append(("计划文件 %s" % plan_label, clip(plan_text, 4000)))
     sources.append("计划文件")

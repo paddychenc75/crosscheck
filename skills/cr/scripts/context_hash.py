@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 import crlib
 
 RULE_FILES = re.compile(r'(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md|GEMINI\.md|CONVENTIONS\.md)$'
-                        r'|(^|/)(\.cr|\.claude|\.cursor)/|^\.github/(instructions/|copilot-instructions\.md)|^\.(cursorrules|windsurfrules)$')
+                        r'|(^|/)(\.claude|\.cursor)/|^\.github/(instructions/|copilot-instructions\.md)|^\.(cursorrules|windsurfrules)$')
 
 
 def review_context(directory):
