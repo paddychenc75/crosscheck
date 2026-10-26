@@ -8,8 +8,6 @@ def kind(path):
     name = path.rsplit('/', 1)[-1]
     if name == 'REVIEW.md':
         return 'review'
-    if path == '.cr/ignore.md':
-        return 'ignore'
     if path.startswith('.claude/rules/') and path.endswith('.md'):
         return 'claude'
     if path.startswith('.cursor/rules/') and path.endswith(('.mdc', '.md')):
@@ -53,7 +51,7 @@ def describe(path, text):
     fm, body = crlib.parse_frontmatter(text)
     native = source in ('claude', 'cursor', 'copilot') and path.startswith(('.claude/rules/', '.cursor/rules/', '.github/instructions/'))
     scope = [os.path.dirname(path) + '/**'] if '/' in path else ['**']
-    if path in ('.claude/CLAUDE.md', '.github/copilot-instructions.md') or source == 'ignore':
+    if path in ('.claude/CLAUDE.md', '.github/copilot-instructions.md'):
         scope = ['**']
     issues = []
     if native:

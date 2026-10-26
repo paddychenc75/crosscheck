@@ -9,11 +9,10 @@
 规则在 `review_dir/rules.txt`,从头读到尾。每块以一行头部开始:
 
 ```
-=== RULES layer=<L3|L2|ignore|external> source=<来源> file=<路径> scope=<glob> ===
+=== RULES layer=<L3|L2|external> source=<来源> file=<路径> scope=<glob> ===
 ```
 
-- `L3` 目录级 `REVIEW.md`,`L2` 项目根目录的 `REVIEW.md`;
-- `ignore` 是团队不想再被提醒的模式(`.cr/ignore.md`),命中的不报;
+- `L3` 目录级 `REVIEW.md`,`L2` 项目根目录的 `REVIEW.md`。其中标题为「不要报」的一节是团队不想再被提醒的情况:命中的不报,它本身也不是要检查的规则;
 - `external` 是 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/` 这类给 coding agent 的约定文件。
 
 `scope` 是这块规则适用的路径。你还可能拿到 `batch=<n>`,只负责这一批的文件。

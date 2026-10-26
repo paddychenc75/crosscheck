@@ -89,7 +89,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 ```
 
-它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`、`.cr/ignore.md`,以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/` 这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区。输出的 `blocks=0` 表示没有适用的规则。
+它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`(其中「不要报」一节是不想再被提醒的情况),以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/` 这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区。输出的 `blocks=0` 表示没有适用的规则。
 
 ### 3. 查找候选
 

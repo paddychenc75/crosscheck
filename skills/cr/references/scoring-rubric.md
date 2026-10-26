@@ -25,7 +25,7 @@
    - 问题所在的行只是注释、排版、被注释掉的代码,或者是原样移动过来的旧代码 → **0**。
 4. 项目已在运行的编译器、类型检查器或 linter 会拒绝它 → **0**。CI 会拦住它;review 评论不增加任何价值。
 5. `history.json` 里有同一个问题的"不成立"或"不修"判断,且那段代码原样未变(`same_code`)，并且不是 `reference_only=true` 的外部规范历史→ **0**,填 `history_match`,`suppressed_by` 写 `history`。代码变了的不受此限,照常评分。
-6. 它匹配 `false-positives.md` 中的某一条 → **0**,`suppressed_by` 写 `false-positives`;匹配 `.cr/ignore.md` 中的某一条 → **0**,`suppressed_by` 写 `ignore`,并在 `verdict` 里引用那条抑制的原文。
+6. 它匹配 `false-positives.md` 中的某一条 → **0**,`suppressed_by` 写 `false-positives`;匹配覆盖这个文件的 `REVIEW.md` 里「不要报」一节的某一条 → **0**,`suppressed_by` 写 `review`,并在 `verdict` 里引用那条抑制的原文。
 7. 一条 `rules` 发现,其引用的文字实际上不在规则里,或该规则的作用域不覆盖此文件 → **0**。(脚本会再核对一遍。)
 8. 一条 `intent` 发现,对应的验收标准在 `intent.md` 里找不到,或者写得含糊、无法对照代码判断 → **0**。
 9. 场景需要现有调用方及公开接口契约均不能产生的输入 → 最高 **25**。缺少本地调用点不等于公开接口的合法输入不可能；仍须核对契约，不能假定攻击者可控或上游没有校验。

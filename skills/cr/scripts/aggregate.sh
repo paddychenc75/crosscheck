@@ -9,7 +9,8 @@
 #   1. 依据校验:verifier 给出的 evidence 引用的文件和行在被审查的那一版里必须真实存在
 #      (review_dir 里的 intent.md、rules.txt 等材料只核对文件存在;位置写成文字的,核对那段文字在文件里);
 #      引用不存在或者干脆没给依据的,置信度最高 50。
-#   2. 规则发现:rule_file 必须是这次适用的规则文件、覆盖这个文件;rule_quote 必须逐字出现在那份规则里。
+#   2. 规则发现:rule_file 必须是这次适用的规则文件、覆盖这个文件;rule_quote 必须逐字出现在那份规则里
+#      (「不要报」一节不算规则)。
 #      对不上的置信度为 0。严重程度用核实后的分级,没有就是轻微。
 #   3. 只看改动的行;REVIEW.md 的 skip 路径不报;带 history_match 的单独列为「已按历史判断忽略」。
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
@@ -213,7 +214,7 @@ for c in cands:
     if cat == "rules":
         rf = str(item.get("rule_file") or "").strip()
         q = crlib.norm(item.get("rule_quote") or "")
-        mine = [b for b in rule_blocks if (not rf or b["file"] == rf) and b["layer"] != "ignore"]
+        mine = [b for b in rule_blocks if not rf or b["file"] == rf]
         hit = next((b for b in mine if q and q in crlib.norm(b["text"]) and f in b["applies_files"]), None)
         if not q:
             conf = 0; reasons.append("没有引用规则原文")

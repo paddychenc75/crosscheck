@@ -136,6 +136,10 @@ risk_paths: ["src/payment/**"]
 
 - 日期格式化统一用 `src/utils/date.ts`,不要直接调用 dayjs。原因:时区统一处理。
 - 日志里不能出现邮箱。原因:合规。
+
+## 不要报
+
+- order_client 统一重试,调用方不用处理
 """
 
 
@@ -147,7 +151,6 @@ class ProjectFixture(Base):
         self.repo = self.make_repo("shop", {
             "REVIEW.md": REVIEW_MD,
             "src/orders/REVIEW.md": "- 订单金额用 decimal。原因:精度。\n",
-            ".cr/ignore.md": "- order_client 统一重试,调用方不用处理\n",
             "CLAUDE.md": "# Project\nUse pnpm.\n",
             "src/orders/paginate.ts": "export function page(t: number, s: number) {\n  return Math.ceil(t / s)\n}\n",
             "src/auth/login.ts": "export function login(u: string) {\n  return u\n}\n",
@@ -184,7 +187,7 @@ class TestCollect(ProjectFixture):
         self.assertIn("src/gen/x.ts\treview-skip", skipped)
         self.assertIn("tests/page.test.ts\ttest", skipped)
         blocks = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}
-        self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", ".cr/ignore.md", "CLAUDE.md"})
+        self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", "CLAUDE.md"})
         self.assertEqual(blocks["src/orders/REVIEW.md"]["applies_files"], ["src/orders/paginate.ts"])
         self.assertEqual(blocks["src/orders/REVIEW.md"]["layer"], "L3")
         rules = Path(os.path.join(rd, "rules.txt")).read_text(encoding="utf-8")
@@ -192,7 +195,10 @@ class TestCollect(ProjectFixture):
         self.assertNotIn("skip:", rules, "frontmatter 不进规则正文")
         self.assertLess(rules.index("file=src/orders/REVIEW.md"), rules.index("file=REVIEW.md"), "越具体越先")
         meta = self.kv(os.path.join(rd, "rules-meta.txt"))
-        self.assertEqual(meta["blocks"], "4")
+        self.assertEqual(meta["blocks"], "3")
+        self.assertIn("order_client 统一重试", blocks["REVIEW.md"]["suppress"])
+        self.assertNotIn("order_client", blocks["REVIEW.md"]["text"], "「不要报」不算要检查的规则")
+        self.assertIn("order_client 统一重试", rules, "「不要报」仍交给角色看")
         self.assertTrue(meta["source"].startswith("base:"))
 
     def test_context_weakening_risk_and_intent(self):
@@ -254,6 +260,7 @@ class TestPipeline(ProjectFixture):
             {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "不是原文", "summary": "引用不对", "failure_scenario": "x"},
             {"file": L, "line": 1, "category": "rules", "rule_file": "src/orders/REVIEW.md", "rule_quote": "订单金额用 decimal", "summary": "范围不对", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "summary": "没有引文", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "order_client 统一重试", "summary": "引了不要报", "failure_scenario": "x"},
             {"file": P, "line": 1, "category": "bug", "severity": "minor", "summary": "小问题1", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "bug", "severity": "minor", "summary": "小问题2", "failure_scenario": "x"},
             {"file": L, "line": 2, "category": "bug", "severity": "minor", "summary": "小问题3", "failure_scenario": "x"},
@@ -265,7 +272,7 @@ class TestPipeline(ProjectFixture):
         ]
         scores = {"整页丢最后一页": (96, ev), "依据不存在": (90, [{"file": L, "lines": "50-60"}]), "日志有邮箱": (90, ev),
                   "没写出处": (90, ev), "编造的规则": (90, ev), "引用不对": (90, ev), "范围不对": (90, [{"file": L, "lines": "1"}]),
-                  "没有引文": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
+                  "没有引文": (90, ev), "引了不要报": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
                   "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev),
                   "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}]),
                   "文字定位的依据": (95, ev + [{"file": "REVIEW.md", "lines": "日志里不能出现邮箱"}]),
@@ -281,7 +288,7 @@ class TestPipeline(ProjectFixture):
         rejected = {x["summary"]: x for x in self.load(os.path.join(rd, "rejected.json"))}
         self.assertEqual(rejected["依据不存在"]["confidence"], 50)
         self.assertEqual(rejected["文字定位不存在"]["confidence"], 50)
-        for k, why in (("编造的规则", "规则文件不在"), ("引用不对", "对不上"), ("范围不对", "不覆盖"), ("没有引文", "没有引用")):
+        for k, why in (("编造的规则", "规则文件不在"), ("引用不对", "对不上"), ("范围不对", "不覆盖"), ("没有引文", "没有引用"), ("引了不要报", "对不上")):
             self.assertEqual(rejected[k]["confidence"], 0, k)
             self.assertIn(why, rejected[k]["reject_reason"], k)
         self.assertEqual(rejected["不在改动行"]["confidence"], 0)

@@ -572,7 +572,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <span class="chip">MR 描述 / 提交说明</span><span class="chip">关联需求单</span><span class="chip">MR 人工讨论</span><span class="chip">计划文件</span><span class="chip">--intent</span>
           </div></div>
           <div class="subrow"><div class="label">规则</div><div class="chips">
-            <span class="chip">REVIEW.md（目录级 / 根目录）</span><span class="chip">.cr/ignore.md</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
+            <span class="chip">REVIEW.md（可选，目录级 / 根目录，含「不要报」）</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
           </div></div>
           <div class="subrow"><div class="label">信号</div><div class="chips">
             <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span><span class="chip">历史判断</span>
@@ -681,17 +681,18 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
     <section id="rules">
       <h2>五、项目规则</h2>
-      <p>规则就是仓库里的 Markdown 文件，越具体的越先。一条规则都没有也照常工作，只是没有“规范”一节。</p>
+      <p>规则就是仓库里的 Markdown 文件，越具体的越先。<b><code>REVIEW.md</code> 是可选的</b>：团队已有的 <code>CLAUDE.md</code>、<code>AGENTS.md</code> 等直接就能用，只有想专门调整审查时才需要写；一条规则都没有也照常工作，只是没有“规范”一节。</p>
       <div class="table-wrap"><table>
         <tr><th>层</th><th>来源</th><th>生效范围</th></tr>
         <tr><td>L3 目录级</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录下的改动</td></tr>
         <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行</td></tr>
-        <tr><td>抑制</td><td><code>.cr/ignore.md</code></td><td>团队不想再被提醒的模式</td></tr>
-        <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
+                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
       </table></div>
       <ul>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
         <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>、<code>risk_paths</code>、<code>platform</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
+        <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
+        <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
         <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
       </ul>
 
@@ -721,7 +722,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在项目级的 <code>feedback.jsonl</code>，对所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
         <li>判断记着那段代码的样子（出问题的一行加上下各两行的哈希）。代码没变就不再报，代码变了重新评估并注明之前的判断。</li>
         <li>不在核实前删除候选：历史判断交给 verifier 判断是不是同一个问题；因此没报的在报告里折叠列出，可以核对。</li>
-        <li>团队共享常见误报：写进 <code>.cr/ignore.md</code>，随代码一起评审。</li>
+        <li>团队共享常见误报：写进 <code>REVIEW.md</code> 的「不要报」一节，随代码一起评审。</li>
       </ul>
 
       <h3>效果：以采纳率为主</h3>
@@ -805,7 +806,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>mine-reviews、rule-miner、propose-rules、open-mr</td><td>门槛和格式写死在脚本里，维护成本远高于收益</td><td>agent 按 maintenance.md 现场总结，确认后改工作区</td></tr>
         <tr><td>rules-lint、rules-health</td><td>为编号和元数据服务</td><td>agent 现场检查规则</td></tr>
         <tr><td>评测框架 eval.sh</td><td>用例少时只能发现明显倒退</td><td>采纳率 + 历史 bug 检验</td></tr>
-        <tr><td>团队数据同步 sync-data</td><td>没有团队真实使用数据</td><td><code>.cr/ignore.md</code> 随代码评审</td></tr>
+        <tr><td>团队数据同步 sync-data</td><td>没有团队真实使用数据</td><td><code>REVIEW.md</code> 的「不要报」随代码评审</td></tr>
         <tr><td>四个查找角色、deep 的同模型重复查找</td><td>重复阅读占大头成本；同一模型盲区相同</td><td>reviewer + rules-auditor；换模型核实</td></tr>
       </table></div>
       <p class="muted">结果：脚本从 30 个降到 21 个，净删约 3900 行，测试 33 个全部通过。以后真有需要，按数据再加回来。</p>

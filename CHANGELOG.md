@@ -22,7 +22,8 @@
 
 **规则**
 
-- 规则就是仓库里的 Markdown:目录级和根目录的 `REVIEW.md`、`.cr/ignore.md`,以及 `CLAUDE.md`、`AGENTS.md`、`.claude/rules/`、`.cursor/rules/`、`.github/instructions/` 等约定文件,按各自的路径语义生效(Copilot 的 `excludeAgent: code-review` 排除)。不需要编号或元数据。
+- 规则就是仓库里的 Markdown:目录级和根目录的 `REVIEW.md`(可选),以及 `CLAUDE.md`、`AGENTS.md`、`.claude/rules/`、`.cursor/rules/`、`.github/instructions/` 等约定文件,按各自的路径语义生效(Copilot 的 `excludeAgent: code-review` 排除)。不需要编号或元数据。
+- 不想再被提醒的情况写在 `REVIEW.md` 标题为「不要报」的一节,按目录生效;不再读 `.cr/ignore.md`。
 - 规则发现必须写出 `rule_file` 和逐字引用的 `rule_quote`;脚本核对引文在那份规则里、规则覆盖这个文件,对不上的作废。
 - `REVIEW.md` 头部的 `skip`、`limits`、`risk_paths`、`platform` 由脚本执行。审查 PR/MR 和其他分支时规则从 base 读,base 不可读时停止,不回退工作区。
 - 从 MR 评论总结规则、检查规则改为由 agent 按 `maintenance.md` 现场做,用户确认后只改工作区的规则文件。

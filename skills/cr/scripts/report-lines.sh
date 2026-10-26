@@ -79,7 +79,7 @@ if rm_blocks == 0:
 else:
     blocks = crlib.load_json(os.path.join(d, "rules-index.json"), [])
     violated = len(final.get("groups", {}).get("rules", [])) + final.get("trimmed", {}).get("rules", 0)
-    print("RULES: 规则:%s(读自 %s),违反 %d 条" % ("、".join("`%s`" % b["file"] for b in blocks if b["layer"] != "ignore") or "只有 .cr/ignore.md",
+    print("RULES: 规则:%s(读自 %s),违反 %d 条" % ("、".join("`%s`" % b["file"] for b in blocks),
           "工作区" if rm.get("source") == "worktree" else rm.get("source", ""), violated))
 if rm.get("excluded"):
     print("RULES_NOTE: 标了 excludeAgent: code-review,没有用于审查:" + rm["excluded"])
