@@ -1,0 +1,14 @@
+{
+  "name": "crosscheck",
+  "description": "crosscheck:高信噪比的 code review",
+  "owner": {
+    "name": "PaddyChen"
+  },
+  "plugins": [
+    {
+      "name": "crosscheck",
+      "source": "./",
+      "description": "高信噪比的 code review,支持本地 diff、GitHub PR 和 GitLab MR"
+    }
+  ]
+}

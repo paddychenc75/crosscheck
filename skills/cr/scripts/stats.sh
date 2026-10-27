@@ -222,7 +222,7 @@ if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
         tok = human(c["tok"] / c["tok_n"]) if c["tok_n"] else "—"
         print("| %s | %d | %s | %s | %d%s |" % (depth, c["n"], dur, tok, c["tok_n"], "(其中 %d 次含子代理)" % c["sub"] if c["tok_n"] else ""))
     print()
-    print("token 用量来自宿主的会话记录:装了 hook 时是准确的区间;拷贝安装时是按会话记录推断的,同一目录同时开多个会话时可能不准。")
+    print("token 用量由 hook 从宿主的会话记录里读取,只算审查开始到保存之间;没有 hook(拷贝安装、Codex 未信任)或 Cursor 时不统计。")
 if adoption:
     res = collections.Counter(e.get("result") for e in adoption.values())
     decided = res["resolved"] + res["not_resolved"] + res["unchanged"]

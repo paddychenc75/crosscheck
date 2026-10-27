@@ -7,6 +7,8 @@ gitlab_hosts=code.company.com
 # 可选:读取非 GitLab 需求单的命令,{key} 会替换成编号,例如 PROJ-231
 # issue_cmd=jira issue view {key} --plain
 
-# 可选:模型。核实最好用和查找不同的模型,两者的盲区不同
+# 可选:模型。核实最好用和查找不同的模型,两者的盲区不同。
+# 写当前宿主认识的模型名:下面是 Claude Code 的写法;Codex、Cursor 要写各自的模型名。
+# 宿主不支持给子代理指定模型(例如 Cursor 部分计费方案下子代理固定用默认模型)时,照常用宿主的模型运行,报告里会说明。
 # model.finder=sonnet
 # model.verifier=opus

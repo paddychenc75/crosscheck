@@ -13,6 +13,7 @@
 #   SKIPPED:   跳过的文件按原因计数
 #   CHECKED:   「已检查:」那一行
 #   TRIMMED:   因条数上限没有展示的条数
+#   GUARD:     没有检测到只读拦截时说明一句(检测到就不输出)
 #   FEEDBACK:  报告末尾提示怎么快速表态
 
 set -eu
@@ -74,7 +75,10 @@ print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"),
 
 # 规则
 rm_blocks = int(rm.get("blocks", "0") or 0)
-if rm_blocks == 0:
+quick = m.get("depth") == "quick"
+if quick and rm_blocks:
+    print("RULES: 规则:quick 不对照项目规则(有 %d 块适用的规则,用 standard 或 deep 才会检查)" % rm_blocks)
+elif rm_blocks == 0:
     print("RULES: 规则:没有找到适用的规则文件")
 else:
     blocks = crlib.load_json(os.path.join(d, "rules-index.json"), [])
@@ -126,7 +130,7 @@ if cnt:
 # 已检查
 only = m.get("only", "all")
 dims = ["bug", "安全", "需求核对", "项目规则"] if only == "all" else [{"bug": "bug", "security": "安全", "rules": "项目规则", "simplify": "简化"}.get(x, x) for x in only.split(",")]
-if rm_blocks == 0 and "项目规则" in dims:
+if (rm_blocks == 0 or quick) and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
 if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
@@ -146,6 +150,10 @@ tr = final.get("trimmed", {})
 if tr:
     NAMES2 = {"defects": "缺陷", "intent": "需求核对", "rules": "规范", "simplify": "可简化"}
     print("TRIMMED: 因条数上限没有展示:" + "、".join("%s %d 条" % (NAMES2.get(k, k), v) for k, v in tr.items()) + "(仍记在记录里,下次会继续跟踪)")
+
+# hook 在 collect-diff.sh 执行完时会在 review_dir 里留下标记;没有标记说明这次审查没有受到只读拦截。
+if not os.path.exists(os.path.join(d, ".guard-active")):
+    print("GUARD: 只读拦截:没有检测到(没有以插件方式安装,或在 Codex 里还没有用 /hooks 信任 hook);这次审查只靠说明约束,结束时会核对仓库状态")
 
 print("FEEDBACK: 看完可以直接回复,例如「1 对,2 误报:上游已经重试」「3 先不改:下个版本再处理」,判断会被记下来,之后同样的问题不再重复报。")
 PY

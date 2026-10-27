@@ -11,7 +11,42 @@
 
 ## 安装
 
-还没有发布到插件市场,目前用拷贝的方式安装:克隆仓库,把 `skills/cr/` 整个目录拷到对应 agent 的 skills 目录下。
+建议以**插件**方式安装:插件带 hook,审查期间会拦截改动仓库的命令,并统计 token。拷贝安装只有 skill,没有这层保护。
+
+### Claude Code(插件)
+
+在会话里运行(Claude Code 2.1.275 或更新):
+
+```
+/plugin install crosscheck --marketplace paddychenc75/crosscheck
+```
+
+或者分两步,在终端里:
+
+```
+claude plugin marketplace add paddychenc75/crosscheck
+claude plugin install crosscheck@crosscheck
+```
+
+装好后新开会话,用 `/crosscheck:cr` 调用,或者直接说「review 一下」。更新:`claude plugin marketplace update crosscheck`。
+
+### Codex(插件)
+
+```
+codex plugin marketplace add paddychenc75/crosscheck
+```
+
+然后在 Codex 的插件目录里选 `crosscheck` 市场,安装 crosscheck。**装好后在 Codex 里运行 `/hooks`,审阅并信任 crosscheck 的 hook**:Codex 不会自动信任插件自带的 hook,没信任时只读拦截和 token 统计都不生效;升级插件后 hook 文件变了,要重新信任。用 `$cr` 调用(作为插件时 Codex 可能显示为 `crosscheck:cr`),或者直接说「review 一下」。
+
+带生命周期 hook 的插件不能进 Codex 的公开插件目录,所以只能这样从仓库添加。
+
+### Cursor
+
+Cursor 的插件要通过它的插件市场分发,crosscheck 还没有上架。目前请用下面的拷贝安装(没有 hook);团队有 Cursor 团队市场的,可以把这个仓库加进去,插件清单在 `.cursor-plugin/plugin.json`。
+
+### 拷贝安装(没有 hook)
+
+克隆仓库,把 `skills/cr/` 整个目录拷到对应 agent 的 skills 目录下:
 
 ```
 git clone https://github.com/paddychenc75/crosscheck.git
@@ -21,7 +56,9 @@ git clone https://github.com/paddychenc75/crosscheck.git
 |---|---|---|
 | Claude Code | `~/.claude/skills/cr/` | 所有项目 |
 | Claude Code | `<项目>/.claude/skills/cr/` | 仅该项目 |
+| Cursor | `~/.cursor/skills/cr/` | 所有项目 |
 | Cursor | `<项目>/.cursor/skills/cr/` | 仅该项目 |
+| Codex 及其他支持 SKILL.md 的 agent | `~/.agents/skills/cr/` | 所有项目 |
 | Codex 及其他支持 SKILL.md 的 agent | `<项目>/.agents/skills/cr/` | 仅该项目 |
 
 以 Claude Code 为例:
@@ -33,13 +70,13 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 
 拷贝后重启会话,用 `/cr` 调用。
 
-- **更新**:在克隆的目录里 `git pull`,然后重新拷贝一次(先删掉旧的 `cr` 目录)。不想每次拷贝的话,可以改用软链接:`ln -s "$(pwd)/crosscheck/skills/cr" ~/.claude/skills/cr`,之后只需要 `git pull`。
-- **拷贝安装不包含 hook。** 审查流程、审查记录、增量和出报告前的状态核对都正常工作,只是审查期间不会主动拦截危险的 git 命令和会显示凭证的操作。
-- **想带上 hook**:Claude Code 可以用 `claude --plugin-dir ./crosscheck` 把整个仓库作为插件加载,调用方式变为 `/crosscheck:cr`。这个参数只对当次启动的会话生效。
+- **更新**:在克隆的目录里 `git pull`,然后重新拷贝一次(先删掉旧的 `cr` 目录)。也可以改用软链接:`ln -s "$(pwd)/crosscheck/skills/cr" ~/.claude/skills/cr`,之后只需要 `git pull`。
+- **没有 hook。** 审查流程、记录、增量和出报告前的状态核对都正常,只是审查期间不会主动拦截危险的 git 命令和会显示凭证的操作。报告末尾会写「只读拦截:没有检测到」。
+- **不要同时装两份。** Cursor 也会读 `~/.claude/skills`,在那里拷贝过又装了插件,会出现两个 cr。
 
 ## 怎么用
 
-直接用平时说话的方式提要求,不需要记参数。在 Claude Code 里用 `/cr` 开头(作为插件加载时是 `/crosscheck:cr`),Cursor 同样是 `/cr`,Codex 是 `$cr`;不加前缀直接说"review 一下"也可以。说"cr 帮助"会列出常用说法。
+直接用平时说话的方式提要求,不需要记参数。在 Claude Code 里用 `/crosscheck:cr`(拷贝安装时是 `/cr`),Cursor 是 `/cr`,Codex 是 `$cr`;不加前缀直接说"review 一下"也可以。说"cr 帮助"会列出常用说法。
 
 报告的第一行写明这次审查了什么(范围、深度、全量还是增量),看到的范围不对时可以直接说。
 
@@ -52,8 +89,8 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | 审一个 PR / MR | "review MR 128",或直接贴链接 | `/cr 128`、`/cr <URL>` |
 | 审某几个提交 | "看看最近 3 个提交" | `/cr A..B` |
 | 只看某个目录 | "只看 src/orders 下面的改动" | `/cr src/orders` |
-| 快速过一遍 | "快速看一下"(只查 bug、安全和需求,最多 5 条,不启动子代理) | `--quick` |
-| 上线前仔细审 | "仔细看看""上线前深度审一下"(更慢、更贵) | `--deep` |
+| 快速过一遍 | "快速看一下"(只查 bug、安全和需求,最多 5 条,不启动子代理) | `--depth quick` |
+| 上线前仔细审 | "仔细看看""上线前深度审一下"(更慢、更贵) | `--depth deep` |
 | 只关心某一方面 | "只看安全问题""只对照一下团队规范" | `--only bug,security,rules` |
 | 顺便看看能不能简化 | "顺便看看有没有能简化的"(默认不查) | `--only bug,security,rules,simplify` |
 | 告诉它改动的目的 | "这次是为了修复分页丢数据" | `--intent "…"` |
@@ -64,7 +101,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | 审完顺手修掉 | "审完把问题修掉" | `--fix` |
 
 - 不带 `--fix` 时不改任何文件。"review 一下""这个该怎么修"都不算修改请求。
-- `--deep`:多一个 reviewer 从调用方、影响面往回查一遍,减少遗漏;verifier 会尝试写最小的脚本复现 bug,也可以跑项目已有的类型检查和测试。成本和耗时更高。
+- `--depth deep`:多一个 reviewer 从调用方、影响面往回查一遍,减少遗漏;verifier 会尝试写最小的脚本复现 bug,也可以跑项目已有的类型检查和测试。成本和耗时更高。
 - 没指定深度时按 standard 跑。如果这次风险高(命中 `risk_paths`、包含数据库迁移、改动超过 800 行、有测试或检查被削弱,或者改动超过 300 行且涉及鉴权、资金相关的文件),会建议改用 deep,但只是建议,不会自己换。
 - 审查结果只在本地输出。插件不会往 PR/MR 发评论,也永远不会 approve、request changes 或 merge。
 
@@ -164,6 +201,8 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | `issue_cmd` | 读取非 GitLab 需求单的命令,`{key}` 替换成编号,如 `jira issue view {key} --plain` |
 | `model.finder` | 查找角色用的模型,可以用更便宜的。不写就用宿主当前的模型 |
 | `model.verifier` | 核实用的模型,最好和查找用的不同(两者的盲区不同)。调用时说"核实换成某某模型"会覆盖它 |
+
+模型名要写当前宿主认识的名字(`sonnet`、`opus` 是 Claude Code 的写法;Codex、Cursor 写各自的模型名)。宿主不支持给子代理指定模型时,照常用宿主的模型运行,报告的「已检查」一行会写明配置了什么、实际由宿主决定。
 
 平台(GitHub 还是 GitLab)按这个顺序判断:`--platform` → 环境变量 `CR_PLATFORM` → 配置的 `gitlab_hosts` → `REVIEW.md` 头部的 `platform` → 域名含 `github.com` 或 `gitlab` → 链接里的 `/pull/`、`/merge_requests/`。判断不了时会告诉你该怎么设。
 
@@ -325,7 +364,7 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 **什么时候不做增量**:
 
 - 你说"重新审""全量""忽略之前的",或带 `--full`。
-- 这次的深度比上次高(上次 standard,这次 `--deep`)。反过来可以:deep 之后的 standard 会做增量。
+- 这次的深度比上次高(上次 standard,这次 `--depth deep`)。反过来可以:deep 之后的 standard 会做增量。
 - 上次用了 `--only`:只查部分维度的审查会存记录,但不会成为增量的基准。
 - 换了目标:另一个分支、另一个 PR,或同一分支上指定了不同的范围。
 
@@ -426,7 +465,7 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 ## 依赖
 
 - `git`、POSIX `sh`
-- **`python3`(3.8+)**:核心审查流程需要(规则装配、依据校验、汇总、判断记录、统计、设置解析都用它)。没有 python3 时 `REVIEW.md` 头部的设置不生效,判断记录和统计不可用
+- **`python3`(3.8+)**:必需。规则装配、依据校验、汇总、判断记录、统计、设置解析都用它;没有时 `collect-diff.sh` 一开始就会提示安装
 - GitHub PR:`gh`(已登录)。没有或未登录时改用 git 直接拉取,见下
 - GitLab MR:`glab`(已登录),以及 `jq` 或 `python3`。没有或未登录时改用 git 直接拉取,见下
 - 读取 GitLab Issue、MR 评论、采纳判断、从 MR 评论总结规则:`glab`(GitHub 用 `gh`)

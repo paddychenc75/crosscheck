@@ -43,6 +43,11 @@ settings = crlib.load_json(os.path.join(d, "settings.json"), {})
 rule_blocks = crlib.load_json(os.path.join(d, "rules-index.json"), [])
 ranges = crlib.ranges_of(d)
 src = crlib.code_source(meta)
+if src is None:
+    # 读不到被审查的代码时,所有依据都会被判为不存在,报告会变成"没有确认发现"。宁可停下来。
+    print("aggregate: 读不到被审查的代码(code_ref=%s),无法校验依据;不生成结论。请先让 head 可读(拉取 PR/MR 的代码)再重新审查"
+          % meta.get("code_ref", ""), file=sys.stderr)
+    sys.exit(2)
 skip = settings.get("skip") or []
 THRESHOLD = 80
 
@@ -248,9 +253,16 @@ for c in cands:
 
 carried, resolved = [], []
 prev_ids = {p.get("id") for p in prev}
+# 上次之后被判为不成立或不修、代码也没变的,不再带入。上下文哈希不含判断记录,所以这里要自己看。
+judged = {h.get("id"): h for h in crlib.load_json(os.path.join(d, "history.json"), [])
+          if h.get("id") and h.get("verdict") in ("invalid", "wontfix") and h.get("same_code")}
 for p in prev:
     st = status.get(p.get("file"))
-    if st == "unchanged":
+    if st == "unchanged" and p.get("id") in judged:
+        h = judged[p["id"]]
+        history.append(dict(p, history_match=p["id"], suppressed_by="history",
+                            verdict="已在 %s 被判为%s:%s" % (h.get("time", ""), h.get("verdict_name", ""), h.get("reason", ""))))
+    elif st == "unchanged":
         carried.append(dict(p, carried_unchanged=True))
     elif st in (None, "removed"):
         resolved.append(dict(p, resolved_reason="文件已不在改动里"))
@@ -327,6 +339,10 @@ for k, items in groups.items():
 stamp = re.sub(r"\D", "", meta.get("started_at", "")) or "0"
 seq = 0
 no = 0
+# 编号只属于这次展示的发现;带入的发现身上上次的编号要先去掉,否则"第 2 条"可能对应两条。
+for k in groups:
+    for x in groups[k]:
+        x.pop("no", None)
 for k in ("defects", "intent", "rules", "simplify"):
     for x in shown[k]:
         no += 1

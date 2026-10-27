@@ -6,6 +6,15 @@
 
 **审查流程**
 
+- 增量审查只看会改变审查方式的输入:规则(含 `REVIEW.md` 引入的文件)、审查设置、`--only`、`--with-tests`、用户给的意图和计划、模型和插件本身。提交说明、MR 讨论和判断记录不再触发全量,之前每提交一次就变成全量;上次之后被判为不成立或不修、代码也没变的发现不再带入。
+- 带入重新核实的上次发现,由 `prepare-verify.sh` 去掉上次的分数、结论、依据和编号,保证独立核实;展示编号每次重新分配,不会出现两条同号。
+- 读不到被审查的代码(PR/MR 的 head 拉取失败)时,汇总直接停下,不再输出一份看似没问题的空报告。
+- 审查提交范围或分支、而工作区有未提交改动时,改从 git 读那一版代码,不再读工作区。
+- GitHub PR 先拉取目标分支,规则和提交说明从 merge-base 读。
+- 风险分级按整个目标的改动大小判断(之前读不到改动行数,永远不因改动大而升级)。
+- 改动超过 4 批时先问用户(`LARGE`),确认后加 `--allow-large`;在默认分支上没有改动时提示下一步(`HINT`)。
+- quick 不对照项目规则,报告不再写「已检查项目规则」;没有检测到只读拦截时,报告里写明(`GUARD`)。
+
 - 查找角色从四个合并成两个:`reviewer`(bug、安全、需求核对,能读整个仓库、自己决定往哪里深挖,先看测试和检查的改动)和 `rules-auditor`(只对照写下来的规则)。`simplifier` 改为按需:用户要求时用 `--only bug,security,rules,simplify` 才启动。
 - deep:多一个 `lens=impact` 的 reviewer 从使用方往回查,verifier 可以复现。去掉了同一模型换文件顺序重复查的那几遍;要加强核实,换一个和查找不同的模型(`model.verifier`)。
 - verifier 必须给出依据。引用的代码位置不存在、或没有依据的发现,分数最高 50;引用 review_dir 里的材料(如 `intent.md` 的验收标准)和用文字定位的依据也被接受。报告里每条发现附折叠的「依据」。
@@ -22,6 +31,9 @@
 
 **规则**
 
+- 兼容 Claude Code Review 的 `REVIEW.md` 写法:`## Do not report` 等英文标题等同「不要报」;根目录 `REVIEW.md` 里单独一行的 `@文件名` 展开成那个文件(同目录或 `.claude/skills/<目录>/SKILL.md`,一层,最多 8 个、合计 150000 字节)。
+- 读取 Cursor Bugbot 的 `.cursor/BUGBOT.md`,按所在目录生效。
+
 - 规则就是仓库里的 Markdown:目录级和根目录的 `REVIEW.md`(可选),以及 `CLAUDE.md`、`AGENTS.md`、`.claude/rules/`、`.cursor/rules/`、`.github/instructions/` 等约定文件,按各自的路径语义生效(Copilot 的 `excludeAgent: code-review` 排除)。不需要编号或元数据。
 - 不想再被提醒的情况写在 `REVIEW.md` 标题为「不要报」的一节,按目录生效;不再读 `.cr/ignore.md`。
 - 规则发现必须写出 `rule_file` 和逐字引用的 `rule_quote`;脚本核对引文在那份规则里、规则覆盖这个文件,对不上的作废。
@@ -35,6 +47,10 @@
 - 新增模型选择:`model.finder` / `model.verifier`,调用时可以指定核实模型。
 
 **其他**
+
+- 安装:仓库本身就是 Claude Code 和 Codex 的插件市场(`paddychenc75/crosscheck`),README 写明各宿主的插件安装步骤和 Codex 的 `/hooks` 信任。
+- 没有 python3 时一开始就用中文提示安装;GitLab / GitHub 拉取失败时列出试过哪些路径(没装、没登录还是读不到);提示里的时间改成中文日期。
+- 修正几处文档和代码不一致:SKILL.md 的深度参数写成 `--depth quick|deep`;「深挖几个文件」不再覆盖整个目标的增量基准;去掉「规则元数据」「SETTINGS 块」「reference_only」等残留;`save-review.sh` 兼容 Python 3.8。
 
 - 主推自然语言用法,报告第一行写明审查范围;说「cr 帮助」可以看常用说法。报告之后的回复有了固定处理方式(`after-report.md`)。
 - 私有化 GitLab:新增配置文件 `~/.crosscheck/config`,`gitlab_hosts` 支持子路径和端口;平台判断顺序固定。

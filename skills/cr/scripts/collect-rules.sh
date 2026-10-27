@@ -4,9 +4,9 @@
 # 用法: collect-rules.sh DIR    DIR 是 collect-diff.sh 的输出目录
 #
 # 读这些文件(只取覆盖到改动文件的):
-#   目录级 REVIEW.md(深的在前)→ 根目录 REVIEW.md
-#     REVIEW.md 里标题为「不要报」的一节是团队不想再被提醒的情况,只用来压掉发现,不作为要检查的规则
-#   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.github/instructions/ 等
+#   目录级 REVIEW.md(深的在前)→ 根目录 REVIEW.md(其中单独一行的 `@文件名` 按 Claude Code Review 的约定展开)
+#     REVIEW.md 里标题为「不要报」(或 Do not report)的一节是团队不想再被提醒的情况,只用来压掉发现,不作为要检查的规则
+#   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.cursor/BUGBOT.md、.github/instructions/ 等
 #     (按各自的路径或 frontmatter 范围生效;Copilot 的 excludeAgent: code-review 会被排除)
 # 写入 DIR:
 #   rules.txt         规则正文,每块以一行头部开始:
@@ -51,6 +51,7 @@ except OSError:
 
 blocks, errors, excluded = [], [], []
 HEAD = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+SUPPRESS = re.compile(r"^(不要报|(do not|don't|dont) (report|flag))", re.I)
 def split_suppress(body):
     """把「不要报」一节(到下一个同级或更高级标题为止)和其余正文分开。"""
     keep, sup, level = [], [], None
@@ -58,7 +59,7 @@ def split_suppress(body):
         m = HEAD.match(line)
         if m and level is not None and len(m.group(1)) <= level:
             level = None
-        if m and level is None and m.group(2).startswith("不要报"):
+        if m and level is None and SUPPRESS.match(m.group(2)):
             level = len(m.group(1))
         (sup if level is not None else keep).append(line)
     return "\n".join(keep).strip("\n"), "\n".join(sup).strip("\n")
@@ -70,6 +71,10 @@ def add(layer, record, scope, applies):
                        "applies_files": applies, "text": text, "suppress": suppress, "offset": record["offset"]})
 
 records = {r["file"]: r for r in project_rules.discover(src)}
+if "REVIEW.md" in records:
+    r = records["REVIEW.md"]
+    r["body"], used, skipped = project_rules.expand_includes(r["body"], src.read)
+    errors.extend("REVIEW.md 没有引入 " + x for x in skipped)
 # 目录级 REVIEW.md:改动文件所在的每一级目录,深的在前
 dirs = set()
 for f in changed:

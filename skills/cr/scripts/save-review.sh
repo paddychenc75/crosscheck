@@ -133,7 +133,7 @@ if meta.get("review_scope") == "incremental" and prev:
             ls = lines_of(p.get("file", "")) or []
             same = any(ctx_hash(ls, i + 1) == p["context_hash"] for i, x in enumerate(ls) if norm(x) == norm(p.get("code_line", "")))
             t = "not_reported_code_unchanged" if same else "code_changed"
-        out.append({k: p.get(k) for k in ("id", "file", "line", "category", "severity", "confidence", "summary", "since")} | {"transition": t})
+        out.append(dict({k: p.get(k) for k in ("id", "file", "line", "category", "severity", "confidence", "summary", "since")}, transition=t))
     json.dump(out, open(os.path.join(dest, "transitions.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 PY
 fi

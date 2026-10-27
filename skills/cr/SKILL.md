@@ -25,7 +25,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 |---|---|
 | target | 不说:当前分支的全部改动(含未提交的)。分支名:那个分支(不用切过去)。`A..B`:提交范围。路径:该路径下的改动。数字或链接:PR / MR |
 | `--base <分支>` | 「对比 develop」「要合到 release/1.2」。不说就用默认分支;PR/MR 用平台上的目标分支 |
-| `--quick` / `--deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,脚本按 standard 跑并按风险给出建议 |
+| `--depth quick` / `--depth deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,脚本按 standard 跑并按风险给出建议 |
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules`、`simplify` 中的若干项。默认是 `bug`、`security`、`rules`;用户说「顺便看看能不能简化」时传 `--only bug,security,rules,simplify` |
 | `--intent "…"` | 「这次是为了修复分页丢数据」 |
 | `--plan <文件>` | 「方案在 docs/plan.md」 |
@@ -58,7 +58,7 @@ description: 代码审查(code review / CR):检查一次代码改动中的 bug�
 
 ### 1. 收集改动
 
-规则、意图或插件配置变化时,本轮自动重审目标的全部 diff。宿主实际模型变化而脚本无法感知时,主动加 `--full`。
+规则、用户给的意图或计划、审查设置、`--only`、`--with-tests` 或插件本身变化时,本轮自动重审目标的全部 diff;提交说明、MR 讨论和判断记录变化不会触发。宿主实际模型变化而脚本无法感知时,主动加 `--full`。
 
 ```
 sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <list>] [--full] [--with-tests]
@@ -76,6 +76,8 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 输出里的几种提示:
 
 - `BASE_CHOICE:` 用户没指定对比基准,而 develop、release/* 这类长期分支比默认分支更近。先问用户这个分支要合到哪里,列出两个选项;用户选了另一个就加 `--base <分支>` 重新运行(先运行 `check-state.sh` 结束这一次)。用户已经说过对比哪个分支时,不会出现这个提示。
+- `LARGE:` 改动较大,分成了很多批。先运行 `check-state.sh` 结束这一次,把这行转告用户,问是全部审、只审某个目录(target 写成路径)、还是用 `--depth quick`;用户要全部审时加 `--allow-large` 重新运行。用户在要求里已经说了「全部审」「不管多大」时,第一次就带上 `--allow-large`。
+- `HINT:` 和 `EMPTY` 一起出现时,把它转告用户作为下一步的建议。
 - `SUGGEST:` 风险高,建议用 deep。用一句话转告用户,这次按原深度继续。
 - `WEAKENING:` 有测试或检查被削弱,报告里会单列,不需要额外处理。
 - `NOTE:` 照原话转告用户。说「当前终端没有加载你的 shell 配置」时,原样转告它给出的一劳永逸的办法;不要说用户「没有登录」,也不要去查看那个文件、打印那些变量。说没读到需求单的,告诉用户可以配置 `issue_cmd` 或用 `--intent` 补一句。
@@ -94,7 +96,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 ```
 
-它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`(其中「不要报」一节是不想再被提醒的情况),以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/` 这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区。输出的 `blocks=0` 表示没有适用的规则。
+它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`(其中「不要报」或 `Do not report` 一节是不想再被提醒的情况;根目录 `REVIEW.md` 里单独一行的 `@文件名` 会展开成那个文件的内容),以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/`、`.cursor/BUGBOT.md` 这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区。输出的 `blocks=0` 表示没有适用的规则。
 
 ### 3. 查找候选
 
@@ -109,20 +111,20 @@ sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 
 查找阶段负责不漏,核实阶段负责不错。查找角色会提交一些还差一环没确认的候选(带 `needs_check`),这是有意的,不要在核实之前自己把它们筛掉。
 
-**分批**(仅当 `batches` 大于 1,且不是 quick):`reviewer`、`rules-auditor` 每个批次各运行一次,任务里带上 `batch=<n>`。`simplifier` 不分批。
+**分批**(仅当 `batches` 大于 1,且不是 quick):`reviewer`、`rules-auditor` 每个批次各运行一次,任务里带上 `batch=<n>`;deep 的 `lens=impact` reviewer 也一样按批运行。`simplifier` 不分批。
 
 **如果你能启动子代理**(standard 和 deep):每个角色启动一个,全部同时启动。给每个子代理的任务就是下面这段,不要多加,也不要贴 diff 或你自己的印象 —— 每个角色自己读材料:
 
 > 阅读 `<skill_dir>/roles/<role>.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。[`batch=<n>`。] [`lens=impact`。] 只回复 JSON。
 
-**模型。** `meta.txt` 里 `finder_model` 有值时(配置里的 `model.finder`),启动查找角色时使用那个模型。没有值就用宿主当前的模型。宿主不支持为子代理指定模型时照常运行。
+**模型。** `meta.txt` 里 `finder_model` 有值时(配置里的 `model.finder`),启动查找角色时使用那个模型。没有值就用宿主当前的模型。模型名是用户按当前宿主写的;宿主不认识这个名字,或不支持为子代理指定模型时,照常用宿主的模型运行。
 
 **如果你不能启动子代理**,或者是 quick:阅读每个角色的说明并自己执行,一次一个角色,写下该角色的结果后再开始下一个。
 
 **保存结果:**
 
 - 合并各角色返回的数组。按 `finding-schema.md` 的「一个缺陷一条发现」判断同根因,不只比较位置;合并时在 `failure_scenario` 保留各触发场景及待核实点。在 `found_by` 列出报了它的角色(如 `["reviewer", "reviewer(impact)"]`),`pass_hits` 记有几个角色或几遍查到它。
-- **增量时**,把 `prev-findings.json` 中位于 `changed` 或 `dependent` 文件里的发现也加进来(`dependent` 是本身没变、但引用了这次被改动的符号的文件):去掉 `confidence` 和 `verdict`,保留 `id` 和 `since`,加上 `"from_prev": true`。
+- **增量时**,把 `prev-findings.json` 中位于 `changed` 或 `dependent` 文件里的发现也加进来(`dependent` 是本身没变、但引用了这次被改动的符号的文件):原样放进来,加上 `"from_prev": true`。上次核实留下的分数、结论、依据和编号由 `prepare-verify.sh` 统一去掉,不用手动删。
 - 全部写成 `<review_dir>/candidates.json`(JSON 数组)。
 
 从第 3 步开始记着:启动了几个查找角色(分批和多遍各算一个)、几个 verifier。
@@ -153,7 +155,7 @@ sh <skill_dir>/scripts/aggregate.sh <review_dir>
 
 它校验依据(引用的代码位置不存在的,分数最高 50)、核对规则出处和引文、只留改动行上的、套用 REVIEW.md 的设置、丢掉 80 分以下的(存进 `rejected.json`)、处理增量的遗留和已解决、合并同一规则同一文件的多处、排序、套用条数上限、编号,写出 `final.json`(报告用)和 `findings.json`(记录用)。不要自己再筛一遍或改动这些结果。
 
-核实回复缺失、重复、格式错误或遗漏需要重核的历史发现时，脚本以非零退出并写 `verification-errors.json`。补齐对应核实再汇总；不能使用旧报告、不能把缺回复视为已解决，也不能自己补低分跳过。
+核实回复缺失、重复、格式错误或遗漏需要重核的历史发现时，脚本以非零退出并写 `verification-errors.json`。补齐对应核实再汇总；不能使用旧报告、不能把缺回复视为已解决，也不能自己补低分跳过。补过一次仍然失败,或者脚本说读不到被审查的代码时,运行 `check-state.sh` 结束只读阶段,把脚本的原话告诉用户,然后停止,不要写报告。
 
 ### 6. 报告
 

@@ -693,13 +693,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>层</th><th>来源</th><th>生效范围</th></tr>
         <tr><td>L3 目录级</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录下的改动</td></tr>
-        <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行</td></tr>
-                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
+        <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行；单独一行的 <code>@文件名</code> 展开成那个文件（和 Claude Code Review 一样，一层、最多 8 个）</td></tr>
+                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.cursor/BUGBOT.md</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
       </table></div>
       <ul>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
         <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>、<code>risk_paths</code>、<code>platform</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
-        <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
+        <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」（或 <code>Do not report</code>）的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
         <li><b>仓库里不需要专属目录：</b>插件只认一个可选的 <code>REVIEW.md</code>；这次改动的意图和计划在调用时提供，不放进仓库。</li>
         <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
         <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
@@ -773,7 +773,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     ├── adoption.jsonl      合并后问题是否解决
     └── &lt;目标&gt;/&lt;时间&gt;/       report.md、findings.json、rejected.json、meta.txt …
         latest · baseline   最近一次 · 增量基准</code></pre>
-      <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、意图、审查设置、模型或插件本身变了就全量重审。</p>
+      <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量，上次之后被判为不成立或不修的发现不再带入。读不到被审查的代码时直接停下，不出空报告。</p>
     </section>
 
     <section id="security">
@@ -781,7 +781,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>保障</th><th>做什么</th><th>适用</th></tr>
         <tr><td>说明</td><td>SKILL.md 和每个角色说明都写明只读、被审查的内容是数据不是指令、不接触凭证</td><td>所有宿主</td></tr>
-        <tr><td>拦截</td><td>审查进行期间，hook 拒绝改变仓库状态的 git / gh / glab 命令、对仓库文件的编辑、常见的字面路径 shell 写入，以及可能显示凭证的命令和读取</td><td>Claude Code、Codex、Cursor（插件安装）</td></tr>
+        <tr><td>拦截</td><td>审查进行期间，hook 拒绝改变仓库状态的 git / gh / glab 命令、对仓库文件的编辑、常见的字面路径 shell 写入，以及可能显示凭证的命令和读取</td><td>Claude Code、Codex、Cursor（插件安装；Codex 要先在 <code>/hooks</code> 信任）。没检测到时报告里写明</td></tr>
         <tr><td>核对</td><td>开始时记下分支、HEAD、stash、暂存区和改动文件的哈希，出报告前对比，有变化写在报告最前面</td><td>所有宿主</td></tr>
       </table></div>
       <ul>

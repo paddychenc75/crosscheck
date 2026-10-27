@@ -1,6 +1,6 @@
 # 报告的写法
 
-报告的内容全部来自 `report-lines.sh` 生成的 `report.json` 和说明行（旧版本没有 report.json 时使用 final.json）,不要自己增删发现、改分数或改编号。
+报告的内容全部来自 `report-lines.sh` 生成的 `report.json` 和说明行,不要自己增删发现、改分数或改编号。
 
 `report-lines.sh` 每行以一个标签开头,标签不写进报告:
 
@@ -14,6 +14,7 @@
 | `RULES:`、`RULES_NOTE:` | 末尾说明行,`RULES_NOTE` 每条一行 |
 | `TRIMMED:` | 末尾说明行 |
 | `SKIPPED:`、`CHECKED:` | 末尾说明行 |
+| `GUARD:` | 末尾说明行,`CHECKED` 之后 |
 | `FEEDBACK:` | 报告最后,`记录:` 一行之前 |
 
 严重程度显示为:`critical` → 严重,`major` → 重要,`minor` → 轻微。维度显示为:`bug`、`安全`、`需求核对`(intent)、`规范`(rules)、`可简化`(simplify)。
@@ -57,6 +58,7 @@
 <TRIMMED>
 <SKIPPED>
 <CHECKED>
+<GUARD>
 消耗:<save-review 的 cost>
 <FEEDBACK>
 记录:[<报告路径>](<file:// 链接>)

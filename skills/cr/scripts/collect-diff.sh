@@ -7,6 +7,7 @@
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
+#   --allow-large  改动较大时不再输出 LARGE 提示(用户已经确认要全部审查)
 #   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan 方案或计划文件(仓库相对路径或绝对路径)
@@ -51,6 +52,7 @@ set -eu
 
 die() { printf 'collect-diff: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$2 需要 '$1',但在 PATH 中找不到"; }
+command -v python3 >/dev/null 2>&1 || die "审查需要 python3(3.8 或更新),但在 PATH 中找不到。请先安装 python3(macOS 可用 xcode-select --install 或 brew install python),再重新审查"
 
 target=""
 platform="${CR_PLATFORM:-}"
@@ -62,6 +64,8 @@ local_path=""
 ref_key=""
 repo_arg=""
 base_override=""
+allow_large=no
+tried=""
 pr_source=""
 gap_vars=""
 gap_file=""
@@ -88,7 +92,8 @@ while [ $# -gt 0 ]; do
     --with-tests) with_tests=yes; shift ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --base) [ $# -ge 2 ] || die "--base 需要一个值"; base_override=$2; shift 2 ;;
-    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --allow-large) allow_large=yes; shift ;;
+    -h|--help) sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -289,7 +294,7 @@ collect_via_git() { # 远端 ref,给人看的名称
   fi
   if ! git fetch -q origin "$1" >/dev/null 2>&1; then
     [ -z "$gap_vars" ] || printf 'collect-diff: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把它们挪到 ~/.zshenv 或宿主的环境变量配置里;不要为了排查去打印这些变量或查看这个文件\n' "$gap_file" "$gap_vars" >&2
-    die "无法从 origin(${oid})拉取 $2。可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
+    die "无法拉取 $2。试过:${tried:+${tried};}git fetch origin(${oid}):失败,可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
   fi
   head_sha=$(git rev-parse FETCH_HEAD)
   resolve_base_ref || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支"
@@ -365,7 +370,7 @@ detect_platform() {
   case "$remote" in
     *github.com*) platform=github ;;
     *gitlab*) platform=gitlab ;;
-    *) die "无法判断 '$remote' 是 GitHub 还是 GitLab。在 $(sh "$script_dir/config.sh" path) 里加一行 gitlab_hosts=<域名>(多个用逗号分隔),或传入 --platform github|gitlab" ;;
+    *) die "无法判断 '$remote' 是 GitHub 还是 GitLab。在 $(sh "$script_dir/config.sh" path) 里加一行 gitlab_hosts=<域名>(文件不存在就新建,多个域名用逗号分隔),或传入 --platform github|gitlab" ;;
   esac
 }
 
@@ -380,6 +385,7 @@ collect_github() {
     *) number=$target ;;
   esac
   if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    if command -v gh >/dev/null 2>&1; then tried="gh:没有登录(可运行 gh auth login)"; else tried="gh:没有安装"; fi
     env_gap "GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GH_CONFIG_DIR XDG_CONFIG_HOME"
     collect_via_git "pull/$number/head" "PR #$number"
     return 0
@@ -397,6 +403,12 @@ collect_github() {
   { printf '# %s\n\n' "$title"; gh pr view "$number" -R "$repo" --json body --jq .body; } > "$out/description.md"
   gh pr diff "$number" -R "$repo" >> "$raw" || die "gh 无法获取 PR #${number} 的 diff"
   git fetch -q origin "pull/$number/head" 2>/dev/null || true
+  # baseRefOid 是目标分支现在的最新提交;GitHub 的 diff 从它和 head 的 merge-base 算起,规则也该从那一版读。
+  fetch_base "$target_branch" || true
+  base_stale=""
+  if git cat-file -e "$base_sha^{commit}" 2>/dev/null && git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
+    base_sha=$(git merge-base "$base_sha" "$head_sha" 2>/dev/null || printf '%s' "$base_sha")
+  fi
 }
 
 collect_gitlab() {
@@ -431,6 +443,9 @@ collect_gitlab() {
   mr_ok() { [ -s "$out/mr.json" ] && [ -n "$(json_get "$out/mr.json" .diff_refs.head_sha 2>/dev/null)" ]; }
   if command -v glab >/dev/null 2>&1 && glab api "$mr_api" > "$out/mr.json" 2>/dev/null && mr_ok; then :
   else
+    if ! command -v glab >/dev/null 2>&1; then tried="glab:没有安装"
+    elif glab auth status ${GITLAB_HOST:+--hostname "${GITLAB_HOST#*://}"} >/dev/null 2>&1; then tried="glab:已登录,但读不到这个 MR(编号不对或没有权限)"
+    else tried="glab:没有登录${GITLAB_HOST:+ ${GITLAB_HOST#*://}}(可运行 glab auth login${GITLAB_HOST:+ --hostname ${GITLAB_HOST#*://}})"; fi
     rm -f "$out/mr.json"
     env_gap "GITLAB_TOKEN GITLAB_ACCESS_TOKEN OAUTH_TOKEN GLAB_CONFIG_DIR XDG_CONFIG_HOME"
     # 只有确认 rc 文件里有相关配置、而当前环境没有时,才借用户的 shell 再试一次。
@@ -623,6 +638,9 @@ finder_model=$(sh "$script_dir/config.sh" get model.finder)
   printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
   printf 'depth=%s\ndepth_source=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$depth_source" "$plan_arg" "$store_dir" "$repo_id"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
+  printf 'with_tests=%s\nonly=%s\n' "$with_tests" "$only"
+  # 风险分级要看整个目标的改动大小,这时还没有按增量裁剪。
+  printf 'changed_lines=%s\n' "$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)"
 } > "$out/meta.txt"
 printf '%s' "$intent_arg" > "$out/intent-arg.txt"
 rm -f "$out/discussions.json"
@@ -747,7 +765,9 @@ if [ "$mode" = pr ]; then
   if git cat-file -e "$head_sha^{commit}" 2>/dev/null; then code_ref=$head_sha; else code_ref=UNAVAILABLE; fi
 fi
 current=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
-if [ "$code_ref" = WORKTREE ] || { [ -n "$head_sha" ] && [ "$current" = "$head_sha" ]; }; then
+# 审查已提交的代码(范围、分支、PR/MR)时,只有 HEAD 就是它、并且已跟踪的文件没有未提交的改动,
+# 工作区里的文件才和被审查的那一版一致;否则一律用 git show 读那一版。
+if [ "$code_ref" = WORKTREE ] || { [ -n "$head_sha" ] && [ "$current" = "$head_sha" ] && git diff --quiet HEAD -- 2>/dev/null; }; then
   head_checked_out=yes
 else
   head_checked_out=no
@@ -818,7 +838,7 @@ printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scop
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
 if [ -n "$base_stale" ]; then
   printf 'NOTE: %s,按本地已有的 %s(%s)对比。它可能落后于远端:如果当前分支已经合入或 rebase 了更新的 %s,别人的提交会被算进这次的改动\n' \
-    "$base_stale" "$base_ref" "$(git log -1 --format='最后更新于 %cr' "$base_ref" 2>/dev/null)" "${base_ref#origin/}"
+    "$base_stale" "$base_ref" "$(git log -1 --date=format:'%Y-%m-%d %H:%M' --format='最后一个提交在 %cd' "$base_ref" 2>/dev/null)" "${base_ref#origin/}"
 fi
 if [ -n "$base_hint" ]; then
   set -- $base_hint
@@ -839,6 +859,14 @@ fi
 [ -z "$context_out" ] || printf '%s\n' "$context_out"
 if [ "$file_count" -eq 0 ]; then
   if [ "$unchanged_count" -gt 0 ]; then printf 'UNCHANGED: 自上次审查(%s)以来没有变化\n' "$prev_review"
-  else printf 'EMPTY: 没有可审查的内容\n'; fi
+  else
+    printf 'EMPTY: 没有可审查的内容\n'
+    if [ "$mode" = local ] && [ -n "$source_branch" ] && [ "$source_branch" = "${target_branch#origin/}" ]; then
+      printf 'HINT: 当前就在默认分支 %s 上,也没有未提交的改动。可以审最近几个提交(如 HEAD~3..HEAD),或者指定一个分支、PR/MR\n' "$source_branch"
+    fi
+  fi
+elif [ "$allow_large" = no ] && [ "$batch_count" -gt "${CR_LARGE_BATCHES:-4}" ]; then
+  printf 'LARGE: 改动较大:%s 个文件、%s 行改动,分成 %s 批;查找和核实都要按批各跑一遍,耗时和 token 大约是一批的 %s 倍\n' \
+    "$file_count" "$changed_lines" "$batch_count" "$batch_count"
 fi
 printf '%s\n' "$out"

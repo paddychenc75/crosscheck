@@ -6,6 +6,7 @@
 #   读取 DIR/candidates.json:编排者合并去重后的全部候选(含 found_by、pass_hits;
 #   增量时还有带 from_prev 的上次发现)。给每条候选编号(cid),按文件分批,每批最多 N 条(默认 5),
 #   写出 DIR/verify/batch-<n>.json。批次里去掉了 found_by 和 pass_hits,verifier 看不到是谁、查到几遍。
+#   带 from_prev 的上次发现,去掉上次核实留下的分数、结论、依据、编号等,只留发现本身,保证这次是独立核实。
 #   「规则可能过时:」「规则冲突:」这类说明不是候选,移到 rules-notes.json,不送去核实。
 #
 # 输出每个批次文件的路径,最后一行是 batches=<n> candidates=<n>。
@@ -25,7 +26,7 @@ while [ $# -gt 0 ]; do
 done
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR=$(cd "$dir" && pwd) CR_PER=$per python3 - <<'PY'
-import os, sys
+import os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
@@ -33,6 +34,9 @@ import crlib
 d = os.environ["CR_DIR"]
 per = max(1, int(os.environ["CR_PER"]))
 cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
+PREV_VERDICT = ("confidence", "verdict", "evidence", "ruled_out", "no", "status", "history_match", "previously",
+                "suppressed_by", "reject_reason", "also_lines", "carried_unchanged", "compat", "cid")
+MERGED = re.compile(r"\(共 \d+ 处,其余在第 [^)]* 行\)$")
 notes = crlib.load_json(os.path.join(d, "rules-notes.json"), [])
 keep = []
 for c in cands:
@@ -43,6 +47,10 @@ for c in cands:
         notes.append({"kind": "stale" if s.startswith("规则可能过时") else "conflict", "summary": s,
                       "rule_file": c.get("rule_file", ""), "file": c.get("file", ""), "detail": c.get("failure_scenario", "")})
         continue
+    if c.get("from_prev"):
+        for k in PREV_VERDICT:
+            c.pop(k, None)
+        c["summary"] = MERGED.sub("", str(c.get("summary", "")))
     keep.append(c)
 for i, c in enumerate(keep, 1):
     c.setdefault("cid", "c%d" % i)
