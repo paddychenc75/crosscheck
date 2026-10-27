@@ -359,15 +359,19 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     <a href="#metrics">判断与度量</a>
     <a href="#storage">文件存放</a>
     <a href="#security">安全边界</a>
-    <a href="#industry">业界对照与收敛</a>
-    <a href="#discuss">待定事项</a>
   </nav>
 
   <main>
     <header class="hero">
       <h1>Crosscheck CR 方案</h1>
-      <p>本地 AI 代码审查。先尽量把可疑的地方找出来，再由独立的 verifier 逐条核实、给出依据，只报 80 分以上的；规则就是仓库里的 Markdown；用合并时问题有没有真的解决来衡量效果。</p>
-      <p class="muted">0.3.0（试验性）：一次审查产出两份东西——给开发者自己修的 CR 报告，和给 MR 评审人看的 MR 说明。0.2.0 收敛版的原则不变：只留业界验证过有效的机制，其余的在有真实使用数据之前不做。关键设计旁的“设计依据”可展开查看。来源核对日期：2026-10-26。</p>
+      <p>开发者在本地发起一次审查，得到两份东西：</p>
+      <div class="table-wrap"><table>
+        <tr><th></th><th>CR 报告</th><th>MR 说明</th></tr>
+        <tr><td>给谁</td><td>开发者自己，照着修</td><td>MR 评审人，开发者贴进 MR 描述</td></tr>
+        <tr><td>内容</td><td>独立核实过、80 分以上的问题，每条附依据</td><td>需求链接、改了什么、从哪看起、影响到谁、CR 情况</td></tr>
+        <tr><td>解决的问题</td><td>报得准，作者愿意读完</td><td>改动大时评审人判断不了影响、缺需求背景</td></tr>
+      </table></div>
+      <p class="muted">0.3.0（试验性）。规则就是仓库里的 Markdown；用合并时问题有没有真的解决来衡量效果；机制保持简单，在有真实使用数据之前不为“可能有用”加机制。关键设计旁的“设计依据”可展开查看。</p>
       <div class="toolbar">
         <button type="button" id="themeBtn">切换深浅色</button>
       </div>
@@ -377,7 +381,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="demo-head">
         <div>
           <h2 id="demo-title">流程演示</h2>
-          <p class="muted">三条流程：开发者审查一次改动，合并后看问题有没有被解决，项目负责人从 MR 评论里总结规则。文件名、分数和结果都是演示数据；默认自动播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
+          <p class="muted">三条流程：开发者审查一次改动并得到 MR 说明，合并后看问题有没有被解决，项目负责人用命令从 MR 评论里沉淀规则。文件名、分数和结果都是演示数据；默认自动播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
         </div>
         <div class="demo-ctrl">
           <button type="button" id="dPrev" aria-label="上一步">‹ 上一步</button>
@@ -467,6 +471,17 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>我重新核对一下调用方……</div>
             <div class="msg agent a" style="--i:4"><span class="who">主 agent</span>核对后撤回第 2 条：<code>handler.go:40</code> 在事务里调用它，内存状态随请求丢弃。已记录：1 成立；2 不成立 · 原因「外层事务整体回滚」。同一段代码不变时不再报。</div>
           </div>
+
+          <div class="scene" data-scene="7" hidden>
+            <div class="rep2">
+              <div class="rhead a" style="--i:0"><b>修复分页尾页数据被截掉</b><span class="muted">MR 说明 · 贴进 MR 描述</span></div>
+              <div class="kv a" style="--i:1"><span class="k">基本信息</span><span>需求单 PROJ-231 · PRD &lt;链接&gt; · feature/pay → main · 5 个文件 +186/−31 · 审查量 2/5</span></div>
+              <div class="kv a" style="--i:2"><span class="k">请重点看</span><span><code>paginate.ts:42</code> 尾页计算 — 想确认：pageSize 为 0 时的处理</span></div>
+              <div class="kv a" style="--i:3"><span class="k">阅读顺序</span><span>① 分页计算 paginate.ts ② 调用方 api/orders.ts ③ 测试 · 可跳过：go.sum</span></div>
+              <div class="kv a" style="--i:4"><span class="k">影响面</span><span><code>paginate()</code> 签名变化：本次之外 2 处调用 export.ts:12、report/daily.ts:77</span></div>
+              <div class="kv a" style="--i:5"><span class="k">CR 情况</span><span>已修复 1 条；第 2 条作者判为不成立：外层事务整体回滚 · 基于提交 a1b2c3d</span></div>
+            </div>
+          </div>
           </div>
 
           <div class="track" data-track="adoption" hidden>
@@ -498,22 +513,24 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
           <div class="track" data-track="rules" hidden>
             <div class="scene" data-scene="0" hidden>
-              <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>从最近一个月的 MR 评论里总结一下规则</div>
-              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>只读地取最近合并的 23 个 MR 和上面的人工评论，先读现有的 REVIEW.md、CLAUDE.md。</div>
+              <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>/crosscheck:cr-rules</div>
+              <div class="msg agent a" style="--i:2"><span class="who">主 agent</span>只读拉取最近 90 天已合并的 23 个 MR 和上面的人工评论，加上 crosscheck 记下的判断；先读现有规则，已经写过的不重复。</div>
             </div>
             <div class="scene" data-scene="1" hidden>
-              <div class="cand a" style="--i:0"><b>金额计算使用项目 Money 类型</b><span class="tag2 good">候选</span><small>4 个 MR、3 位评论人 · 适用 src/payments/</small></div>
-              <div class="cand a" style="--i:1"><b>订单状态变更要写审计日志</b><span class="tag2 good">候选</span><small>3 个 MR、2 位评论人 · 适用 src/orders/</small></div>
-              <div class="cand no a" style="--i:2"><b>变量名用驼峰</b><span class="tag2">交给 linter</span><small>linter 能查，不写成审查规则</small></div>
-              <div class="cand no a" style="--i:3"><b>这里加个注释</b><span class="tag2">不收</span><small>只出现一次，没有说明失败场景</small></div>
+              <div class="cand a" style="--i:0"><b>金额计算禁止使用浮点数</b><span class="tag2 good">候选</span><small>4 个 MR、3 位评审人 · 评论后都改了 · 适用 src/payments/**</small></div>
+              <div class="cand a" style="--i:1"><b>订单状态变更必须写审计日志</b><span class="tag2 good">候选</span><small>3 个 MR、2 位评审人 · 适用 src/orders/**</small></div>
+              <div class="cand no a" style="--i:2"><b>变量名用驼峰</b><span class="tag2">交给 linter</span><small>工具能查，不写成审查规则</small></div>
+              <div class="cand no a" style="--i:3"><b>这里加个注释</b><span class="tag2">不收</span><small>只出现在 1 个 MR，作者没有改</small></div>
             </div>
             <div class="scene" data-scene="2" hidden>
               <div class="msg you a" style="--i:0"><span class="who">项目负责人</span>两条都要</div>
-<pre class="diff a" style="--i:1"><code># src/payments/REVIEW.md
-<span class="plus">+ - 金额计算使用项目 Money 类型。原因：对账需要一致的精度。</span>
-# src/orders/REVIEW.md
-<span class="plus">+ - 订单状态变更要写审计日志。原因：对账依赖变更记录。</span></code></pre>
-              <div class="tags a" style="--i:3"><span class="tag2 good">只改工作区</span><span class="tag2">由你提交，走正常的代码评审</span><span class="tag2">合入后 MR 审查才用上</span></div>
+<pre class="diff a" style="--i:1"><code># .agents/rules/payments.md
+<span class="plus">+ ## 金额计算禁止使用浮点数</span>
+<span class="plus">+ - 规则:在 src/payments/ 中,金额运算必须用 Money 类型,禁止 float</span>
+<span class="plus">+ - 原因:浮点误差导致对账差 1 分钱</span>
+<span class="plus">+ - 不要报:汇率展示、日志格式化</span>
+<span class="plus">+ &lt;!-- 来源:!112 !118 !131 !140 --&gt;</span></code></pre>
+              <div class="tags a" style="--i:3"><span class="tag2 good">只改工作区</span><span class="tag2">由你提交，走正常的代码评审</span><span class="tag2">合入后审查就会对照</span></div>
             </div>
           </div>
         </div>
@@ -536,30 +553,42 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>规则就是文件。</b>项目的 REVIEW.md 和已有的 CLAUDE.md、AGENTS.md、Cursor / Copilot 规则直接用，不需要编号、元数据或专门格式。</li>
         <li><b>用结果衡量。</b>主要指标是采纳率：报过的问题，合并时是不是真的被解决了。离线用自己仓库里修过的 bug 检验。</li>
         <li><b>机制保持简单。</b>只留业界验证过有效的；在有真实使用数据之前，不为“可能有用”加机制。</li>
+        <li><b>给评审人的只写事实。</b>MR 说明不经核实，所以只放脚本算出或能对上原文的内容，不写“已实现”“无风险”这类结论。</li>
       </ol>
 
       <h3>不做什么</h3>
       <ul>
         <li>不替代编译器、类型检查器、linter 和 CI，它们能拦住的问题不报。</li>
         <li>不审查改动之外的存量代码；不报风格、命名、可读性、日志措辞和影响很小的性能优化（除非项目写成了规则）。</li>
-        <li>不往 PR/MR 发评论，不 approve、request changes、merge，结果只在本地输出。</li>
+        <li>不往 PR/MR 发评论，不 approve、request changes、merge；不提交 MR、不改 MR 描述，MR 说明由开发者自己贴。</li>
         <li>默认不改文件，只有用户明确要求时才修复，且只改工作区、不提交。</li>
-        <li>不往 GitLab / GitHub 写任何东西。审查后唯一的写操作，是你确认后把规则改到工作区里的规则文件。</li>
+        <li>不往 GitLab / GitHub 写任何东西。审查后的写操作只有两种：你确认后把规则改到工作区里的规则文件；你同意后用配置的工具生成或更新 MR 说明的网页版。</li>
         <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
       </ul>
+      <details class="design-basis">
+        <summary>业界实践：这些原则从哪来</summary>
+        <ul>
+          <li><b>精确率优先：</b>Uber 发现开发者对低质量建议很快失去信任，整类砍掉评分最差的评论；OpenAI 接受召回略降，换取信号质量。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
+          <li><b>先找后核实：</b>Claude Code Review 由多个 agent 并行查找，再由单独的验证步骤逐条对照代码过滤误报；官方 code-review 命令要求规则违反引用原文。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a></li>
+          <li><b>确定性的交给脚本：</b>简单的语法规则 linter 最好，LLM 补语义判断；CodeRabbit 用工具结果过滤模型的误报。<a href="https://addyosmani.com/blog/agentic-code-review/">Addy Osmani：Agentic Code Review</a>；<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
+          <li><b>规则就是文件：</b>REVIEW.md、BUGBOT.md、Copilot 指令文件都是普通 Markdown。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://cursor.com/docs/bugbot">Cursor Bugbot 文档（BUGBOT.md）</a>；<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a></li>
+          <li><b>用结果衡量：</b>Bugbot 以“合并前被修掉的比例”为指标，学习规则后从 52% 升到 78%；公开基准互相矛盾，厂商自测和第三方复测能差一倍。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://blog.kilo.ai/p/martians-independent-benchmark-tested">Martian 基准：厂商自测与复测相差一倍</a></li>
+          <li><b>给评审人的只写事实：</b>Google 要求 CL 描述写清做了什么、为什么；写明“希望得到哪类反馈”的 PR 合并几率高约 65–72%。<a href="https://google.github.io/eng-practices/review/developer/cl-descriptions.html">Google：写好 CL 描述</a>；<a href="https://arxiv.org/html/2602.14611v1">MSR 2026：PR 描述与评审结果（8 万个 PR）</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="overview">
       <h2>二、总体设计</h2>
       <div class="arch">
         <div class="layer">
-          <div class="layer-head"><b>入口</b><span>由用户在本地用平时说话的方式调用</span></div>
+          <div class="layer-head"><b>入口</b><span>在本地调用；只有审查能用平时说话的方式触发</span></div>
           <div class="chips">
-            <span class="chip">审查 /cr</span>
-            <span class="chip">审查之后：表态、质疑、修复</span>
+            <span class="chip">审查（自然语言或 /cr）</span>
+            <span class="chip">审查之后：表态、质疑、修复、改 MR 说明</span>
             <span class="chip">看效果和采纳率</span>
-            <span class="chip">从 MR 评论总结规则</span>
             <span class="chip">用历史 bug 检验</span>
+            <span class="chip">规则沉淀（只能用命令 /crosscheck:cr-rules）</span>
           </div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -570,13 +599,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <span class="chip">diff 收集</span><span class="chip">有效代码过滤</span><span class="chip">行范围</span><span class="chip">分批</span><span class="chip">增量与依赖扩散</span>
           </div></div>
           <div class="subrow"><div class="label">意图</div><div class="chips">
-            <span class="chip">MR 描述 / 提交说明</span><span class="chip">关联需求单</span><span class="chip">MR 人工讨论</span><span class="chip">--plan / --intent（调用时提供，可选）</span>
+            <span class="chip">MR 描述 / 提交说明</span><span class="chip">需求单、需求文档（缺了先问，按配置的工具读取）</span><span class="chip">MR / PR 人工讨论</span><span class="chip">--doc / --intent（调用时提供，可选）</span>
           </div></div>
           <div class="subrow"><div class="label">规则</div><div class="chips">
             <span class="chip">REVIEW.md（可选，目录级 / 根目录，含「不要报」）</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
           </div></div>
           <div class="subrow"><div class="label">信号</div><div class="chips">
-            <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span><span class="chip">历史判断</span>
+            <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span><span class="chip">历史判断</span><span class="chip">MR 说明的事实：符号、调用方、需注意的改动</span>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -587,6 +616,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <div class="role"><b>reviewer</b><span>bug、安全、需求核对。能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；先看测试和检查的改动</span></div>
             <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
             <div class="role"><b>simplifier（按需）</b><span>用户要求时才启动：可复用的已有代码、重复、多余的写法</span></div>
+            <div class="role"><b>analyst</b><span>同时起草 MR 说明的一句话和分组，必须引用材料原文，不判断对错</span></div>
           </div></div>
           <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
             <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；deep 下写脚本复现。最好用和查找不同的模型</span></div>
@@ -598,10 +628,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="flow"><span class="arrow">↓</span></div>
 
         <div class="layer">
-          <div class="layer-head"><b>输出</b><span>只在本地</span></div>
-          <div class="chips">
-            <span class="chip">Markdown 报告</span><span class="chip">问题代码原文摘取</span><span class="chip">每条附依据</span><span class="chip">测试削弱单列</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
-          </div>
+          <div class="layer-head"><b>输出</b><span>CR 报告留在本地；MR 说明由开发者自己贴进 MR</span></div>
+          <div class="subrow"><div class="label">CR 报告</div><div class="chips">
+            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，标已复现 / 读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
+          </div></div>
+          <div class="subrow"><div class="label">MR 说明</div><div class="chips">
+            <span class="chip">mr.md（30 行以内）</span><span class="chip">mr.html 完整版</span><span class="chip">网页版（配置了才有）</span><span class="chip">随 CR 报告更新</span>
+          </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span>人的判断 · 合并后的最终代码 · MR 人工评论</div>
 
@@ -616,24 +649,35 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <div class="layer">
             <div class="layer-head"><b>规则沉淀</b></div>
             <div class="chips">
-              <span class="chip">总结 MR 评论</span><span class="chip">检查规则</span><span class="chip">确认后改工作区</span>
+              <span class="chip">cr-rules：MR 评论 → 候选</span><span class="chip">脚本核对证据</span><span class="chip">确认后写 .agents/rules</span>
             </div>
           </div>
         </div>
         <div class="loop-note">↺ 规则文件合入后，回到「收集」的规则装配</div>
       </div>
+      <details class="design-basis">
+        <summary>业界实践：总体结构</summary>
+        <ul>
+          <li><b>能读整个仓库、自己决定往哪查：</b>Bugbot 从固定多遍流水线改成 agent 式后效果提升最大；OpenAI 给 reviewer 仓库访问和执行能力后严重问题抓得更多、误报更少。<a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor：Building a better Bugbot</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
+          <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
+          <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
+          <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="flows">
       <h2>三、审查流程</h2>
       <div class="table-wrap"><table>
         <tr><th>步骤</th><th>谁做</th><th>产出</th></tr>
-        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>weakening.txt</code>、<code>risk.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
+        <tr><td>0. 需求来源（缺了才有）</td><td>主 agent 问一次；用配置的工具读取</td><td>需求单、需求文档的链接和内容；同一分支记住</td></tr>
+        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>risk.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
         <tr><td>2. 装配规则</td><td><code>collect-rules.sh</code></td><td><code>rules.txt</code>、<code>rules-index.json</code></td></tr>
-        <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>（并行）</td><td><code>candidates.json</code></td></tr>
+        <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>，同时 <code>analyst</code> 起草 MR 说明（并行）</td><td><code>candidates.json</code>；<code>analysis.json</code>（经 <code>analysis_check.py</code> 校验）</td></tr>
         <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
         <tr><td>5. 汇总</td><td><code>aggregate.sh</code></td><td><code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code></td></tr>
         <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录</td></tr>
+        <tr><td>6b. MR 说明</td><td><code>mr-note.sh</code></td><td><code>mr.md</code>、<code>mr.html</code>；表态、修复、重新审查后重新生成</td></tr>
         <tr><td>7. 修复（仅要求时）</td><td>主 agent</td><td>工作区改动，修好的记为成立</td></tr>
       </table></div>
 
@@ -665,6 +709,15 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         </ul>
         <p><b>待验证：</b>合并后的召回和 token 变化，要在同一批改动上用采纳率和历史 bug 检验对比。</p>
       </details>
+      <details class="design-basis">
+        <summary>业界实践：审查流程</summary>
+        <ul>
+          <li><b>对比基准：</b>GitHub / GitLab 的 PR / MR diff 从源分支与目标分支最新的 merge-base 算起（三点比较）。<a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests">GitHub：PR 的三点比较（merge-base）</a></li>
+          <li><b>需求来源：</b>CodeRabbit、Qodo 从 PR 关联的需求单拉取标题、描述和验收标准，逐条对照。<a href="https://docs.coderabbit.ai/issues/pr-validation">CodeRabbit：对照关联 issue 检查 PR</a>；<a href="https://docs.qodo.ai/qodo-documentation/qodo-merge/integrations/ticketing-integrations">Qodo：需求单符合度</a></li>
+          <li><b>只评论改动的行：</b>Google AutoCommenter 发现不限制时约 80% 的评论落在没改的代码上。<a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter（屏蔽不可执行规则后有用率 54%→80%+）</a></li>
+          <li><b>增量审查：</b>每次提交后只重新评审新改动，是 AI 评审工具的常见做法。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="roles">
@@ -689,6 +742,15 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <p>MR 合并后，对“代码改了”的那些发现判断问题是否真的解决。不因为代码动过就判为解决。</p>
           <div class="accept">结果记进 <code>adoption.jsonl</code>，是采纳率的来源。</div></div>
       </div>
+      <details class="design-basis">
+        <summary>业界实践：角色分工</summary>
+        <ul>
+          <li><b>并行查找 + 独立核实：</b>Claude Code Review 多个 agent 各查一类问题，验证步骤逐条对照代码确认（如是否已有空值保护）。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
+          <li><b>verifier 的执行证据：</b>Meta TestGen-LLM 只保留能编译、稳定通过、确实提高覆盖率的测试；有 agent 跑了 0 个测试、退出码 0 就报告“全部通过”，所以执行声明要核对原始记录。<a href="https://arxiv.org/abs/2402.09171">Meta：TestGen-LLM（可执行的过滤器）</a>；<a href="https://redreamality.com/blog/coding-agent-done-claims-verification-survey/">综述：agent 自报“测试通过”的核实</a></li>
+          <li><b>analyst 只写可核对的描述：</b>Qodo /describe、CodeRabbit walkthrough 生成改动说明；我们要求引用原文并由脚本核对。<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a>；<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a></li>
+          <li><b>judge：</b>Bugbot 在合并时用 AI 判断报过的问题是否已修；Uber 在最终提交上重跑判断评论是否已处理。<a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor：Building a better Bugbot</a>；<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="mrnote">
@@ -715,6 +777,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>业界做法：</b>CodeRabbit walkthrough 和工作量评分、Qodo <code>/describe</code> 与 <code>/review</code>（重点问题、优先看的文件）、Baz 按功能分组、Google CL 描述要求一句话写清做了什么和为什么。</li>
           <li><b>研究：</b>写明“希望得到哪类反馈”的 PR 合并几率高约 65–72%（MSR 2026，8 万个 PR）；57.6% 的开发者认为按字母排文件会打断思路（ICSE 2026，1355 人）；评审人的信息需求之一是“被改的东西在别处怎么用”（Pascarella 2018）。</li>
           <li><b>不做的：</b>风险分（缺历史缺陷数据）、时序图、需求逐条标“已实现”、拆分建议——都无法核实。长模板没人读，所以限 30 行。</li>
+          <li><b>来源：</b><a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/review.md">Qodo PR-Agent：/review</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a>；<a href="https://docs.baz.co/changes/overview/topics">Baz：按功能分组（Topics）</a>；<a href="https://www.greptile.com/docs/how-greptile-works/graph-based-codebase-context">Greptile：代码图与调用方</a>；<a href="https://google.github.io/eng-practices/review/developer/cl-descriptions.html">Google：写好 CL 描述</a>；<a href="https://docs.github.com/en/pull-requests/concepts/helping-others-review-your-changes">GitHub：帮助别人评审你的改动</a>；<a href="https://arxiv.org/html/2602.14611v1">MSR 2026：PR 描述与评审结果（8 万个 PR）</a>；<a href="https://arxiv.org/pdf/2609.04207">ICSE 2026：Breaking the Alphabet（文件顺序）</a>；<a href="https://research.tudelft.nl/en/publications/information-needs-in-contemporary-code-review">Pascarella 2018：评审中的信息需求</a>；<a href="https://engineering.fb.com/2025/08/06/developer-tools/diff-risk-score-drs-ai-risk-aware-software-development-meta/">Meta：Diff Risk Score</a>；<a href="https://google.github.io/eng-practices/review/developer/small-cls.html">Google：小 CL</a></li>
         </ul>
       </details>
     </section>
@@ -757,16 +820,25 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>写规则的门槛：</b>编号和 <code>&lt;!-- cr: --&gt;</code> 元数据让写规则变成一件要学格式的事。</li>
         </ul>
       </details>
+      <details class="design-basis">
+        <summary>业界实践：怎样的规则才好用</summary>
+        <ul>
+          <li><b>写法：</b>短的祈使句、限定路径、写原因、给正反例、写明不要报什么；Copilot 只读前 4000 字符，建议从 10–20 条起步。<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a>；<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://www.greptile.com/docs/code-review/custom-standards">Greptile：自定义规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a></li>
+          <li><b>从历史里长出规则：</b>Bugbot 从反应和回复中学习规则，持续负反馈的自动停用；Qodo 只统计被采纳并改了代码的建议；CodeRabbit 从开发者回复里记 learnings。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
+          <li><b>屏蔽不可执行的规则：</b>Google AutoCommenter 屏蔽 22 条不可执行的规则后，有用率从约 54% 升到 80% 以上。<a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter（屏蔽不可执行规则后有用率 54%→80%+）</a></li>
+          <li><b>每类规则单独检查：</b>Amp 把规则放在 .agents/checks 下，每个 check 单独执行，比写进 AGENTS.md 更可靠。<a href="https://ampcode.com/news/liberating-code-review">Amp：.agents/checks</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="metrics">
       <h2>七、判断与度量</h2>
       <h3>你的判断会被记住</h3>
       <ul>
-        <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在项目级的 <code>feedback.jsonl</code>，对所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
+        <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在<b>你本机</b>的 <code>~/.crosscheck/reviews/&lt;项目名&gt;/feedback.jsonl</code>（不在仓库里，也不共享给别人），对这个项目的所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
         <li>判断记着那段代码的样子（出问题的一行加上下各两行的哈希）。代码没变就不再报，代码变了重新评估并注明之前的判断。</li>
         <li>不在核实前删除候选：历史判断交给 verifier 判断是不是同一个问题；因此没报的在报告里折叠列出，可以核对。</li>
-        <li>团队共享常见误报：写进 <code>REVIEW.md</code> 的「不要报」一节，随代码一起评审。</li>
+        <li>团队共享常见误报：本机的判断记录只对你自己生效；想让全队都不再报，写进仓库里 <code>REVIEW.md</code> 的「不要报」一节，随代码一起评审。</li>
       </ul>
 
       <h3>效果：以采纳率为主</h3>
@@ -790,25 +862,46 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>Crosscheck 的取舍：</b>完整的评测框架（用例 JSON、基线、配对、judge 对答案、用例 MR）在用例积累起来之前只能发现明显的倒退。需要时按实际用例量再加一个对比脚本。</li>
         </ul>
       </details>
+      <details class="design-basis">
+        <summary>业界实践：判断和度量</summary>
+        <ul>
+          <li><b>记住人的判断：</b>CodeRabbit learnings、Bugbot 学习规则都从开发者的回复和反应里学，避免同样的误报反复出现。<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a>；<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a></li>
+          <li><b>采纳率：</b>Bugbot 的“合并前被修掉的比例”、Uber 的“评论被处理率”、OpenAI 的“评论引发代码修改的比例”。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="storage">
       <h2>八、文件存放</h2>
       <pre><code>review_dir/                 本次审查（系统临时目录）
 ├── diff.patch  files.txt  ranges.txt  skipped.txt  batches.txt  meta.txt
-├── intent.md  discussions.json  weakening.txt  risk.txt  settings.json  history.json
+├── intent.md  sources.json  discussions.json  weakening.txt  risk.txt  settings.json  history.json
 ├── rules.txt  rules-index.json
-├── candidates.json  verify/batch-*.json  verify/result-*.json
-└── final.json  findings.json  rejected.json  report.json  report.md
+├── candidates.json  verify/batch-*.json  verify/result-*.json  runs/（运行记录和见证）
+├── analysis-facts.json  analyst.json  analysis.json
+└── final.json  findings.json  rejected.json  report.json  report.md  mr.md  mr.html
+
+插件/skills/cr/crosscheck.conf   团队统一的配置（需求来源、网页版工具），随插件分发
 
 ~/.crosscheck/
-├── config                  gitlab_hosts、issue_cmd、model.finder、model.verifier
+├── config                  个人配置，逐项覆盖插件里的
+├── mining/&lt;项目名&gt;/          cr-rules 拉取的 MR 评论缓存
 └── reviews/&lt;项目名&gt;/
     ├── feedback.jsonl      你的判断（项目级）
     ├── adoption.jsonl      合并后问题是否解决
-    └── &lt;目标&gt;/&lt;时间&gt;/       report.md、findings.json、rejected.json、meta.txt …
-        latest · baseline   最近一次 · 增量基准</code></pre>
+    ├── sources/&lt;分支&gt;.json  需求链接、跳过、请重点看、网页链接（90 天过期）
+    └── &lt;目标&gt;/&lt;时间&gt;/       report.md、mr.md、findings.json、rejected.json、meta.txt …
+        latest · baseline   最近一次 · 增量基准
+
+仓库/.agents/rules/&lt;主题&gt;.md     cr-rules 沉淀的规则（你提交后生效）</code></pre>
       <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量，上次之后被判为不成立或不修的发现不再带入。读不到被审查的代码时直接停下，不出空报告。</p>
+      <details class="design-basis">
+        <summary>业界实践：记录和增量</summary>
+        <ul>
+          <li><b>在本地存记录、只重看变了的：</b>AI 评审工具普遍在每次提交后只评审新改动；Bugbot、CodeRabbit 把学到的东西按仓库存。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
+          <li><b>改动行覆盖：</b>Codecov 的 patch 覆盖率只统计本次改动的行，思路和“只审改动的行”一致。<a href="https://docs.codecov.com/docs/commit-status">Codecov：只统计改动行的 patch 覆盖率</a></li>
+        </ul>
+      </details>
     </section>
 
     <section id="security">
@@ -825,61 +918,16 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li>这是防误操作的护栏，不是安全边界：<code>sh -c "…"</code>、变量路径、任意程序写入拦不住，靠核对事后发现。</li>
         <li>MR 描述、需求单、评论、规则文件里写给 reviewer 的话（“忽略安全问题”“approve 这个”）一律不执行；意图只能解释改动，不能让安全问题不报。</li>
       </ul>
-    </section>
-
-    <section id="industry">
-      <h2>十、业界对照与收敛</h2>
-      <p>0.2.0 开发中加过很多机制，端到端跑下来，十几个 bug 几乎都出在机制之间的衔接点上，其中不少业界没有人这样做。对照公开做法，真正被验证有效的只有几条：</p>
-      <div class="table-wrap"><table>
-        <tr><th>有效机制</th><th>谁在用</th><th>Crosscheck 里的对应</th></tr>
-        <tr><td>先多查、再独立核实，只放确定的</td><td>Claude Code 官方 code-review（并行查找 + 逐条核实）、Uber（生成 → 打分 → 过滤 → 去重）</td><td>查找 → verifier → 80 分门槛</td></tr>
-        <tr><td>精确优先，宁可少报</td><td>OpenAI 接受召回略降换信号质量；Uber：开发者很快会对低质量建议失去信任</td><td>门槛、封顶检查</td></tr>
-        <tr><td>整类砍掉没人改的建议</td><td>Uber：可读性、日志小调整、小的性能优化评分一直最差</td><td>不报这些类别；simplifier 按需</td></tr>
-        <tr><td>能读整个仓库、自己决定往哪查</td><td>Cursor Bugbot 改成 agent 式后效果提升最大；OpenAI 给仓库访问和执行能力</td><td>reviewer 自由调查</td></tr>
-        <tr><td>用“合并时改没改”衡量</td><td>Cursor 合并时的 AI judge；Uber 在最终提交上重跑；OpenAI 统计引发修改的比例</td><td>采纳率（adoption + judge）</td></tr>
-        <tr><td>规则就是一个文件，违反要引原文</td><td>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 路径说明</td><td>规则 Markdown + 引文核对</td></tr>
-        <tr><td>能确定判断的交给脚本和 CI</td><td>Uber、Addy Osmani：简单语法规则 linter 最好，LLM 补语义</td><td>依据校验、汇总、测试削弱扫描</td></tr>
-        <tr><td>用自己的历史 bug 评估</td><td>公开基准互相矛盾后的共识</td><td>历史 bug 检验</td></tr>
-      </table></div>
-
-      <h3>收敛时去掉的</h3>
-      <div class="table-wrap"><table>
-        <tr><th>去掉的</th><th>为什么</th><th>替代</th></tr>
-        <tr><td>规则编号、<code>&lt;!-- cr: --&gt;</code> 元数据、复核日期</td><td>写规则要学格式；业界都是普通文件</td><td>出处文件 + 逐字引文</td></tr>
-        <tr><td>组织规则包、按 tag 同步、规则仓库模板和 CI、外部资料导入</td><td>没有真实使用，链路最长</td><td>各项目的 REVIEW.md / AGENTS.md</td></tr>
-        <tr><td>规则指纹、hook 检查子代理任务、核对码、检查清单和补跑、抽查</td><td>只能证明读到，证明不了判断对；衔接点 bug 最多</td><td>引文核对 + verifier 确认</td></tr>
-        <tr><td>mine-reviews、rule-miner、propose-rules、open-mr</td><td>门槛和格式写死在脚本里，维护成本远高于收益</td><td>agent 按 maintenance.md 现场总结，确认后改工作区</td></tr>
-        <tr><td>rules-lint、rules-health</td><td>为编号和元数据服务</td><td>agent 现场检查规则</td></tr>
-        <tr><td>评测框架 eval.sh</td><td>用例少时只能发现明显倒退</td><td>采纳率 + 历史 bug 检验</td></tr>
-        <tr><td><code>.cr/ignore.md</code>、<code>.cr/intent.md</code></td><td>多一个目录多一层概念；意图放进仓库会在合并后过期，审查别的分支时还会读错</td><td>「不要报」并进 <code>REVIEW.md</code>；意图在调用时用 <code>--intent</code> / <code>--plan</code> 提供</td></tr>
-        <tr><td>团队数据同步 sync-data</td><td>没有团队真实使用数据</td><td><code>REVIEW.md</code> 的「不要报」随代码评审</td></tr>
-        <tr><td>四个查找角色、deep 的同模型重复查找</td><td>重复阅读占大头成本；同一模型盲区相同</td><td>reviewer + rules-auditor；换模型核实</td></tr>
-      </table></div>
-      <p class="muted">结果：脚本从 30 个降到 21 个，净删约 3900 行，测试 33 个全部通过。以后真有需要，按数据再加回来。</p>
-
       <details class="design-basis">
-        <summary>来源</summary>
+        <summary>业界实践：安全边界</summary>
         <ul>
-          <li><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Building a better Bugbot（Cursor）</a></li>
-          <li><a href="https://alignment.openai.com/scaling-code-verification/">A Practical Approach to Verifying Code at Scale（OpenAI）</a></li>
-          <li><a href="https://www.uber.com/blog/ureview/">uReview（Uber Engineering）</a></li>
-          <li><a href="https://addyosmani.com/blog/agentic-code-review/">Agentic Code Review（Addy Osmani）</a></li>
-          <li><a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code code-review 命令</a></li>
-          <li><a href="https://blog.kilo.ai/p/martians-independent-benchmark-tested">Martian's Independent Benchmark Tested 13 Code Review Tools</a></li>
-          <li><a href="https://coderabbit.ai/changelog">CodeRabbit changelog</a></li>
+          <li><b>用宿主 hook 拦截工具调用：</b>Claude Code 的 PreToolUse 等 hook 可以拒绝工具调用，是官方提供的护栏机制。<a href="https://code.claude.com/docs/en/hooks">Claude Code hooks 文档</a></li>
+          <li><b>被审查的内容是数据：</b>提示注入是 LLM 应用的首要风险；评审场景里 PR 描述、评论、需求文档都可能带指令。<a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP LLM01：提示注入</a></li>
+          <li><b>PR 改不了审查规则：</b>Claude Code Review 只从受保护的默认分支读 REVIEW.md。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a></li>
         </ul>
       </details>
     </section>
 
-    <section id="discuss">
-      <h2>十一、待定事项</h2>
-      <div class="cards">
-        <div class="card"><h4><span class="num">1</span>合并后的实际效果</h4><p>两个查找角色相比四个，召回和 token 各变化多少，需要在同一批改动上用采纳率和历史 bug 检验对比。</p></div>
-        <div class="card"><h4><span class="num">2</span>核实换模型</h4><p>查找和核实用不同模型是否明显降低误报，需要实测；默认仍用宿主当前的模型。</p></div>
-        <div class="card"><h4><span class="num">3</span>80 分门槛</h4><p>用 <code>rejected.json</code> 里 70–79 分的候选和采纳率积累数据后再调。</p></div>
-        <div class="card"><h4><span class="num">4</span>真实 GitLab</h4><p>采纳判断、读取需求和讨论主要用模拟的 glab 测过，只在本地 GitLab 上端到端跑过一次。</p></div>
-      </div>
-    </section>
   </main>
 </div>
 
@@ -934,7 +982,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           log: [['check-state', '仓库未被改动 ✓ · 解除拦截'], ['save-review', '报告已保存']] },
         { title: '你回复', actors: ['you', 'main'],
           cap: '你确认第 1 条、质疑第 2 条。主 agent 重新核对调用方，确认外层有事务后撤回；两条判断都记下来，同一段代码不变时不再报。',
-          log: [['主 agent', '重新核对 handler.go:30-48'], ['feedback', 'valid #1'], ['feedback', 'invalid #2「外层事务整体回滚」']] }
+          log: [['主 agent', '重新核对 handler.go:30-48'], ['feedback', 'valid #1'], ['feedback', 'invalid #2「外层事务整体回滚」']] },
+        { title: 'MR 说明', actors: ['main', 'script'],
+          cap: '修完重新审查后，MR 说明跟着更新：需求链接、请重点看、阅读顺序、影响面都是脚本算出或核对过的事实，CR 情况写明修了几条、没修的作者怎么说。你把它贴进 MR 描述，自己提交 MR。',
+          log: [['mr-note', 'mr.md(29 行)· mr.html'], ['主 agent', '贴进 MR 描述:glab mr update 128 --description …']] }
       ] },
     { id: 'adoption', label: '开发者 / 负责人', sub: '看效果和采纳率',
       info: '主要指标：报过的问题，合并时是不是真的被解决了',
@@ -953,19 +1004,19 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           cap: '采纳率、判断、去向、校准、差一点通过分开给出，互不折算；样本不足 10 条只给数量。统计只给人看，不自动改变审查行为。',
           log: [['stats', '采纳 13/20 · 判断 12 条'], ['stats', '70–79 分 3 条,值得抽看']] }
       ] },
-    { id: 'rules', label: '项目负责人', sub: '从 MR 评论总结规则',
-      info: '按需做 · agent 现场总结 · 确认后只改工作区，由你提交',
-      actors: ['lead', 'main', 'gitlab', 'repo'],
+    { id: 'rules', label: '项目负责人', sub: '用命令沉淀规则',
+      info: '只能用命令 /crosscheck:cr-rules 调用 · 脚本核对证据 · 人来挑 · 只改工作区',
+      actors: ['lead', 'main', 'script', 'gitlab', 'repo'],
       scenes: [
-        { title: '发起总结', actors: ['lead', 'main', 'gitlab'],
-          cap: 'agent 只读地取最近合并的 MR 和人工评论，先读现有规则，已经写过的不重复。',
-          log: [['项目负责人', '从最近一个月的 MR 评论里总结一下规则'], ['glab', 'mr list --merged · 23 个 MR(只读)']] },
-        { title: '筛选候选', actors: ['main'],
-          cap: '只收在两个以上 MR 里、被不同的人反复指出的问题；linter 能查的、一次性的意见不收。每条写成能对照代码检查的一句话，加原因和证据。',
-          log: [['主 agent', '41 条评论 → 候选 2 条'], ['主 agent', '交给 linter 1 · 证据不足 1']] },
-        { title: '确认后改工作区', actors: ['lead', 'main', 'repo'],
-          cap: '你挑中的规则加进对应目录的 REVIEW.md，只改工作区、不提交，规则改动走团队正常的代码评审。',
-          log: [['项目负责人', '两条都要'], ['工作区', 'src/payments/REVIEW.md +1 · src/orders/REVIEW.md +1(未提交)']] }
+        { title: '拉取评论', actors: ['lead', 'main', 'script', 'gitlab'],
+          cap: '只读拉取最近一个季度已合并 MR 的人工评论（去掉机器人和系统消息），加上 crosscheck 记下的判断；缓存起来，下次只拉新的。',
+          log: [['项目负责人', '/crosscheck:cr-rules'], ['mine-mrs', '90 天 · 23 个 MR · 41 条评论(只读)']] },
+        { title: '筛选候选', actors: ['main', 'script'],
+          cap: 'miner 归纳候选，脚本按准入清单核对：证据是评论原文、至少 2 个 MR、评论后代码确实改了、能写成“必须/禁止”并有“不要报”边界、工具查不到、不和已有规则重复。',
+          log: [['miner', '候选 4 条'], ['mine-check', '通过 2 · 交给 linter 1 · 证据不足 1']] },
+        { title: '确认后写入', actors: ['lead', 'main', 'repo'],
+          cap: '你挑中的写进 .agents/rules/<主题>.md：每条写规则、原因、严重级别、正反例、不要报和来源 MR。只改工作区、不提交，规则改动走团队正常的代码评审。',
+          log: [['项目负责人', '两条都要'], ['rules-write', '.agents/rules/payments.md +1 · orders.md +1(未提交)']] }
       ] }
   ];
 
