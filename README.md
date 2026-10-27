@@ -13,36 +13,15 @@
 
 建议以**插件**方式安装:插件带 hook,审查期间会拦截改动仓库的命令,并统计 token。拷贝安装只有 skill,没有这层保护。
 
-### Claude Code(插件)
+crosscheck 通过插件市场分发,本仓库只提供插件本体和三家的插件清单(`.claude-plugin/plugin.json`、`.codex-plugin/plugin.json`、`.cursor-plugin/plugin.json`),都按各家官方文档编写。把它加进你们的插件市场后,按各宿主的方式安装:
 
-在会话里运行(Claude Code 2.1.275 或更新):
+| 宿主 | 安装 | 调用 | 注意 |
+|---|---|---|---|
+| Claude Code | `claude plugin install crosscheck@<市场名>` | `/crosscheck:cr` | 装好后新开会话 |
+| Codex | `codex plugin add crosscheck@<市场名>`,或在插件目录里安装 | `$cr`(可能显示为 `crosscheck:cr`) | **装好后运行 `/hooks`,审阅并信任 crosscheck 的 hook**。Codex 不会自动信任插件自带的 hook,没信任时只读拦截和 token 统计都不生效;升级插件后 hook 文件变了,要重新信任 |
+| Cursor | 在插件设置里添加市场后安装 | `/cr` | Cursor 的 hook 不提供用量,不统计 token |
 
-```
-/plugin install crosscheck --marketplace paddychenc75/crosscheck
-```
-
-或者分两步,在终端里:
-
-```
-claude plugin marketplace add paddychenc75/crosscheck
-claude plugin install crosscheck@crosscheck
-```
-
-装好后新开会话,用 `/crosscheck:cr` 调用,或者直接说「review 一下」。更新:`claude plugin marketplace update crosscheck`。
-
-### Codex(插件)
-
-```
-codex plugin marketplace add paddychenc75/crosscheck
-```
-
-然后在 Codex 的插件目录里选 `crosscheck` 市场,安装 crosscheck。**装好后在 Codex 里运行 `/hooks`,审阅并信任 crosscheck 的 hook**:Codex 不会自动信任插件自带的 hook,没信任时只读拦截和 token 统计都不生效;升级插件后 hook 文件变了,要重新信任。用 `$cr` 调用(作为插件时 Codex 可能显示为 `crosscheck:cr`),或者直接说「review 一下」。
-
-带生命周期 hook 的插件不能进 Codex 的公开插件目录,所以只能这样从仓库添加。
-
-### Cursor
-
-Cursor 的插件要通过它的插件市场分发,crosscheck 还没有上架。目前请用下面的拷贝安装(没有 hook);团队有 Cursor 团队市场的,可以把这个仓库加进去,插件清单在 `.cursor-plugin/plugin.json`。
+都可以不加前缀,直接说「review 一下」。
 
 ### 拷贝安装(没有 hook)
 

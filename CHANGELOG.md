@@ -48,7 +48,7 @@
 
 **其他**
 
-- 安装:仓库本身就是 Claude Code 和 Codex 的插件市场(`paddychenc75/crosscheck`),README 写明各宿主的插件安装步骤和 Codex 的 `/hooks` 信任。
+- 安装:插件通过插件市场分发,三家的插件清单按官方文档编写;README 写明各宿主的安装、调用方式和 Codex 的 `/hooks` 信任。
 - 没有 python3 时一开始就用中文提示安装;GitLab / GitHub 拉取失败时列出试过哪些路径(没装、没登录还是读不到);提示里的时间改成中文日期。
 - 修正几处文档和代码不一致:SKILL.md 的深度参数写成 `--depth quick|deep`;「深挖几个文件」不再覆盖整个目标的增量基准;去掉「规则元数据」「SETTINGS 块」「reference_only」等残留;`save-review.sh` 兼容 Python 3.8。
 
