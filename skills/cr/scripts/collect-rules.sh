@@ -4,9 +4,9 @@
 # 用法: collect-rules.sh DIR    DIR 是 collect-diff.sh 的输出目录
 #
 # 读这些文件(只取覆盖到改动文件的):
-#   目录级 REVIEW.md(深的在前)→ 根目录 REVIEW.md(其中单独一行的 `@文件名` 按 Claude Code Review 的约定展开)
+#   目录级 REVIEW.md(深的在前)→ 根目录 REVIEW.md
 #     REVIEW.md 里标题为「不要报」(或 Do not report)的一节是团队不想再被提醒的情况,只用来压掉发现,不作为要检查的规则
-#   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.cursor/BUGBOT.md、.github/instructions/ 等
+#   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.github/instructions/ 等
 #     (按各自的路径或 frontmatter 范围生效;Copilot 的 excludeAgent: code-review 会被排除)
 #   → .agents/rules/**/*.md:从 MR 评论沉淀的规则(cr-rules),范围取 frontmatter 的 paths(或 globs),没有就是整个仓库;
 #     其中的「不要报」一节和 REVIEW.md 一样只用来压掉发现
@@ -73,10 +73,6 @@ def add(layer, record, scope, applies):
                        "applies_files": applies, "text": text, "suppress": suppress, "offset": record["offset"]})
 
 records = {r["file"]: r for r in project_rules.discover(src)}
-if "REVIEW.md" in records:
-    r = records["REVIEW.md"]
-    r["body"], used, skipped = project_rules.expand_includes(r["body"], src.read)
-    errors.extend("REVIEW.md 没有引入 " + x for x in skipped)
 # 目录级 REVIEW.md:改动文件所在的每一级目录,深的在前
 dirs = set()
 for f in changed:

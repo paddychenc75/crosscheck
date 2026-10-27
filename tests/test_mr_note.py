@@ -208,22 +208,6 @@ class MrNote(Repo):
         self.assertIn("作者决定不修:下个版本统一加", md)
         self.assertIn("审查之后又有 1 个提交", md)
 
-    def test_repo_template_is_followed(self):
-        self.git(self.repo, "switch", "-q", "main")
-        self.commit(self.repo, {".gitlab/merge_request_templates/Default.md": "## 背景\n\n## 改动内容\n\n## 自测情况\n\n## 上线步骤\n请填写\n"}, "模板")
-        self.git(self.repo, "switch", "-q", "feature")
-        self.git(self.repo, "rebase", "-q", "main")
-        _, self.rd = self.collect("--source", "prd=skip")
-        Path(self.rd, "findings.json").write_text("[]", encoding="utf-8")
-        out, md = self.note()
-        begin, end = md.index("<!-- crosscheck:begin -->"), md.index("<!-- crosscheck:end -->")
-        inside, outside = md[begin:end], md[end:]
-        self.assertIn("## 背景", inside)
-        self.assertIn("## 改动内容", inside)
-        self.assertIn("## 自测情况", inside)
-        self.assertIn("## 上线步骤\n请填写", outside)
-        self.assertIn("按仓库的 MR 模板填写", out)
-
 
 class GitHubContext(fixture.Base):
     def setUp(self):

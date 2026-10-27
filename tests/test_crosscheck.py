@@ -35,7 +35,7 @@ class Base(unittest.TestCase):
         os.makedirs(os.path.join(self.tmp, "t"))
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GITLAB", "GLAB", "GH_", "GITHUB", "CROSSCHECK", "CR_"))}
         env.update({
-            "CROSSCHECK_HOME": self.home, "CROSSCHECK_OPEN": "0", "CR_USER_SHELL": "0", "TMPDIR": os.path.join(self.tmp, "t"),
+            "CROSSCHECK_HOME": self.home, "TMPDIR": os.path.join(self.tmp, "t"),
             "GIT_TERMINAL_PROMPT": "0", "MOCK_GLAB": self.mock, "LC_ALL": "en_US.UTF-8",
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
         })
@@ -128,7 +128,6 @@ REVIEW_MD = """\
 ---
 skip: ["src/gen/**"]
 limits: { minor: 2 }
-risk_paths: ["src/payment/**"]
 ---
 # Review 约定
 
@@ -167,7 +166,7 @@ class ProjectFixture(Base):
             ".gitlab-ci.yml": "stages: [test]\nunit:\n  script: npm test\n",
             "db/migrations/001.sql": "ALTER TABLE x ADD y int;\n",
             "REVIEW.md": REVIEW_MD.replace("limits: { minor: 2 }", "limits: { minor: 9 }") + "- 分支里新加的规则。原因:测试。\n",
-        }, "feat: 修复分页 Closes #12, PROJ-231")
+        }, "feat: 修复分页 Closes #12")
         self.git(self.repo, "switch", "-q", "main")
 
     def collect(self, *args):
@@ -201,14 +200,13 @@ class TestCollect(ProjectFixture):
         self.assertIn("order_client 统一重试", rules, "「不要报」仍交给角色看")
         self.assertTrue(meta["source"].startswith("base:"))
 
-    def test_context_weakening_risk_and_intent(self):
+    def test_context_weakening_and_intent(self):
         rd, out = self.collect("feature")
         kinds = {line.split("\t")[0] for line in Path(os.path.join(rd, "weakening.txt")).read_text(encoding="utf-8").splitlines(keepends=True)}
         self.assertTrue({"assertions-removed", "skip-added", "ci-check-removed", "suppression-added"} <= kinds, kinds)
-        self.assertIn("SUGGEST:", out)
+        self.assertNotIn("SUGGEST:", out)
         meta = self.kv(os.path.join(rd, "meta.txt"))
-        self.assertEqual(meta["risk_level"], "high")
-        self.assertEqual(meta["depth_source"], "default")
+        self.assertNotIn("risk_level", meta)
         self.assertIn("提交说明", meta["intent_sources"])
         intent = Path(os.path.join(rd, "intent.md")).read_text(encoding="utf-8")
         self.assertIn("feat: 修复分页", intent)
@@ -419,27 +417,6 @@ class TestGitLab(Base):
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
         self.assertEqual(self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))["platform"], "gitlab")
 
-class TestStats(Base):
-    def test_stats_lists_near_misses(self):
-        remote = self.bare("shop")
-        repo = self.make_repo("shop", {"src/a.ts": "a\n"}, remote=remote)
-        pdir = os.path.join(self.home, "reviews", "shop")
-        rec = os.path.join(pdir, "mr-5", "20261020-100000")
-        os.makedirs(rec)
-        with open(os.path.join(pdir, ".repo"), "w") as f:
-            f.write(remote[:-len(".git")] + "\n")
-        with open(os.path.join(pdir, "mr-5", "latest"), "w") as f:
-            f.write("20261020-100000\n")
-        with open(os.path.join(rec, "findings.json"), "w") as f:
-            json.dump([{"id": "fa", "file": "src/a.ts", "line": 1, "summary": "A", "confidence": 90}], f)
-        with open(os.path.join(rec, "meta.txt"), "w") as f:
-            f.write("target_branch=main\n")
-        with open(os.path.join(rec, "rejected.json"), "w") as f:
-            json.dump([{"file": "src/a.ts", "line": 1, "summary": "差一点", "confidence": 75, "reject_reason": "差一环"}], f, ensure_ascii=False)
-        out = self.run_script("stats.sh", "--repo", repo).stdout
-        self.assertNotIn("采纳", out)
-        self.assertIn("### 差一点通过", out)
-        self.assertIn("75 分", out)
 
 if __name__ == "__main__":
     unittest.main()

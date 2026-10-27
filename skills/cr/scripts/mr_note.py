@@ -16,7 +16,6 @@ analysis.json(analyst,经 analysis_check.py 校验)、findings.json / final.json
 """
 import datetime
 import html
-import json
 import os
 import re
 import subprocess
@@ -51,6 +50,10 @@ def short(items, n, fmt=str):
     return s + (" 等 %d 个" % len(items) if len(items) > n else "")
 
 
+def finding_key(f):
+    return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
+
+
 def split_where(where):
     m = re.match(r"(.+):(\d+)$", where or "")
     return (m.group(1), m.group(2)) if m else (where, "")
@@ -82,6 +85,7 @@ class Note:
         self.store = srcmod.load_store(self.store_path)
         self.conf = srcmod.settings()
         self.notes = []
+        self._findings = None
         self.hunks = {h["id"]: h for h in self.facts.get("hunks", []) if isinstance(h, dict) and h.get("id")}
         self.sha = self.meta.get("head_sha", "")
         self.link_base = self._link_base()
@@ -191,31 +195,35 @@ class Note:
         return seen
 
     def findings(self):
-        fs = [f for f in crlib.load_json(os.path.join(self.d, "findings.json"), []) if f.get("category") != "simplify"]
-        dismissed = [f for f in crlib.load_json(os.path.join(self.d, "dismissed.json"), []) if f.get("category") != "simplify"]
-        pdir = os.path.dirname(self.meta.get("store_dir", "")) if self.meta.get("store_dir") else ""
-        verdicts = crlib.feedback_entries(pdir) if pdir else {}
-        key = lambda f: f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
-        fixed = set()
+        """返回 (已修复条数, 未修复的发现);每条未修复的带上作者的判断 verdict 和理由 reason。"""
+        if self._findings is None:
+            fixed = self.fixed_keys()
+            verdicts = self.verdicts()
+            standing = []
+            for f in crlib.load_json(os.path.join(self.d, "findings.json"), []):
+                if f.get("category") != "simplify" and finding_key(f) not in fixed:
+                    v = verdicts.get(finding_key(f), {})
+                    standing.append(dict(f, verdict=v.get("verdict", ""), reason=v.get("reason", "")))
+            # 判为不成立或不修的被 feedback.sh 移进了 dismissed.json,也要列出来给评审人看
+            for f in crlib.load_json(os.path.join(self.d, "dismissed.json"), []):
+                if f.get("category") != "simplify":
+                    standing.append(dict(f, verdict=f.get("verdict", "invalid"), reason=f.get("dismiss_reason", "")))
+            self._findings = (len(fixed), standing)
+        return self._findings
+
+    def verdicts(self):
         store = self.meta.get("store_dir", "")
-        if store and os.path.isdir(store):
-            for stamp in os.listdir(store):
-                final = crlib.load_json(os.path.join(store, stamp, "final.json"), {})
-                for r in (final.get("resolved") or []) if isinstance(final, dict) else []:
-                    if "代码变了" in str(r.get("resolved_reason", "")):
-                        fixed.add(key(r))
-        for k, v in verdicts.items():
-            if v.get("verdict") == "valid" and "--fix" in str(v.get("reason", "")) and v.get("target") == self.meta.get("target_key"):
-                fixed.add(k)
-        standing = []
-        for f in fs:
-            v = verdicts.get(key(f))
-            if key(f) in fixed:
-                continue
-            standing.append(dict(f, verdict=v.get("verdict") if v else "", reason=v.get("reason", "") if v else ""))
-        for f in dismissed:
-            standing.append(dict(f, verdict=f.get("verdict", "invalid"), reason=f.get("dismiss_reason", "")))
-        return len(fixed), standing
+        return crlib.feedback_entries(os.path.dirname(store)) if store else {}
+
+    def fixed_keys(self):
+        """已修复:这个目标的历次增量审查里因为代码变了而不再成立的,加上用 --fix 修掉的。"""
+        fixed, store = set(), self.meta.get("store_dir", "")
+        for stamp in (os.listdir(store) if store and os.path.isdir(store) else []):
+            final = crlib.load_json(os.path.join(store, stamp, "final.json"), {})
+            fixed |= {finding_key(r) for r in final.get("resolved") or [] if "代码变了" in str(r.get("resolved_reason", ""))}
+        fixed |= {k for k, v in self.verdicts().items()
+                  if v.get("verdict") == "valid" and "--fix" in str(v.get("reason", "")) and v.get("target") == self.meta.get("target_key")}
+        return fixed
 
     def focus(self):
         chosen = [x for x in (self.store.get("focus") or []) if isinstance(x, dict) and x.get("where")]
@@ -458,77 +466,6 @@ def version():
     return ""
 
 
-def template(note):
-    """仓库的 MR / PR 模板(从对比基准那一版读):返回 [(标题行, 原文)]。"""
-    root, base = note.root, note.meta.get("base_sha", "")
-    if not root or not base:
-        return None
-    names = git(root, "ls-tree", "--name-only", base, ".gitlab/merge_request_templates/").split("\n")
-    cands = [n for n in names if n.endswith(".md")]
-    pick = next((n for n in cands if os.path.basename(n).lower() == "default.md"), cands[0] if len(cands) == 1 else None)
-    for p in ([pick] if pick else []) + [".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "docs/pull_request_template.md"]:
-        text = git(root, "show", "%s:%s" % (base, p))
-        if text:
-            parts, cur = [], None
-            for line in text.split("\n"):
-                if re.match(r"#{1,3}\s", line):
-                    cur = [line, []]
-                    parts.append(cur)
-                elif cur:
-                    cur[1].append(line)
-            return [(h, "\n".join(b).strip()) for h, b in parts] or None
-    return None
-
-
-SLOTS = [  # 模板标题里的关键字 → 我们的哪一节
-    (r"背景|需求|原因|why|context|motivation|关联|issue|ticket", ("info",)),
-    (r"改动|变更|内容|what|change|summary|描述|description", ("read",)),
-    (r"影响|风险|impact|risk|注意|breaking", ("impact", "attention")),
-    (r"测试|自测|验证|test|qa", ("tests",)),
-    (r"review|评审|重点|focus", ("focus",)),
-]
-
-
-def split_sections(lines):
-    out, cur = {"info": []}, "info"
-    names = {"### 请重点看": "focus", "### 可能值得重点看(自动列出)": "focus", "### 阅读顺序": "read",
-             "### 影响面": "impact", "### 需注意": "attention", "### 测试": "tests"}
-    for line in lines:
-        if line in names:
-            cur = names[line]
-            out[cur] = [line]
-            continue
-        if line.startswith("**CR 情况"):
-            cur = "cr"
-            out[cur] = []
-        out.setdefault(cur, []).append(line)
-    return out
-
-
-def assemble(note, lines):
-    tpl = template(note)
-    if not tpl:
-        return "\n".join([BEGIN] + lines + [END]) + "\n"
-    secs = split_sections(lines)
-    used, inside, outside = set(), [], []
-    for head, body in tpl:
-        slot = next((s for pat, s in SLOTS if re.search(pat, head, re.I)), None)
-        got = [x for x in (slot or ()) if x in secs and x not in used]
-        if got:
-            used.update(got)
-            content = []
-            for x in got:
-                content += [l for l in secs[x] if not l.startswith("### ")]
-            inside += [head] + [l for l in content if l != ""] + [""]
-        else:
-            outside += [head, body, ""]
-    for k in ("info", "focus", "read", "impact", "attention", "tests", "cr"):
-        if k in secs and k not in used:
-            inside += [l for l in secs[k]] + [""]
-    note.notes.append("按仓库的 MR 模板填写;模板里需要你自己写的几节放在 crosscheck 标记之外,重新生成时不会被覆盖")
-    return "\n".join([BEGIN] + inside + [END, ""] + outside).rstrip() + "\n"
-
-
 PAGE = """<title>%(title)s</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -560,7 +497,7 @@ def main(argv):
     if not os.path.isfile(os.path.join(d, "meta.txt")):
         sys.exit("mr_note: %s 不是审查目录" % d)
     note = Note(d)
-    text = assemble(note, note.markdown())
+    text = "\n".join([BEGIN] + note.markdown() + [END]) + "\n"
     with open(os.path.join(d, "mr.md"), "w", encoding="utf-8") as f:
         f.write(text)
     page = note.html_page()

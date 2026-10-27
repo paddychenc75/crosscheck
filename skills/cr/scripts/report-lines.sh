@@ -8,13 +8,12 @@
 #   INTENT:    意图取自哪些来源
 #   RULES:     用了哪些规则文件、违反几条
 #   RULES_NOTE: 规则相关的提示(可能过时、冲突、格式有误、被排除),可能有多行
-#   RISK:      风险等级和建议深度
 #   WEAKEN:    测试或检查被削弱的每一处,可能有多行(没有就不输出)
 #   SKIPPED:   跳过的文件按原因计数
 #   CHECKED:   「已检查:」那一行
 #   TRIMMED:   因条数上限没有展示的条数
 #   GUARD:     没有检测到只读拦截时说明一句(检测到就不输出)
-#   MARK:      每条展示的发现怎么确认的:<编号><TAB>已复现 | 已复现(自报) | 读代码推断,写进该条标题
+#   MARK:      每条展示的发现怎么确认的:<编号><TAB>已复现 | 读代码推断,写进该条标题
 #   FEEDBACK:  报告末尾提示怎么快速表态
 
 set -eu
@@ -27,28 +26,17 @@ import os, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
-import report_groups
 
 d = os.environ["CR_DIR"]
 m = crlib.read_kv(os.path.join(d, "meta.txt"))
 rm = crlib.read_kv(os.path.join(d, "rules-meta.txt"))
-report_path = os.path.join(d, "report.json")
-if os.path.isfile(report_path): os.remove(report_path)
 if os.path.isfile(os.path.join(d, "verification-errors.json")):
     sys.exit("report-lines: 核实未完成，请先补齐结果并重新 aggregate")
 final = crlib.load_json(os.path.join(d, "final.json"), {})
-try:
-    display = report_groups.build(final, os.path.join(d, "display-groups.json"))
-except ValueError as e:
-    sys.exit("report-lines: " + str(e))
-crlib.save_json(os.path.join(d, "report.json"), display)
-if display.get("display_groups"):
-    print("GROUPED: 同一问题合并展示 %d 组；关联编号及依据保留" % len(display["display_groups"]))
-for fs in display.get("groups", {}).values():
+for fs in final.get("groups", {}).values():
     for f in fs:
         if f.get("no"):
             print("MARK: %s\t%s" % (f["no"], f.get("mark") or "读代码推断"))
-risk = crlib.read_kv(os.path.join(d, "risk.txt"))
 DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
 
 # 审查范围
@@ -97,17 +85,6 @@ if rm.get("errors"):
 for n in final.get("notes", []):
     print("RULES_NOTE: %s%s" % (n.get("summary", ""), "(%s)" % n["file"] if n.get("file") else ""))
 
-# 风险
-if risk.get("level"):
-    names = {"low": "低", "medium": "中", "high": "高"}
-    reasons = [l.rstrip("\n").split("=", 1)[1] for l in open(os.path.join(d, "risk.txt"), encoding="utf-8") if l.startswith("reason=")]
-    line = "RISK: 风险:%s" % names.get(risk["level"], risk["level"])
-    if reasons:
-        line += "(%s)" % ";".join(reasons)
-    if risk["level"] == "high" and m.get("depth") != "deep":
-        line += " · 建议用 deep 深度重新审"
-    print(line)
-
 # 测试或检查被削弱
 try:
     for l in open(os.path.join(d, "weakening.txt"), encoding="utf-8"):
@@ -134,7 +111,7 @@ if cnt:
 
 # 已检查
 only = m.get("only", "all")
-dims = ["bug", "安全", "需求核对", "项目规则"] if only == "all" else [{"bug": "bug", "security": "安全", "rules": "项目规则", "simplify": "简化"}.get(x, x) for x in only.split(",")]
+dims = ["bug", "安全", "需求核对", "项目规则"] if only == "all" else [{"bug": "bug", "security": "安全", "rules": "项目规则"}.get(x, x) for x in only.split(",")]
 if (rm_blocks == 0 or quick) and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
@@ -142,7 +119,7 @@ if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
     dims.remove("需求核对")
     extra.append("需求核对:缺少明确验收标准,未完成")
 st = crlib.load_json(os.path.join(d, "settings.json"), {})
-if any(st.get(k) for k in ("skip", "limits", "risk_paths", "platform")):
+if any(st.get(k) for k in ("skip", "limits")):
     extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % st.get("source", ""))
 if m.get("finder_model"):
     extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
@@ -150,21 +127,16 @@ if m.get("verifier_model", "host") not in ("", "host"):
     extra.append("核实模型配置:%s(实际执行模型由宿主说明)" % m["verifier_model"])
 rs = final.get("runs") or {}
 if rs.get("total") or rs.get("failed_claims"):
-    part = "运行 %d 次" % rs.get("total", 0)
-    if rs.get("guarded"):
-        part += "(见证 %d)" % rs.get("witnessed", 0)
-    else:
-        part += "(没有 hook,未见证)"
-    part += " · 复现成功 %d" % rs.get("reproduced", 0)
+    part = "运行 %d 次 · 复现成功 %d" % (rs.get("total", 0), rs.get("reproduced", 0))
     if rs.get("failed_claims"):
-        part += " · 声称执行未通过校验 %d" % rs["failed_claims"]
+        part += " · 声称执行但没有运行记录 %d" % rs["failed_claims"]
     extra.append(part)
 print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), m.get("depth"), "增量" if m.get("review_scope") == "incremental" else "全量",
       " · " + " · ".join(extra) if extra else ""))
 
 tr = final.get("trimmed", {})
 if tr:
-    NAMES2 = {"defects": "缺陷", "intent": "需求核对", "rules": "规范", "simplify": "可简化"}
+    NAMES2 = {"defects": "缺陷", "intent": "需求核对", "rules": "规范"}
     print("TRIMMED: 因条数上限没有展示:" + "、".join("%s %d 条" % (NAMES2.get(k, k), v) for k, v in tr.items()) + "(仍记在记录里,下次会继续跟踪)")
 
 # hook 在 collect-diff.sh 执行完时会在 review_dir 里留下标记;没有标记说明这次审查没有受到只读拦截。

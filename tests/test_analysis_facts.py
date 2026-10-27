@@ -62,16 +62,13 @@ class Languages(Facts):
         hid = s["hunk"]
         self.assertIn("listOrders", next(x for x in data["hunks"] if x["id"] == hid)["symbols"])
 
-    def test_go_python_java_kotlin_csharp_php_ruby(self):
+    def test_go_python_java_kotlin(self):
         base = {
             "svc/order.go": "package svc\n\nfunc ListOrders(p int) int {\n\treturn p\n}\n\nfunc internalThing(p int) int {\n\treturn p\n}\n",
             "app/orders.py": "__all__ = ['list_orders']\n\ndef list_orders(page):\n    return page\n\ndef other_func(a):\n    return a\n",
             "src/OrderService.java": "public class OrderService {\n    public List<Order> listOrders(int page) {\n        return null;\n    }\n"
                                      "    private void secretStep(int a) {\n    }\n}\n",
             "src/Orders.kt": "class Orders {\n    fun listOrders(page: Int): Int {\n        return page\n    }\n}\n",
-            "src/Orders.cs": "public class Orders {\n    public int ListOrders(int page) {\n        return page;\n    }\n}\n",
-            "src/Orders.php": "<?php\nclass Orders {\n    public function listOrders($page) {\n        return $page;\n    }\n}\n",
-            "lib/orders.rb": "class Orders\n  def list_orders(page)\n    page\n  end\nend\n",
         }
         change = {
             "svc/order.go": "package svc\n\nfunc ListOrders(p int, size int) int {\n\treturn p\n}\n\nfunc internalThing(p string) int {\n\treturn 0\n}\n",
@@ -79,9 +76,6 @@ class Languages(Facts):
             "src/OrderService.java": "public class OrderService {\n    public List<Order> listOrders(int page,\n                                  int size) {\n        return null;\n    }\n"
                                      "    private void secretStep(long a) {\n    }\n}\n",
             "src/Orders.kt": "class Orders {\n    fun listOrders(page: Int, size: Int): Int {\n        return page\n    }\n}\n",
-            "src/Orders.cs": "public class Orders {\n    public int ListOrders(int page, int size) {\n        return page;\n    }\n}\n",
-            "src/Orders.php": "<?php\nclass Orders {\n    public function listOrders($page, $size) {\n        return $page;\n    }\n}\n",
-            "lib/orders.rb": "class Orders\n  def list_orders(page, size)\n    page\n  end\nend\n",
         }
         _, data = self.feature("langs", base, change)
         got = {(s["file"], s["name"]): s for s in data["symbols"]}
@@ -96,9 +90,6 @@ class Languages(Facts):
         self.assertFalse(got[("src/OrderService.java", "secretStep")]["exported"])
         self.assertEqual(got[("src/Orders.kt", "listOrders")]["change"], "signature_changed")
         self.assertTrue(got[("src/Orders.kt", "listOrders")]["exported"])
-        self.assertEqual(got[("src/Orders.cs", "ListOrders")]["change"], "signature_changed")
-        self.assertEqual(got[("src/Orders.php", "listOrders")]["change"], "signature_changed")
-        self.assertEqual(got[("lib/orders.rb", "list_orders")]["change"], "signature_changed")
 
     def test_unknown_definition_falls_back_to_hunk_header(self):
         body = "".join("  line(%d)\n" % i for i in range(20))
@@ -267,13 +258,12 @@ class AttentionAndSkip(Facts):
         self.assertTrue(any("读不到被审查的代码" in l for l in data["limits"]))
         self.assertEqual(data["symbols"][0]["name"], "zzz")
 
-    def test_new_config_file_is_one_item_and_shell_functions(self):
+    def test_new_config_file_is_one_item_and_other_languages_fall_back(self):
         _, data = self.feature("newcfg", {"bin/run.sh": "#!/bin/sh\nstart_server() {\n  echo a\n}\n"}, {
             "config/new.yml": "a:\n  b: 1\n  c: 2\n",
             "bin/run.sh": "#!/bin/sh\nstart_server() {\n  echo b\n}\nstop_server() {\n  echo c\n}\n",
         })
         cfg = [a for a in data["attention"] if a["file"] == "config/new.yml"]
         self.assertEqual([a["detail"] for a in cfg], ["新增配置文件 config/new.yml(2 个键)"])
-        self.assertFalse(any(s["file"] == "config/new.yml" for s in data["symbols"]))
-        got = {s["name"]: s["change"] for s in data["symbols"] if s["file"] == "bin/run.sh"}
-        self.assertEqual(got, {"stop_server": "added", "start_server": "body_only"})
+        self.assertFalse(any(s["file"] in ("config/new.yml", "bin/run.sh") for s in data["symbols"]))
+        self.assertTrue(any("bin/run.sh" in l for l in data["limits"]))

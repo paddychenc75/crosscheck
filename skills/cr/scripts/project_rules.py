@@ -1,6 +1,5 @@
 """项目规则的来源识别与范围解析,不执行正文。"""
 import os
-import re
 
 import crlib
 
@@ -17,15 +16,9 @@ def kind(path):
         return 'cursor'
     if path.startswith('.github/instructions/') and path.endswith('.instructions.md'):
         return 'copilot'
-    if path == '.cursor/BUGBOT.md' or path.endswith('/.cursor/BUGBOT.md'):
-        return 'bugbot'
-    return {
-        'CLAUDE.md': 'claude', 'AGENTS.md': 'agents', 'AGENTS.override.md': 'agents',
-        'GEMINI.md': 'gemini', 'CONVENTIONS.md': 'conventions',
-    }.get(name) or {
-        '.cursorrules': 'cursor', '.windsurfrules': 'windsurf',
-        '.github/copilot-instructions.md': 'copilot',
-    }.get(path)
+    if path == '.github/copilot-instructions.md':
+        return 'copilot'
+    return {'CLAUDE.md': 'claude', 'AGENTS.md': 'agents', 'AGENTS.override.md': 'agents'}.get(name)
 
 
 def patterns(value):
@@ -58,10 +51,6 @@ def describe(path, text):
     scope = [os.path.dirname(path) + '/**'] if '/' in path else ['**']
     if path in ('.claude/CLAUDE.md', '.github/copilot-instructions.md'):
         scope = ['**']
-    if source == 'bugbot':
-        # Cursor Bugbot:a/b/.cursor/BUGBOT.md 管 a/b/ 下的改动,根目录的 .cursor/BUGBOT.md 管整个仓库。
-        owner = os.path.dirname(os.path.dirname(path))
-        scope = [owner + '/**'] if owner else ['**']
     issues = []
     if native:
         key = {'claude': 'paths', 'cursor': 'globs', 'copilot': 'applyTo', 'agents-rules': 'paths'}[source]
@@ -91,51 +80,6 @@ def describe(path, text):
 def matches(record, path):
     fn = native_match if record['native'] else crlib.glob_match
     return not record['issues'] and any(fn(p, path) for p in record['patterns'])
-
-
-# REVIEW.md 的引入,照 Claude Code Review 的约定:只在根目录 REVIEW.md 里、单独一行 `@文件名`,
-# 文件和 REVIEW.md 在同一目录(或 .claude/skills/<目录>/SKILL.md),只展开一层;
-# 最多 8 个文件,REVIEW.md 和引入的文件合计不超过 150000 字节,超过的整个跳过;SKILL.md 单个不超过 30000 字节。
-INCLUDE = re.compile(r'^@([^\s/]+|\.claude/skills/[^\s/]+/SKILL\.md)\s*$')
-MAX_INCLUDES, MAX_BYTES, MAX_SKILL_BYTES = 8, 150000, 30000
-
-
-def include_names(text):
-    names, fence = [], False
-    for line in text.split('\n'):
-        if line.lstrip().startswith(('```', '~~~')):
-            fence = not fence
-        m = None if fence else INCLUDE.match(line)
-        if m:
-            names.append(m.group(1))
-    return names
-
-
-def expand_includes(text, read):
-    """把引入行换成文件内容;读不到的保持原样(和 Claude 一样当普通文字),超出限制的记下来。"""
-    out, skipped, used, total, fence = [], [], [], len(text.encode('utf-8')), False
-    for line in text.split('\n'):
-        if line.lstrip().startswith(('```', '~~~')):
-            fence = not fence
-        m = None if fence else INCLUDE.match(line)
-        body = read(m.group(1)) if m else None
-        if body is None:
-            out.append(line); continue
-        name = m.group(1)
-        if name.endswith('/SKILL.md'):
-            if len(body.encode('utf-8')) > MAX_SKILL_BYTES:
-                skipped.append(name + '(超过 30000 字节)'); continue
-            body = crlib.parse_frontmatter(body)[1]
-        if name not in used and len(used) >= MAX_INCLUDES:
-            skipped.append(name + '(超过 8 个文件)'); continue
-        size = len(body.encode('utf-8'))
-        if total + size > MAX_BYTES:
-            skipped.append(name + '(合计超过 150000 字节)'); continue
-        if name not in used:
-            used.append(name)
-        total += size
-        out.append(body.strip('\n'))
-    return '\n'.join(out), used, skipped
 
 
 def discover(src):

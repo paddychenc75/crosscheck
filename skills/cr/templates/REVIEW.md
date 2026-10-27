@@ -1,10 +1,8 @@
 ---
 # 不审查的路径
 skip: []
-# 条数上限:defects(缺陷)、intent(需求核对)、rules(规范)、simplify(可简化),或按 critical/major/minor
+# 条数上限:defects(缺陷)、intent(需求核对)、rules(规范),或按 critical/major/minor
 # limits: { minor: 3 }
-# 高风险路径:改动命中时建议用 deep 深度
-# risk_paths: ["src/payment/**"]
 ---
 # Review 约定
 

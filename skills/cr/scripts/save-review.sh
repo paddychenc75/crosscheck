@@ -7,34 +7,27 @@
 #          report.md      给用户看的报告
 #          findings.json  本次审查结束时仍然成立的全部发现(aggregate.sh 写出,含从上次带过来的)
 #        另外会一并保存(有就存):final.json、rejected.json(没通过核实的候选)、intent.md、weakening.txt、
-#        risk.txt、settings.json、rules-index.json、rules-meta.txt、rules-notes.json,以及 MR 说明用的
+#        settings.json、rules-index.json、rules-meta.txt、rules-notes.json,以及 MR 说明用的
 #        sources.json、analysis-facts.json、analyst.json、analysis.json
 #
 # 写入 ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
 #   latest    最近一次审查
 #   baseline  最近一次覆盖所有维度的审查,增量审查以它为基准(--only 的审查不会成为基准)
-# 保存后用系统默认程序打开 report.md,并输出:
+# 输出:
 #   report=<报告的路径>
 #   link=<报告的 file:// 链接>
-#   opened=yes | no (<原因>)
 #   dir=<保存到的目录>
-#   hint=<怎么更换打开报告的程序>   只在第一次用系统默认程序打开时输出
 #   cost=<这次审查的用时和消耗>     用时一定有;token 只在宿主的 hook 记到了用量时才有
 #
 # --finders 等四个数字是这次审查启动的查找角色数、verifier 数、候选条数、通过核实的条数,
 # 和用时、token 用量一起记进保存的 meta.txt,供 stats.sh 统计成本。候选和通过的条数没给时取自 final.json。
-#
-# 环境变量:
-#   CROSSCHECK_OPEN=0        不自动打开
-#   CROSSCHECK_OPEN_CMD=cmd  用指定的命令打开(如 code、cursor),报告路径作为最后一个参数
-# 通过 SSH 连接、在 CI 里、或 Linux 上没有图形界面时不会自动打开。
 
 set -eu
 
 die() { printf 'save-review: %s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-  -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   "") die "需要指定 collect-diff.sh 的输出目录" ;;
 esac
 dir=$1; shift
@@ -64,10 +57,10 @@ repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
-for f in report.json display-groups.json context-hash.txt final.json rejected.json intent.md weakening.txt risk.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json; do
+for f in report.json display-groups.json context-hash.txt final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json; do
   [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
 done
-if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ] && command -v python3 >/dev/null 2>&1; then
+if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ]; then
   counts=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])).get("counts",{}); print(c.get("candidates",""), c.get("passed",""))' "$dir/final.json" 2>/dev/null || true)
   [ -n "$run_candidates" ] || run_candidates=${counts% *}
   [ -n "$run_passed" ] || run_passed=${counts#* }
@@ -75,8 +68,7 @@ fi
 
 # 给每条发现记下它指向的那一行代码,作为跨审查识别"同一个问题"的依据;
 # 增量审查时,判断上次的每条发现去哪了:代码改了、代码没变但这次没报、还是文件已不在改动里。
-if command -v python3 >/dev/null 2>&1; then
-  CR_DIR="$dir" CR_DEST="$dest" python3 - <<'PY' || true
+CR_DIR="$dir" CR_DEST="$dest" python3 - <<'PY' || true
 import hashlib, json, os, subprocess
 d, dest = os.environ["CR_DIR"], os.environ["CR_DEST"]
 meta = {}
@@ -137,7 +129,6 @@ if meta.get("review_scope") == "incremental" and prev:
         out.append(dict({k: p.get(k) for k in ("id", "file", "line", "category", "severity", "confidence", "summary", "since")}, transition=t))
     json.dump(out, open(os.path.join(dest, "transitions.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 PY
-fi
 
 
 # 这次审查的成本:用时、启动的角色数、候选数,以及 hook 记到的 token 用量(如果有)。
@@ -166,7 +157,7 @@ if ! num "$tok"; then
   case "$(saved usage_status)" in
     no_start) why="hook 在运行,但审查开始时没拿到会话记录" ;;
     no_records) why="hook 在运行,但会话记录里读不到用量" ;;
-    unsupported) why="Cursor 的 hook 不提供用量" ;;
+    unsupported) why="只统计 Claude Code,这个宿主不统计 token" ;;
     *) why="hook 没有运行:没有以插件方式安装,或在 Codex 里还没有用 /hooks 信任" ;;
   esac
   cost="${cost:+$cost · }token 未统计(${why})"
@@ -181,50 +172,7 @@ if [ "$(meta only)" = all ]; then printf '%s\n' "$stamp" > "$store/baseline"; fi
 report="$dest/report.md"
 link="file://$(printf '%s' "$report" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g')"
 
-opened=""
-hint=""
-case "${CROSSCHECK_OPEN:-1}" in
-  0|no|false|off) opened="no (CROSSCHECK_OPEN 已关闭)" ;;
-esac
-if [ -z "$opened" ] && [ -z "${CROSSCHECK_OPEN_CMD:-}" ]; then
-  if [ -n "${SSH_CONNECTION:-}${SSH_TTY:-}" ]; then opened="no (SSH 会话)"
-  elif [ -n "${CI:-}" ]; then opened="no (CI 环境)"
-  fi
-fi
-if [ -z "$opened" ]; then
-  if [ -n "${CROSSCHECK_OPEN_CMD:-}" ]; then
-    # shellcheck disable=SC2086
-    if $CROSSCHECK_OPEN_CMD "$report" >/dev/null 2>&1; then opened=yes; else opened="no ($CROSSCHECK_OPEN_CMD 执行失败)"; fi
-  else
-    case "$(uname -s)" in
-      Darwin)
-        if open "$report" >/dev/null 2>&1; then opened=yes; else opened="no (open 执行失败)"; fi
-        hint="在访达里选中任意一个 .md 文件,按 Cmd+I 打开\"显示简介\",在\"打开方式\"里选好应用后点\"全部更改\""
-        ;;
-      Linux)
-        if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then opened="no (没有图形界面)"
-        elif command -v xdg-open >/dev/null 2>&1; then
-          (xdg-open "$report" >/dev/null 2>&1 &); opened=yes
-          hint="运行 xdg-mime default <应用>.desktop text/markdown"
-        else opened="no (找不到 xdg-open)"; fi
-        ;;
-      MINGW*|MSYS*|CYGWIN*)
-        if cmd.exe /c start "" "$(cygpath -w "$report" 2>/dev/null || printf '%s' "$report")" >/dev/null 2>&1; then opened=yes; else opened="no (start 执行失败)"; fi
-        hint="在\"设置 → 应用 → 默认应用\"里按文件类型为 .md 选择应用"
-        ;;
-      *) opened="no (不认识的系统)" ;;
-    esac
-  fi
-fi
-
 printf 'report=%s\n' "$report"
 printf 'link=%s\n' "$link"
-printf 'opened=%s\n' "$opened"
 printf 'dir=%s\n' "$dest"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
-# 只在第一次用系统默认程序打开时提示怎么更换,之后不再重复。
-hint_marker="${CROSSCHECK_HOME:-$HOME/.crosscheck}/.open-hint-shown"
-if [ "$opened" = yes ] && [ -n "$hint" ] && [ ! -f "$hint_marker" ]; then
-  printf 'hint=报告是用系统里 .md 文件的默认程序打开的。想换一个:%s;或者设置环境变量 CROSSCHECK_OPEN_CMD(例如 code、cursor)指定程序,设置 CROSSCHECK_OPEN=0 则不自动打开。\n' "$hint"
-  : > "$hint_marker" 2>/dev/null || true
-fi

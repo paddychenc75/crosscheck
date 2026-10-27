@@ -10,14 +10,12 @@
 #   sources.json      需求来源:每类(ticket、prd…)的链接、状态、标题,以及缺了哪些(见 sources.py)
 #   discussions.json  MR / PR 上的人工评论(只读获取;作者只存哈希)
 #   weakening.txt     kind<TAB>file<TAB>说明 — 测试或检查被削弱的地方
-#   risk.txt          风险等级、原因和建议深度
-# 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、risk_level 等。
+# 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、sources_missing。
 # 并输出 SOURCES_MISSING:(缺的需求来源)、NOTE: 等提示行。
-# 需要 python3;没有就什么都不做。读取需求单和讨论需要 glab 或 gh,读不到的部分跳过。
+# 读取需求单和讨论需要 glab 或 gh,读不到的部分跳过。
 
 set -eu
 
-command -v python3 >/dev/null 2>&1 || exit 0
 [ -f "${1:-}/meta.txt" ] || { echo "collect-context: 需要 collect-diff.sh 的输出目录" >&2; exit 2; }
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR=$(cd "$1" && pwd) python3 - <<'PY'
@@ -30,7 +28,6 @@ import sources as srcmod
 d = os.environ["CR_DIR"]
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
 root = meta.get("repo_root", "")
-cfg = crlib.config()
 extra = {}
 notes = []
 
@@ -106,11 +103,10 @@ if base and head and base != head:
         sections.append(("提交说明", clip(commits, 2000)))
         sources.append("提交说明")
 
-# 关联的需求单:GitLab Issue(#123、Closes #123、/-/issues/123)和 Jira 风格的编号(PROJ-231)
+# 关联的需求单:GitLab / GitHub Issue(#123、Closes #123、/-/issues/123);其他需求系统走 source.ticket
 text_for_refs = desc + "\n" + commits + "\n" + user_intent
 issue_iids = set(re.findall(r"(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|related to|issue|关联|修复|解决)\s*:?\s*#(\d+)", text_for_refs))
 issue_iids |= set(re.findall(r"/-/issues/(\d+)", text_for_refs))
-keys = sorted(set(re.findall(r"\b([A-Z][A-Z0-9]{1,9}-\d+)\b", text_for_refs)) - {"UTF-8", "SHA-1", "SHA-256", "ISO-8601"})
 acceptance = []
 
 def take_acceptance(label, body):
@@ -155,22 +151,7 @@ for iid in sorted(issue_iids, key=int)[:5]:
                   else "未找到 glab" if shutil.which("glab") is None
                   else "本次使用 git 回退,未请求 API" if meta.get("pr_source", "api") != "api"
                   else "API 请求失败或返回内容不完整;请检查服务连接、访问权限与需求编号")
-        notes.append("关联需求 #%s 没有读到(%s);可用 --intent 或 --plan 补充" % (iid, reason))
-
-issue_cmd = cfg.get("issue_cmd", "")
-for key in keys[:5]:
-    body = None
-    if issue_cmd:
-        cmd = issue_cmd.replace("{key}", key)
-        body = run(["sh", "-c", cmd], timeout=20)
-    if body and body.strip():
-        sections.append(("关联需求 %s" % key, clip(body, 2500)))
-        sources.append(key)
-        take_acceptance(key, body)
-    else:
-        sources.append("%s(未读取)" % key)
-        if not issue_cmd:
-            notes.append("提到了需求 %s,但没有配置 issue_cmd,只记下编号" % key)
+        notes.append("关联需求 #%s 没有读到(%s);可用 --intent 或 --doc 补充" % (iid, reason))
 
 doc_list = [x.strip() for x in (read_file(os.path.join(d, "doc-files.txt")) or "").split("\n") if x.strip()]
 if not doc_list and meta.get("plan_file"):
@@ -192,7 +173,7 @@ for line in (read_file(os.path.join(d, "source-args.txt")) or "").split("\n"):
         k, v = line.split("=", 1)
         src_args[k.strip()] = srcmod.parse_arg(v)
 missing, staged, src_conf = srcmod.resolve(meta, d, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]),
-                                           src_args, meta.get("source_dir", ""), has_issue_ref=bool(issue_iids or keys))
+                                           src_args, meta.get("source_dir", ""), has_issue_ref=bool(issue_iids))
 for doc in staged:
     if not doc["text"]:
         continue
@@ -367,45 +348,10 @@ with open(os.path.join(d, "weakening.txt"), "w", encoding="utf-8") as f:
         f.write("%s\t%s\t%s\n" % (k, p, why.replace("\t", " ")))
 extra["weakening"] = len(weak)
 
-# ---------- 风险分级 ----------
-settings = crlib.load_json(os.path.join(d, "settings.json"), {})
-files = [x.strip() for x in (read_file(os.path.join(d, "files.full.txt")) or read_file(os.path.join(d, "files.txt")) or "").split("\n") if x.strip()]
-try:
-    changed = int(meta.get("changed_lines", "0") or 0)
-except ValueError:
-    changed = 0
-reasons, level = [], 0
-rp = [f for f in files if crlib.any_match(settings.get("risk_paths") or [], f)]
-if rp:
-    level = 2; reasons.append("改动了 REVIEW.md 声明的高风险路径(%s)" % rp[0])
-mig = [f for f in files if re.search(r"(^|/)(migrations?|migrate|alembic|flyway|liquibase|db/changelog)/|\.sql$", f)]
-if mig:
-    level = 2; reasons.append("包含数据库迁移(%s)" % mig[0])
-sens = [f for f in files if re.search(r"(auth|login|session|token|oauth|permission|acl|rbac|password|passwd|crypto|secret|payment|billing|wallet|refund|settle)", f, re.I)]
-if sens:
-    level = max(level, 2 if changed > 300 else 1); reasons.append("涉及鉴权或资金相关的代码(%s)" % sens[0])
-if changed > 800:
-    level = max(level, 2); reasons.append("改动较大(%d 行)" % changed)
-elif changed > 300:
-    level = max(level, 1); reasons.append("改动中等(%d 行)" % changed)
-if weak:
-    level = max(level, 2); reasons.append("测试或检查被削弱 %d 处" % len(weak))
-name = ["low", "medium", "high"][level]
-suggest = "deep" if level == 2 else ("quick" if level == 0 and changed < 50 and files else "standard")
-with open(os.path.join(d, "risk.txt"), "w", encoding="utf-8") as f:
-    f.write("level=%s\nsuggest=%s\n" % (name, suggest))
-    for r in reasons:
-        f.write("reason=%s\n" % r)
-extra["risk_level"] = name
-extra["risk_suggest"] = suggest
-extra["risk_reasons"] = ";".join(reasons)
-
 with open(os.path.join(d, "meta.txt"), "a", encoding="utf-8") as f:
     for k, v in extra.items():
         f.write("%s=%s\n" % (k, v))
 
-if meta.get("depth_source") == "default" and name == "high" and meta.get("depth") != "deep":
-    print("SUGGEST: 风险高(%s),建议用 deep 深度。这次按 %s 继续;需要的话请用户说「用 deep 重新审」。" % (";".join(reasons), meta.get("depth")))
 if weak:
     print("WEAKENING: 发现 %d 处测试或检查被削弱,报告里单独列出(weakening.txt)" % len(weak))
 for n in notes:

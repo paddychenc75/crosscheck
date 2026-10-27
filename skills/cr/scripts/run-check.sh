@@ -9,9 +9,8 @@
 #
 # 在仓库根目录(meta.txt 的 repo_root)运行,超时 CR_RUN_TIMEOUT 秒(默认 120),设置 CI=1、
 # PYTHONDONTWRITEBYTECODE=1。拒绝 git / gh / glab、安装依赖的命令,以及 --fix、--write、-u 这类会改写文件的参数。
-# 写出 DIR/runs/<id>.log(完整输出)和 DIR/runs/<id>.json(命令、开始结束时间、退出码、日志哈希、
-# 解析到的测试数、运行前后工作区是否变化)。
-# 打印日志末尾,最后一行是 `CR-RUN id=<id> exit=<退出码> sha=<日志哈希前 16 位>`,宿主的 hook 据此独立记一笔。
+# 写出 DIR/runs/<id>.log(完整输出)和 DIR/runs/<id>.json(命令、退出码、解析到的测试数、日志文件名)。
+# 打印日志末尾,最后一行是 `CR-RUN id=<id> exit=<退出码>`,verifier 在结论里引用这个 id。
 # 命令本身失败时本脚本仍以 0 退出(退出码在记录里);参数不合法时以 2 退出,不运行任何东西。
 
 set -eu
@@ -22,7 +21,7 @@ CR_DIR=$(cd "$1" && pwd)
 shift
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR="$CR_DIR" python3 - "$@" <<'PY'
-import hashlib, json, os, re, subprocess, sys, time
+import os, re, subprocess, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
@@ -78,10 +77,6 @@ root = meta.get("repo_root") or os.getcwd()
 runs = os.path.join(d, "runs")
 os.makedirs(runs, exist_ok=True)
 
-def git(*a):
-    r = subprocess.run(["git", "-C", root] + list(a), capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
-
 n = 0
 while True:
     n += 1
@@ -93,15 +88,12 @@ while True:
     except FileExistsError:
         continue
 
-before = git("status", "--porcelain")
-head = (git("rev-parse", "HEAD") or "").strip()
 env = dict(os.environ, CI="1", PYTHONDONTWRITEBYTECODE="1")
 try:
     timeout = int(os.environ.get("CR_RUN_TIMEOUT", "120"))
 except ValueError:
     timeout = 120
 log_path = os.path.join(runs, rid + ".log")
-started = time.time()
 timed_out = False
 with open(log_path, "wb") as log:
     try:
@@ -113,11 +105,7 @@ with open(log_path, "wb") as log:
     except OSError as e:
         code = 127
         log.write(("[run-check] 无法运行:%s\n" % e).encode())
-ended = time.time()
-after = git("status", "--porcelain")
-data = open(log_path, "rb").read()
-sha = hashlib.sha256(data).hexdigest()
-text = data.decode("utf-8", "replace")
+text = open(log_path, "rb").read().decode("utf-8", "replace")
 
 def parse_tests(t):
     """尽力从常见测试框架的输出里读出运行和失败的测试数;读不到返回 (None, None)。"""
@@ -153,14 +141,10 @@ def parse_tests(t):
     return None, None
 
 tests_run, tests_failed = parse_tests(text)
-record = {
-    "id": rid, "kind": kind, "argv": argv, "cwd": root, "head_sha": head,
-    "started": started, "ended": ended, "exit": code, "timed_out": timed_out,
-    "log": rid + ".log", "log_sha256": sha, "tests_run": tests_run, "tests_failed": tests_failed,
-    "worktree_changed": before is not None and after is not None and before != after,
-}
+record = {"id": rid, "kind": kind, "argv": argv, "exit": code, "timed_out": timed_out,
+          "log": rid + ".log", "tests_run": tests_run, "tests_failed": tests_failed}
 crlib.save_json(os.path.join(runs, rid + ".json"), record)
 tail = text.rstrip("\n").split("\n")[-20:]
 print("\n".join(tail))
-print("CR-RUN id=%s exit=%d sha=%s" % (rid, code, sha[:16]))
+print("CR-RUN id=%s exit=%d" % (rid, code))
 PY

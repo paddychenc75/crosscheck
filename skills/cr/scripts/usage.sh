@@ -4,10 +4,8 @@
 # 用法: usage.sh start  STATE TRANSCRIPT   记下会话记录当前的位置,作为这次审查的起点
 #       usage.sh finish STATE OUT          汇总起点之后的用量,以 key=value 写入 OUT
 #
-# 数据来源是宿主自己的会话记录,只读取其中的用量数字,不读取对话内容:
-#   Claude Code  每次模型调用的 usage;子代理的记录在 <会话>/subagents/ 下,一并计入
-#   Codex        会话文件里的 token_usage_record
-#   Cursor       会话记录里没有用量,hook 的输入里也没有写明的用量字段,不统计
+# 只统计 Claude Code:读它的会话记录里每次模型调用的 usage(子代理的记录在 <会话>/subagents/ 下,一并计入),
+# 只读用量数字,不读对话内容。Codex、Cursor 不统计。
 # 只由 hook 调用、读 hook 给出的那份会话记录;不会去猜或扫描其他会话的记录。读不到就什么都不写,不影响审查。这些字段都没有写进宿主的正式文档,版本变化后可能失效。需要 python3。
 
 set -eu
@@ -91,36 +89,23 @@ if mode == "finish":
         sys.exit(0)
     lines = load_lines(transcript, int(st.get("lines", "0") or 0))
     result = None
-    codex = [d for d in lines if d.get("type") == "token_usage_record" and isinstance(d.get("payload"), dict)]
-    if codex:
-        tot = {"input": 0, "cache_read": 0, "cache_write": 0, "output": 0, "reasoning": 0}
-        threads = set()
-        for d in codex:
-            p = d["payload"]; u = p.get("usage") or {}
-            cached = int(u.get("cached_input_tokens") or 0); cw = int(u.get("cache_write_input_tokens") or 0)
-            tot["input"] += max(0, int(u.get("input_tokens") or 0) - cached - cw)   # Codex 的 input 含缓存部分
-            tot["cache_read"] += cached; tot["cache_write"] += cw
-            tot["output"] += int(u.get("output_tokens") or 0); tot["reasoning"] += int(u.get("reasoning_output_tokens") or 0)
-            threads.add(p.get("thread_id"))
-        result = dict(tot, source="codex", subagents="included" if len(threads) > 1 else "unknown", calls=len(codex))
-    else:
-        tot, calls = claude_usage(lines)
-        sub_calls = 0
-        subdir = transcript[:-len(".jsonl")] + "/subagents" if transcript.endswith(".jsonl") else ""
-        started = st.get("started_iso", "")
-        if subdir and os.path.isdir(subdir):
-            for path in glob.glob(os.path.join(subdir, "*.jsonl")):
-                try:
-                    if os.path.getmtime(path) < datetime.datetime.strptime(started, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp():
-                        continue
-                except Exception:
-                    pass
-                sub = [d for d in load_lines(path) if str(d.get("timestamp", ""))[:19] >= started]
-                t2, c2 = claude_usage(sub)
-                for k in tot: tot[k] += t2[k]
-                sub_calls += c2
-        if calls + sub_calls:
-            result = dict(tot, source="claude", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls)
+    tot, calls = claude_usage(lines)
+    sub_calls = 0
+    subdir = transcript[:-len(".jsonl")] + "/subagents" if transcript.endswith(".jsonl") else ""
+    started = st.get("started_iso", "")
+    if subdir and os.path.isdir(subdir):
+        for path in glob.glob(os.path.join(subdir, "*.jsonl")):
+            try:
+                if os.path.getmtime(path) < datetime.datetime.strptime(started, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp():
+                    continue
+            except Exception:
+                pass
+            sub = [d for d in load_lines(path) if str(d.get("timestamp", ""))[:19] >= started]
+            t2, c2 = claude_usage(sub)
+            for k in tot: tot[k] += t2[k]
+            sub_calls += c2
+    if calls + sub_calls:
+        result = dict(tot, source="claude", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls)
     if not result:
         sys.exit(0)
     total = result["input"] + result["cache_read"] + result["cache_write"] + result["output"]
@@ -130,8 +115,6 @@ if mode == "finish":
         "usage_total_tokens": total, "usage_model_calls": result["calls"],
         "usage_source": result["source"], "usage_subagents": result["subagents"], "usage_scope": "review",
     }
-    if "reasoning" in result:
-        data["usage_reasoning_tokens"] = result["reasoning"]
     write_kv(out, data)
     sys.exit(0)
 

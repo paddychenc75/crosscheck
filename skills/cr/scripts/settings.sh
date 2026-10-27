@@ -10,18 +10,14 @@
 # REVIEW.md 头部支持的设置:
 #   skip:       ["src/gen/**"]                   不审查的路径
 #   limits:     { defects: 10, rules: 5, minor: 3 }   条数上限(defects/intent/rules/simplify/critical/major/minor)
-#   risk_paths: ["src/payment/**"]               高风险路径,用于建议深度
-#   platform:   gitlab                           自建 GitLab 的域名不含 gitlab 时注明
-# 没有 python3 时什么都不做(审查照常进行,只是这些设置不生效)。
 
 set -eu
 
-command -v python3 >/dev/null 2>&1 || exit 0
 mode=${1:-}
 case "$mode" in
   apply) [ $# -ge 3 ] || { echo "settings: 用法 settings.sh apply DIR ROOT [REF]" >&2; exit 2; } ;;
   show) [ $# -ge 2 ] || { echo "settings: 用法 settings.sh show ROOT [REF]" >&2; exit 2; } ;;
-  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_ARGS=$(printf '%s\n' "$@") python3 - <<'PY'
@@ -48,8 +44,6 @@ settings = {
     "found": text is not None,
     "skip": crlib.as_list(fm.get("skip")),
     "limits": crlib.as_map(fm.get("limits")),
-    "risk_paths": crlib.as_list(fm.get("risk_paths")),
-    "platform": str(fm.get("platform") or ""),
 }
 
 if mode == "show":

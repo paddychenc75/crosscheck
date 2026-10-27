@@ -44,13 +44,6 @@ class IncrementalScope(fixture.Base):
 
 
 class RiskAndHead(fixture.Base):
-    def test_risk_sees_change_size(self):
-        repo = self.make_repo("big", {"a.ts": "x\n"})
-        self.git(repo, "switch", "-qc", "feature")
-        self.commit(repo, {"a.ts": "".join("line %d\n" % i for i in range(900))}, "大改动")
-        rd = self.review_dir(self.run_script("collect-diff.sh", cwd=repo).stdout)
-        self.assertIn("改动较大", Path(rd, "risk.txt").read_text(encoding="utf-8"))
-
     def test_range_with_dirty_worktree_reads_committed_code(self):
         repo = self.make_repo("dirty", {"a.ts": "old\n"})
         base = self.git(repo, "rev-parse", "HEAD")
@@ -149,31 +142,15 @@ class RuleCompat(fixture.Base):
         self.run_script("collect-rules.sh", rd)
         return self.load(os.path.join(rd, "rules-index.json")), Path(rd, "rules-meta.txt").read_text(encoding="utf-8")
 
-    def test_english_do_not_report_and_includes(self):
+    def test_english_do_not_report_and_no_includes(self):
         blocks, _ = self.rules({
-            "REVIEW.md": "# Review\n\n@review-api.md\n@missing.md\n\n## Do not report\n\n- generated files\n",
+            "REVIEW.md": "# Review\n\n@review-api.md\n\n## Do not report\n\n- generated files\n",
             "review-api.md": "- API 路由要有集成测试。\n",
+            ".cursor/BUGBOT.md": "- 不再读取\n",
             "src/a.ts": "a\n"}, {"src/a.ts": "b\n"})
         root = next(b for b in blocks if b["file"] == "REVIEW.md")
-        self.assertIn("API 路由要有集成测试", root["text"])
-        self.assertIn("@missing.md", root["text"])
+        self.assertIn("@review-api.md", root["text"])
+        self.assertNotIn("API 路由要有集成测试", root["text"])
         self.assertIn("generated files", root["suppress"])
         self.assertNotIn("generated files", root["text"])
-
-    def test_include_limits(self):
-        files = {"REVIEW.md": "".join("@r%d.md\n" % i for i in range(9)), "src/a.ts": "a\n"}
-        files.update({"r%d.md" % i: "- 规则 %d\n" % i for i in range(9)})
-        blocks, meta = self.rules(files, {"src/a.ts": "b\n"})
-        root = next(b for b in blocks if b["file"] == "REVIEW.md")
-        self.assertIn("规则 7", root["text"])
-        self.assertNotIn("规则 8", root["text"])
-        self.assertIn("r8.md(超过 8 个文件)", meta)
-
-    def test_bugbot_scope(self):
-        blocks, _ = self.rules({
-            ".cursor/BUGBOT.md": "- 全局规则\n",
-            "api/.cursor/BUGBOT.md": "- 只管 api\n",
-            "api/x.ts": "x\n", "web/y.ts": "y\n"}, {"api/x.ts": "x2\n", "web/y.ts": "y2\n"})
-        by = {b["file"]: b["applies_files"] for b in blocks}
-        self.assertEqual(sorted(by[".cursor/BUGBOT.md"]), ["api/x.ts", "web/y.ts"])
-        self.assertEqual(by["api/.cursor/BUGBOT.md"], ["api/x.ts"])
+        self.assertNotIn(".cursor/BUGBOT.md", {b["file"] for b in blocks})

@@ -15,12 +15,11 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import crlib
-import project_rules
 
 MR_NOTE_ONLY = re.compile(r'(^|/)(analysis_facts\.py|analysis_check\.py|mr_note\.py|mr-note\.sh|sources\.py'
                           r'|mine[-_][^/]*|rules[-_]write[^/]*|roles/analyst\.md|references/mr-note\.md)$')
-RULE_FILES = re.compile(r'(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md|GEMINI\.md|CONVENTIONS\.md)$'
-                        r'|(^|/)(\.claude|\.cursor)/|^\.agents/rules/|^\.github/(instructions/|copilot-instructions\.md)|^\.(cursorrules|windsurfrules)$')
+RULE_FILES = re.compile(r'(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md)$'
+                        r'|(^|/)(\.claude|\.cursor)/|^\.agents/rules/|^\.github/(instructions/|copilot-instructions\.md)')
 
 
 def review_context(directory):
@@ -28,8 +27,6 @@ def review_context(directory):
     meta = crlib.read_kv(str(d / 'meta.txt'))
     src = crlib.Source(meta['repo_root'], meta.get('base_sha') if meta.get('mode') != 'local' else None)
     rule_files = {f: src.read(f) for f in src.files() if RULE_FILES.search(f)}
-    for name in project_rules.include_names(rule_files.get('REVIEW.md') or ''):
-        rule_files[name] = src.read(name)
     plugin = Path(__file__).resolve().parent.parent
     implementation = {str(f.relative_to(plugin)): f.read_text(encoding='utf-8')
                       for f in sorted(plugin.rglob('*')) if f.is_file() and f.suffix in ('.py', '.sh', '.md')

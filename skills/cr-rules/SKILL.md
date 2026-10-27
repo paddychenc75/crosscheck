@@ -94,7 +94,6 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edi
 按 `<cr_dir>/templates/REVIEW.md` 起草一份,用项目里的事实填,不要编:
 
 - `skip`:仓库里确实存在的生成代码、vendored 目录(用 `git ls-files` 找,比如 `**/generated/**`、`*.pb.go`)。lock 文件、测试、构建产物 crosscheck 本来就跳过,不用写。
-- `risk_paths`:确实存在的鉴权、支付、数据库迁移等目录。
 - 「每次都要检查」:先空着,或者只放用户这次说的一两条;提醒用户可以用沉淀从 MR 评论里找。
 - 「不要报」:`~/.crosscheck/reviews/<项目>/feedback.jsonl` 里同一类发现被判为不成立 2 次以上、原因说得清条件的,改写成「在什么条件下不报」作为候选。
 
@@ -102,10 +101,9 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edi
 
 ### 已经有
 
-1. 用 `sh <cr_dir>/scripts/settings.sh show <仓库根目录>` 看头部设置能不能解析;解析失败或有不认识的设置(只支持 `skip`、`limits`、`risk_paths`、`platform`)时指出来。`skip`、`risk_paths` 里的路径用 `git ls-files` 确认还能匹配到文件。
+1. 用 `sh <cr_dir>/scripts/settings.sh show <仓库根目录>` 看头部设置能不能解析;解析失败或有不认识的设置(只支持 `skip`、`limits`)时指出来。`skip` 里的路径用 `git ls-files` 确认还能匹配到文件。
 2. 正文按「严重程度」「每次都要检查」「不要报」三节整理;散落的规则归到对应的节,写给写代码的 agent 的说明(怎么跑测试、用哪个包管理器)建议挪到 `CLAUDE.md` / `AGENTS.md`。
-3. 单独一行的 `@文件名` 引入:被引入的文件要和 `REVIEW.md` 在同一个目录(或是 `.claude/skills/<名字>/SKILL.md`),最多 8 个、一层,和 Claude Code Review 的约定一致;不符合的指出来。不要用它去引入 `.agents/rules/` 下的文件,crosscheck 会直接读那个目录。
-4. 按上面「检查」的标准过一遍正文的规则;规则太多时建议把某个主题拆到 `.agents/rules/<主题>.md`。
-5. 「不要报」:同样从判断记录里找反复被判不成立的情况补充候选。
+3. 按上面「检查」的标准过一遍正文的规则;规则太多时建议把某个主题拆到 `.agents/rules/<主题>.md`。
+4. 「不要报」:同样从判断记录里找反复被判不成立的情况补充候选。
 
 把改动整理成一份 diff 给用户看,确认后只改工作区。

@@ -12,10 +12,8 @@
 #   结束  collect-diff.sh 报错或没有可审查的内容、成功执行 check-state.sh 或 save-review.sh、
 #         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
-#   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
-#         run-check.sh 执行后,从宿主给的输出里取它的 CR-RUN 行,记进 review_dir/runs/witness.jsonl,
-#         供 aggregate.sh 核对"声称跑过的命令真的跑过"
+#   另外  Claude Code 下,在审查开始和保存时调用 usage.sh 统计这次审查消耗的 token;其他宿主不统计
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
 # 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
@@ -119,16 +117,6 @@ case "$event" in
     failed=no
     [ "$event" = PostToolUseFailure ] && failed=yes
     if [ "$kind" = shell ] && [ -f "$marker" ]; then
-      # run-check.sh 的运行记录由宿主独立见证:从宿主给的输出里取最后一个哨兵行,记进 review_dir/runs/witness.jsonl。
-      if runs run-check.sh && [ -f "$dir/$sid.review" ]; then
-        rd=$(cat "$dir/$sid.review" 2>/dev/null)
-        line=$(printf '%s\n' "$result" | tr -d '\r' | grep -E '^CR-RUN id=r[0-9]+ exit=-?[0-9]+ sha=[0-9a-f]+$' | tail -n 1)
-        if [ -n "$line" ] && [ -d "$rd" ]; then
-          mkdir -p "$rd/runs" 2>/dev/null
-          printf '%s\n' "$line" | sed -E "s/^CR-RUN id=([^ ]+) exit=([^ ]+) sha=([^ ]+)\$/{\"id\":\"\\1\",\"exit\":\\2,\"sha\":\"\\3\",\"event\":\"$event\",\"host\":\"$host\",\"failed\":$( [ "$failed" = yes ] && echo true || echo false )}/" \
-            >> "$rd/runs/witness.jsonl" 2>/dev/null || true
-        fi
-      fi
       if runs collect-diff.sh; then
         case "$failed:$result" in
           yes:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" "$dir/$sid.review" ;;
@@ -164,7 +152,7 @@ if [ "$kind" = shell ]; then
           sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
           # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"。
           if [ ! -s "$review_dir/usage.txt" ]; then
-            if [ "$host" = cursor ]; then reason=unsupported
+            if [ "$host" = cursor ] || grep -q '^transcript=.*/\.codex/' "$dir/$sid.usage" 2>/dev/null; then reason=unsupported
             elif [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
             printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
           fi

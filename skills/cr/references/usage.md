@@ -11,7 +11,7 @@
 | 审一个 MR | 「review MR 128」,或者直接贴 MR 链接 |
 | 审某几个提交 | 「看看最近 3 个提交」 |
 | 只看某个目录 | 「只看 src/orders 下面的改动」 |
-| 快速过一遍 | 「快速看一下」(只查 bug 和安全,最多 5 条) |
+| 快速过一遍 | 「快速看一下」(最多 5 条) |
 | 上线前仔细审 | 「仔细看看」「上线前深度审一下」(更慢、更贵) |
 | 只关心某一方面 | 「只看安全问题」「只对照一下团队规范」 |
 | 测试也一起看 | 「测试也一起看」 |
@@ -34,9 +34,8 @@
 
 | 想做的 | 可以这样说 |
 |---|---|
-| 看统计 | 「看看 review 的统计」(判断、去向、差一点通过、成本) |
 | 规则维护 | 用命令 `/crosscheck:cr-rules`(Codex 里 `$cr-rules`):不带参数是从 MR 评论里沉淀规则,带「检查」是检查现有规则,带「整理 REVIEW.md」是起草或整理 REVIEW.md。不能用自然语言触发 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 
-配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、读取需求单的 `issue_cmd`、查找和核实用的模型 `model.finder` / `model.verifier`、需求来源 `source.*`(每类写读取用的工具名,`source.required` 写每次都要收集的类别)、MR 说明网页版用的工具 `output.page`。
+配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、查找和核实用的模型 `model.finder` / `model.verifier`、需求来源 `source.*`(每类写读取用的工具名,`source.required` 写每次都要收集的类别)、MR 说明网页版用的工具 `output.page`。
 

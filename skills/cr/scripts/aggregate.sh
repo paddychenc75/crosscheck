@@ -16,11 +16,11 @@
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
 #   5. 增量:上次的发现分成遗留(文件没变的原样带入;文件变了且再次通过核实的)和已解决。
 #   6. 同一条规则在同一个文件里的多处合并成一条;按严重程度、置信度排序;套用条数上限
-#      (默认缺陷 10 条、quick 5 条,需求核对、规范、可简化各 5 条;REVIEW.md 的 limits 可覆盖,
+#      (默认缺陷 10 条、quick 5 条,需求核对、规范各 5 条;REVIEW.md 的 limits 可覆盖,
 #      还可以按 critical/major/minor 限制缺陷和需求核对的条数),超出的不展示但仍写进 findings.json。
 #   7. 给展示的发现编号(no),给新发现分配 id 和 since。
 # 写出:
-#   final.json     报告要用的全部内容:groups(defects/intent/rules/simplify,每条带 no 和 status:new|carried)、
+#   final.json     报告要用的全部内容:groups(defects/intent/rules,每条带 no 和 status:new|carried)、
 #                  resolved、ignored_by_history、trimmed、counts、notes
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量
 #   rejected.json  没通过的候选,带分数和理由,用于校准阈值
@@ -32,7 +32,7 @@ command -v python3 >/dev/null 2>&1 || { echo "aggregate: 需要 python3" >&2; ex
 [ -f "${1:-}/meta.txt" ] || { echo "aggregate: 需要 collect-diff.sh 的输出目录" >&2; exit 2; }
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR=$(cd "$1" && pwd) python3 - <<'PY'
-import glob, hashlib, json, os, re, sys
+import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
@@ -188,117 +188,46 @@ def check_evidence(item):
         return False, "依据引用的位置不存在:" + "、".join(bad[:3])
     return True, ""
 
-# 运行记录:verifier 声称跑过的命令,必须经 run-check.sh 留下记录;有 hook 时还要有宿主的见证。
+# 运行记录:verifier 声称跑过的命令必须经 run-check.sh 留下记录;报告展示的输出取自记录的日志。
 runs_dir = os.path.join(d, "runs")
-guarded = os.path.exists(os.path.join(d, ".guard-active"))
-witness = {}
-try:
-    for line in open(os.path.join(runs_dir, "witness.jsonl"), encoding="utf-8"):
-        try:
-            w = json.loads(line)
-            witness.setdefault(w.get("id"), []).append(w)
-        except ValueError:
-            pass
-except OSError:
-    pass
-review_start = 0.0
-for name in ("state.txt", "meta.txt"):
-    p = os.path.join(d, name)
-    if os.path.exists(p):
-        review_start = os.path.getmtime(p); break
-
-def load_run(rid):
-    if not isinstance(rid, str) or not re.fullmatch(r"r\d+", rid):
-        return None, "运行编号无效:%s" % rid
-    run = crlib.load_json(os.path.join(runs_dir, rid + ".json"), {})
-    log = os.path.join(runs_dir, rid + ".log")
-    if not run or not os.path.isfile(log):
-        return None, "%s 没有运行记录" % rid
-    if hashlib.sha256(open(log, "rb").read()).hexdigest() != run.get("log_sha256"):
-        return None, "%s 的日志和记录对不上" % rid
-    return run, ""
-
-def check_runs(item):
-    """返回 (状态, 理由):executed 经见证的执行;self_reported 有记录但没有 hook 见证;
-    failed 声称执行但记录不成立;inferred 只读代码。"""
-    v = item.get("verification")
-    if not isinstance(v, dict) or v.get("method") != "executed":
-        if item.get("repro"):
-            return "failed", "写了复现结果但没有经 run-check.sh 的运行记录"
-        return "inferred", ""
-    ids = v.get("runs")
-    if not isinstance(ids, list) or not ids:
-        return "failed", "声称执行但没有给出运行编号"
-    witnessed, problems, runs = True, [], []
-    for rid in ids:
-        run, why = load_run(rid)
-        if run is None:
-            problems.append(why); continue
-        runs.append(run)
-        if to_float(run.get("started")) < review_start - 2:
-            problems.append("%s 早于本次审查开始" % rid)
-        if meta.get("head_sha") and run.get("head_sha") and run["head_sha"] != meta["head_sha"]:
-            problems.append("%s 不是在被审查的那一版代码上运行的" % rid)
-        if run.get("kind") == "test" and not (isinstance(run.get("tests_run"), int) and run["tests_run"] > 0):
-            problems.append("%s 没有跑到任何测试" % rid)
-        full = str(run.get("log_sha256", ""))
-        ws = [w for w in witness.get(rid, []) if len(str(w.get("sha", ""))) >= 16 and full.startswith(str(w["sha"]))]
-        if guarded:
-            if not ws:
-                problems.append("%s 没有宿主的执行见证" % rid)
-            elif any(to_int(w.get("exit"), None) != run.get("exit") for w in ws):
-                problems.append("%s 的退出码和宿主看到的不一致" % rid)
-        else:
-            witnessed = False
-    if not problems and v.get("outcome") == "reproduced":
-        if not any(r.get("exit") not in (0, None) and (r.get("kind") != "test" or (r.get("tests_failed") or 0) > 0) for r in runs):
-            problems.append("声称复现成功,但没有一次运行按预测失败")
-    if problems:
-        return "failed", ";".join(problems)
-    item["_runs"] = runs
-    return ("executed" if witnessed else "self_reported"), ""
-
-def to_float(v):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return 0.0
-
-MARKS = {"executed": "已复现", "self_reported": "已复现(自报)", "inferred": "读代码推断", "failed": "读代码推断"}
 run_stats = {"failed_claims": 0, "reproduced": 0}
 
 def apply_runs(item, conf, reasons):
-    state, why = check_runs(item)
+    """声称执行(verification.method=executed)的,每个 run id 都要有记录;否则按读代码推断,最高 60 分。"""
     v = item.get("verification") if isinstance(item.get("verification"), dict) else {}
-    if state == "failed":
-        run_stats["failed_claims"] += 1
-        item["verification"] = dict(v, method="inferred", claimed="executed")
-        item.pop("repro", None)
-        if conf > 60:
-            conf = 60
-        reasons.append("声称执行但运行记录未通过校验:" + why)
-    elif state in ("executed", "self_reported"):
-        if state == "self_reported" and conf > 95:
-            conf = 95
-            reasons.append("运行记录没有宿主见证(未加载 hook),最高 95")
-        runs = item.pop("_runs")
+    runs = []
+    if v.get("method") == "executed":
+        ids = v.get("runs") if isinstance(v.get("runs"), list) else []
+        for rid in ids:
+            run = crlib.load_json(os.path.join(runs_dir, "%s.json" % rid), {}) if isinstance(rid, str) and re.fullmatch(r"r\d+", rid) else {}
+            if run:
+                runs.append(run)
+        if not ids or len(runs) != len(ids):
+            runs = []
+            reasons.append("声称执行但没有对应的运行记录")
+    elif item.get("repro"):
+        reasons.append("写了复现结果但没有经 run-check.sh 的运行记录")
+    if runs:
         last = runs[-1]
         try:
             tail = open(os.path.join(runs_dir, last["log"]), encoding="utf-8", errors="replace").read().rstrip("\n").split("\n")[-5:]
-        except OSError:
+        except (OSError, KeyError):
             tail = []
-        item["repro"] = {"run": last["id"], "cmd": " ".join(last.get("argv") or []), "exit": last.get("exit"),
-                         "tests_run": last.get("tests_run"), "tests_failed": last.get("tests_failed"),
-                         "tail": tail, "witnessed": state == "executed"}
+        item["repro"] = {"run": last.get("id"), "cmd": " ".join(last.get("argv") or []), "exit": last.get("exit"),
+                         "tests_run": last.get("tests_run"), "tests_failed": last.get("tests_failed"), "tail": tail}
         item["verification"] = dict(v, method="executed")
-    else:
-        item["verification"] = dict(v, method="inferred")
-    item["verification_status"] = state
-    item["mark"] = MARKS[state]
+        item["mark"] = "已复现"
+        return conf
+    if v.get("method") == "executed" or item.get("repro"):
+        run_stats["failed_claims"] += 1
+        conf = min(conf, 60)
+    item.pop("repro", None)
+    item["verification"] = dict(v, method="inferred")
+    item["mark"] = "读代码推断"
     return conf
 
 def group_of(cat):
-    return {"bug": "defects", "security": "defects", "intent": "intent", "rules": "rules", "simplify": "simplify"}.get(cat, "defects")
+    return {"bug": "defects", "security": "defects", "intent": "intent", "rules": "rules"}.get(cat, "defects")
 
 passed, rejected, history = [], [], []
 skipped_by_settings = 0
@@ -340,10 +269,8 @@ for c in cands:
         else:
             item["rule_file"] = hit["file"]
             item["rule_source"] = hit["source"]
-    elif cat == "simplify":
-        item["severity"] = "minor"
     if item.get("severity") not in crlib.SEV_ORDER:
-        item["severity"] = "minor" if cat in ("rules", "simplify") else "major"
+        item["severity"] = "minor" if cat == "rules" else "major"
     ok, why = check_evidence(item)
     if not ok and conf > 50:
         conf = 50; reasons.append(why)
@@ -418,13 +345,13 @@ new = merge_rules(new)
 order = lambda x: (crlib.SEV_ORDER.get(x.get("severity"), 3), -to_int(x.get("confidence")), x.get("file", ""), to_int(x.get("line")))
 for x in new: x["status"] = "new"
 for x in carried: x["status"] = "carried"
-groups = {"defects": [], "intent": [], "rules": [], "simplify": []}
+groups = {"defects": [], "intent": [], "rules": []}
 for x in new + carried:
     groups[group_of(x.get("category"))].append(x)
 for k in groups:
     groups[k].sort(key=lambda x: (x["status"] != "new",) + order(x))
 
-limits = {"defects": 5 if meta.get("depth") == "quick" else 10, "intent": 5, "rules": 5, "simplify": 5}
+limits = {"defects": 5 if meta.get("depth") == "quick" else 10, "intent": 5, "rules": 5}
 sev_limits = {}
 for k, v in (settings.get("limits") or {}).items():
     n = to_int(v, -1)
@@ -453,7 +380,7 @@ no = 0
 for k in groups:
     for x in groups[k]:
         x.pop("no", None)
-for k in ("defects", "intent", "rules", "simplify"):
+for k in ("defects", "intent", "rules"):
     for x in shown[k]:
         no += 1
         x["no"] = no
@@ -467,7 +394,7 @@ for k in groups:
             x["since"] = meta.get("started_at", "")
         x.pop("cid", None); x.pop("from_prev", None)
 
-standing = [x for k in ("defects", "intent", "rules", "simplify") for x in groups[k]]
+standing = [x for k in ("defects", "intent", "rules") for x in groups[k]]
 def record(x):
     y = {k: v for k, v in x.items() if k not in ("status", "carried_unchanged")}
     if not x.get("no"):
@@ -477,16 +404,8 @@ crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
           "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings}
-run_files = sorted(glob.glob(os.path.join(runs_dir, "r*.json")))
-run_ids = [os.path.basename(p)[:-5] for p in run_files]
-seen = 0
-for rid in run_ids:
-    run = crlib.load_json(os.path.join(runs_dir, rid + ".json"), {})
-    full = str(run.get("log_sha256", ""))
-    if any(len(str(w.get("sha", ""))) >= 16 and full.startswith(str(w["sha"])) for w in witness.get(rid, [])):
-        seen += 1
-run_summary = {"total": len(run_ids), "witnessed": seen, "guarded": guarded,
-               "reproduced": len([x for x in passed if x.get("verification_status") in ("executed", "self_reported")
+run_summary = {"total": len(glob.glob(os.path.join(runs_dir, "r*.json"))),
+               "reproduced": len([x for x in passed if x.get("mark") == "已复现"
                                   and (x.get("verification") or {}).get("outcome") == "reproduced"]),
                "failed_claims": run_stats["failed_claims"]}
 final = {

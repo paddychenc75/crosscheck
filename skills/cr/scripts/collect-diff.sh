@@ -19,8 +19,8 @@
 #   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
 #
-# 平台:--platform > 环境变量 CR_PLATFORM > ~/.crosscheck/config 的 gitlab_hosts >
-#       REVIEW.md 的 platform > 域名含 github.com / gitlab > 链接里的 /pull/、/merge_requests/
+# 平台:--platform > 环境变量 CR_PLATFORM > 配置的 gitlab_hosts > 域名含 github.com / gitlab >
+#       链接里的 /pull/、/merge_requests/
 #
 #   省略 target        当前分支相对其与对比基准(--base,默认是默认分支)的 merge-base 的改动,
 #                      加上未提交和未跟踪的改动
@@ -42,7 +42,7 @@
 #   description.md  PR/MR 的标题和描述(本地审查时为空)
 #   hashes.txt      hash<TAB>path          — 每个文件 diff 的哈希,用于判断下次是否需要重审
 #   settings.json   REVIEW.md 头部的审查设置(settings.sh)
-#   intent.md、sources.json、discussions.json、weakening.txt、risk.txt   见 collect-context.sh
+#   intent.md、sources.json、discussions.json、weakening.txt   见 collect-context.sh
 #   analysis-facts.json  MR 说明用的事实(analysis_facts.py)
 #
 # 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
@@ -76,8 +76,6 @@ pr_source=""
 gap_vars=""
 gap_file=""
 with_tests=no
-auth_via=""
-depth_source=default
 intent_arg=""
 plan_arg=""
 verifier_model=""
@@ -93,7 +91,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
-    --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; depth_source=user; shift 2 ;;
+    --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; shift 2 ;;
     --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; shift 2 ;;
     --plan|--doc) [ $# -ge 2 ] || die "$1 需要一个值"; doc_files="${doc_files}$2
 "; [ -n "$plan_arg" ] || plan_arg=$2; shift 2 ;;
@@ -148,7 +146,6 @@ repo=""
 title=""
 url=""
 base_sha=""
-start_sha=""
 head_sha=""
 code_ref=""
 
@@ -220,18 +217,12 @@ closer_base() { # 默认分支, 被审查的 commit
 
 # 取 JSON 文件中点分路径(如 .diff_refs.base_sha)处的值。
 json_get() {
-  if command -v jq >/dev/null 2>&1; then
-    jq -r "$2 // empty" "$1"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c '
+  python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
 for k in sys.argv[2].strip(".").split("."):
     d = d.get(k) if isinstance(d, dict) else None
 print("" if d is None else d)' "$1" "$2"
-  else
-    die "读取 GitLab API 响应需要 'jq' 或 'python3'"
-  fi
 }
 
 collect_local() {
@@ -341,26 +332,6 @@ env_gap() { # 空格分隔的变量名
   done
 }
 
-# 在用户自己的交互 shell 里运行一条命令,让它带上 rc 文件里的登录配置。
-# 命令必须自己把结果写进文件;这个 shell 的标准输出和标准错误全部丢弃,
-# 所以 rc 里的任何内容、任何环境变量都到不了终端。超过 20 秒就放弃。
-via_user_shell() { # 命令串,参数...
-  [ "${CR_USER_SHELL:-auto}" != 0 ] || return 1
-  sh_bin=${SHELL:-}
-  case "${sh_bin##*/}" in zsh|bash) ;; *) return 1 ;; esac
-  cmd_str=$1; shift
-  "$sh_bin" -ic "$cmd_str" cr-shell "$@" </dev/null >/dev/null 2>&1 &
-  shell_pid=$!
-  # 交互 shell 会忽略 TERM,所以超时后直接 KILL,连同它启动的子进程。
-  ( sleep 20; pkill -9 -P "$shell_pid" 2>/dev/null; kill -9 "$shell_pid" 2>/dev/null ) >/dev/null 2>&1 &
-  watch_pid=$!
-  if wait "$shell_pid" 2>/dev/null; then shell_rc=0; else shell_rc=$?; fi
-  pkill -P "$watch_pid" 2>/dev/null || true
-  kill "$watch_pid" 2>/dev/null || true
-  wait "$watch_pid" 2>/dev/null || true
-  return "$shell_rc"
-}
-
 # ~/.crosscheck/config 里 gitlab_hosts 列出的、能对上 $1(去掉协议和端口的地址)的那一项,如 company.com/gitlab。
 # 配置里的端口会被忽略:同一个 GitLab 用 http 和 ssh 克隆时端口不同,但应该认成同一个。
 gitlab_host_entry() {
@@ -376,11 +347,6 @@ detect_platform() {
   remote=$(origin_id || true)
   case "$target" in http://*|https://*) addr=${target#*://} ;; *) addr=$remote ;; esac
   if gitlab_host_entry "$addr" >/dev/null 2>&1; then platform=gitlab; return 0; fi
-  # REVIEW.md 里注明的平台(只读工作区里的根目录 REVIEW.md 头部)
-  if [ -f "$root/REVIEW.md" ]; then
-    p=$(awk 'NR == 1 && !/^---/ { exit } NR > 1 && /^---/ { exit } /^platform:/ { sub(/^platform:[ \t]*/, ""); gsub(/["\047 \t]/, ""); print; exit }' "$root/REVIEW.md")
-    case "$p" in github|gitlab) platform=$p; return 0 ;; esac
-  fi
   case "$target" in
     *"/pull/"*) platform=github; return 0 ;;
     *"/merge_requests/"*) platform=gitlab; return 0 ;;
@@ -466,20 +432,12 @@ collect_gitlab() {
     else tried="glab:没有登录${GITLAB_HOST:+ ${GITLAB_HOST#*://}}(可运行 glab auth login${GITLAB_HOST:+ --hostname ${GITLAB_HOST#*://}})"; fi
     rm -f "$out/mr.json"
     env_gap "GITLAB_TOKEN GITLAB_ACCESS_TOKEN OAUTH_TOKEN GLAB_CONFIG_DIR XDG_CONFIG_HOME"
-    # 只有确认 rc 文件里有相关配置、而当前环境没有时,才借用户的 shell 再试一次。
-    if { [ -n "$gap_vars" ] || [ "${CR_USER_SHELL:-auto}" = always ]; } \
-      && via_user_shell 'glab api "$1" > "$2" 2>/dev/null' "$mr_api" "$out/mr.json" && mr_ok; then
-      auth_via=shell
-    else
-      rm -f "$out/mr.json"
-      collect_via_git "merge-requests/$number/head" "MR !$number"
-      return 0
-    fi
+    collect_via_git "merge-requests/$number/head" "MR !$number"
+    return 0
   fi
   title=$(json_get "$out/mr.json" .title)
   url=$(json_get "$out/mr.json" .web_url)
   base_sha=$(json_get "$out/mr.json" .diff_refs.base_sha)
-  start_sha=$(json_get "$out/mr.json" .diff_refs.start_sha)
   head_sha=$(json_get "$out/mr.json" .diff_refs.head_sha)
   target_branch=$(json_get "$out/mr.json" .target_branch)
   source_branch=$(json_get "$out/mr.json" .source_branch)
@@ -637,11 +595,6 @@ else
 fi
 reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
 repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
-# 早期版本用"目录名-路径哈希"做键;新位置还没有记录时,把旧记录挪过来。
-old_key="$(basename "$root" | sed 's/[^A-Za-z0-9._-]/_/g')-$(printf '%s' "$root" | git hash-object --stdin | cut -c1-8)"
-if [ -d "$reviews_dir/$old_key" ] && [ ! -e "$reviews_dir/$repo_key" ]; then
-  mv "$reviews_dir/$old_key" "$reviews_dir/$repo_key" && printf '%s\n' "$repo_id" > "$reviews_dir/$repo_key/.repo"
-fi
 # 另一个同名的项目已经占用了这个目录时,加上哈希区分。
 if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_key/.repo")" != "$repo_id" ]; then
   repo_key="$repo_key-$(printf '%s' "$repo_id" | git hash-object --stdin | cut -c1-8)"
@@ -654,7 +607,7 @@ finder_model=$(sh "$script_dir/config.sh" get model.finder)
 {
   printf 'repo_root=%s\nmode=%s\nbase_sha=%s\nhead_sha=%s\ncode_ref=%s\n' "$root" "$mode" "$base_sha" "$head_sha" "$code_ref"
   printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
-  printf 'depth=%s\ndepth_source=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$depth_source" "$plan_arg" "$store_dir" "$repo_id"
+  printf 'depth=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$plan_arg" "$store_dir" "$repo_id"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
   printf 'with_tests=%s\nonly=%s\n' "$with_tests" "$only"
   printf 'source_branch=%s\ntarget_key=%s\nrepo=%s\n' "$source_branch" "$target_key" "$repo"
@@ -669,7 +622,7 @@ printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
-grep -E '^(intent_sources|intent_acceptance|discussions|weakening|risk_level|risk_suggest|risk_reasons|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
@@ -697,10 +650,9 @@ if [ "$review_scope" = incremental ]; then
     END { for (p in old) if (!(p in seen)) print "removed\t" p }
   ' "$prev/hashes.txt" "$out/hashes.txt" > "$out/incremental.txt"
   # 依赖扩散:变了的文件里定义的符号,如果有没变的文件在用,那些文件也重审。
-  if command -v python3 >/dev/null 2>&1; then
-    dep_ref=""
-    [ "$code_ref" = WORKTREE ] || dep_ref=$code_ref
-    CR_OUT="$out" CR_ROOT="$root" CR_REF="$dep_ref" python3 - <<'PY' || true
+  dep_ref=""
+  [ "$code_ref" = WORKTREE ] || dep_ref=$code_ref
+  CR_OUT="$out" CR_ROOT="$root" CR_REF="$dep_ref" python3 - <<'PY' || true
 import os, re, subprocess
 out, root, ref = os.environ["CR_OUT"], os.environ["CR_ROOT"], os.environ["CR_REF"]
 split = os.path.join(out, "split")
@@ -728,7 +680,6 @@ if dep:
         for s, p in status:
             f.write("%s\t%s\n" % ("dependent" if s == "unchanged" and p in dep else s, p))
 PY
-  fi
   unchanged_count=$(grep -c "^unchanged$tab" "$out/incremental.txt" || true)
   mv "$out/diff.patch" "$out/diff.full.patch"
   mv "$out/files.txt" "$out/files.full.txt"
@@ -809,7 +760,6 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'url=%s\n' "$url"
   printf 'title=%s\n' "$title"
   printf 'base_sha=%s\n' "$base_sha"
-  printf 'start_sha=%s\n' "$start_sha"
   printf 'head_sha=%s\n' "$head_sha"
   printf 'code_ref=%s\n' "$code_ref"
   printf 'head_checked_out=%s\n' "$head_checked_out"
@@ -827,14 +777,10 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'unchanged_files=%s\n' "$unchanged_count"
   printf 'repo_id=%s\n' "$repo_id"
   printf 'pr_source=%s\n' "${pr_source:-api}"
-  printf 'auth_via=%s\n' "${auth_via:-direct}"
-  printf 'env_gap=%s\n' "$gap_vars"
   printf 'target_key=%s\n' "$target_key"
   printf 'store_dir=%s\n' "$store_dir"
-  printf 'depth_source=%s\n' "$depth_source"
   printf 'source_branch=%s\n' "$source_branch"
   printf 'target_branch=%s\n' "${target_branch#origin/}"
-  printf 'base_source=%s\n' "$base_source"
   printf 'api_project=%s\n' "$api_project"
   printf 'gitlab_host=%s\n' "$gitlab_host"
   [ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier 2>/dev/null || true)
@@ -848,8 +794,7 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
 cat "$out/context-meta.txt" >> "$out/meta.txt"
 
 # MR 说明用的事实(改了哪些符号、谁在调用、需注意的改动、可跳过的文件)。只跑脚本,失败不影响审查。
-if python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1; then printf 'analysis_facts=ok\n' >> "$out/meta.txt"
-else printf 'analysis_facts=failed\n' >> "$out/meta.txt"; fi
+python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1 || true
 
 sh "$script_dir/check-state.sh" --save "$out"
 
@@ -876,12 +821,7 @@ case "$pr_source" in
   git*) printf 'NOTE: 没有通过 gh/glab 读到这个 PR/MR 的信息,已改用 git 直接拉取代码。标题和描述不可用;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "${pr_source#git;base=}" ;;
 esac
 if [ -n "$gap_vars" ]; then
-  if [ "$auth_via" = shell ]; then
-    printf 'NOTE: 当前终端没有加载你的 shell 配置:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。已改为通过你的登录 shell 调用 glab,读取成功。\n' "$gap_file" "$gap_vars"
-  else
-    printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。\n' "$gap_file" "$gap_vars"
-  fi
-  printf 'NOTE: 想一劳永逸,把这几个变量的设置从 %s 挪到 ~/.zshenv(zsh 的所有终端都会读)或宿主的环境变量配置里。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file"
+  printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把这几个变量的设置挪到 ~/.zshenv(zsh 的所有终端都会读)或宿主的环境变量配置里。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file" "$gap_vars"
 fi
 [ -z "$context_out" ] || printf '%s\n' "$context_out"
 if [ "$file_count" -eq 0 ]; then
