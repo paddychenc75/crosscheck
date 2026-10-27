@@ -167,6 +167,17 @@ class GuardRegressions(fixture.Base):
         self.hook(inp={'command': cmd}, command=cmd)
         self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
 
+    def test_usage_survives_check_state_before_save(self):
+        # 实际流程是 check-state.sh 先于 save-review.sh;check-state 解除只读后仍要能统计用量
+        self.start()
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response=str(self.rd))
+        cmd = 'D=%s; sh /example/check-state.sh $D' % self.rd
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response={'stdout': 'OK: unchanged'})
+        cmd = 'D=%s; sh /example/save-review.sh $D' % self.rd
+        self.hook(inp={'command': cmd}, command=cmd)
+        self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
+
     def denied(self):
         return 'deny' in self.hook(inp={'command': 'git commit -m test'})
 

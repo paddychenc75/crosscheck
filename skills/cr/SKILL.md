@@ -134,7 +134,9 @@ reviewer 先读一遍材料和改动的代码,再在同一个上下文里逐遍�
 
 **模型。** `meta.txt` 里 `finder_model` 有值时(配置里的 `model.finder`),启动查找角色时使用那个模型;`analyst` 也用它。没有值就用宿主当前的模型。模型名是用户按当前宿主写的;宿主不认识这个名字,或不支持为子代理指定模型时,照常用宿主的模型运行。
 
-**如果你不能启动子代理**,或者是 quick:阅读每个角色的说明并自己执行,一次一个角色,写下该角色的结果后再开始下一个。`analyst` 放到第 6 步保存记录之前再自己做,免得影响查找和核实。
+**流程不能省。** standard 和 deep 必须按上面启动子代理:只要宿主有启动子代理的工具(如 Agent、Task),就一定用,不能因为改动小、看起来简单或想省时间就自己读一遍 diff 出结论。独立查找和独立核实是这个审查的价值所在,省掉它们就不是 crosscheck 的审查。
+
+**只有宿主根本没有启动子代理的工具时**,或者是 quick:阅读每个角色的说明并自己执行,一次一个角色,写下该角色的结果后再开始下一个。`analyst` 放到第 6 步保存记录之前再自己做,免得影响查找和核实。
 
 `analyst` 的回复原样写成 `<review_dir>/analyst.json`,然后运行 `python3 <skill_dir>/scripts/analysis_check.py <review_dir>`:它删掉引文对不上材料、含结论性用语、代码块编号不存在的内容,写出 `analysis.json`。输出 `STATUS: failed` 时 MR 说明只用脚本的事实,不用重跑。
 
@@ -164,7 +166,7 @@ deep 下 verifier 的所有运行都经 `sh <skill_dir>/scripts/run-check.sh <re
 
 把每个 verifier 的回复原样写成 `<review_dir>/verify/result-<n>.json`。不要附上查找者的推理或你自己的意见 —— verifier 必须依据代码判断。
 
-**没有子代理,或者是 quick 时**:阅读 `roles/verifier.md` 并自己执行。对每条候选重新打开文件,先为反方辩护再打分。读完所有 `verify/batch-*.json`,按批次顺序合并输出到 `verify/result-1.json`。同一宿主无法清除查找阶段的上下文;报告里写明「同一宿主顺序核实」和实际执行的模型。
+**宿主没有启动子代理的工具,或者是 quick 时**:阅读 `roles/verifier.md` 并自己执行。对每条候选重新打开文件,先为反方辩护再打分。读完所有 `verify/batch-*.json`,按批次顺序合并输出到 `verify/result-1.json`。同一宿主无法清除查找阶段的上下文;报告里写明「同一宿主顺序核实」和实际执行的模型。
 
 ### 5. 汇总
 
@@ -193,6 +195,8 @@ sh <skill_dir>/scripts/report-lines.sh <review_dir>
 ```
 
 然后按 `references/report-format.md` 写报告(读一遍再写)。报告用中文,代码、标识符、路径和规则原文保持原样。
+
+**保存记录和 MR 说明是流程的一部分**,不能跳过;只有用户明确说只测试、只报告或不保存记录时例外。
 
 **保存记录。** 用户要求只测试、只报告或不保存共享记录时,只写 `<review_dir>/report.md`,跳过 `save-review.sh`,不显示消耗和共享记录链接。其他情况把报告全文写成 `<review_dir>/report.md`(和展示给用户的一致,但不写 `消耗:` 和 `记录:` 两行),再运行:
 

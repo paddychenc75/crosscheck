@@ -130,7 +130,9 @@ case "$event" in
       elif [ "$failed" = no ]; then
         # 只有真正执行完结束脚本才解除;阅读、提及、--help 和失败均不解除。
         if runs check-state.sh && printf '%s\n' "$result" | grep -q '^OK: '; then
-          rm -f "$marker" "$dir/$sid.review"
+          # 只解除只读阶段;出报告的流程是先 check-state.sh 后 save-review.sh,
+          # review 目录和用量起点要留到保存完成,否则保存时统计不到 token。
+          rm -f "$marker"
         elif runs save-review.sh && printf '%s\n' "$result" | grep -q '^report='; then
           rm -f "$marker" "$dir/$sid.review"
         fi
