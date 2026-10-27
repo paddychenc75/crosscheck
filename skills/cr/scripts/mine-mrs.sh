@@ -18,7 +18,7 @@
 #   feedback.json    crosscheck 自己记下的判断(成立 / 不成立 / 不修)及原因,也是候选的素材
 #   existing-rules.txt  仓库里已有的规则,归纳时不重复
 #   meta.txt         repo_root、days、mrs、notes、reviewers、batches 等
-# 输出统计,另有一行 MR_NOTE: 统计 MR 描述里贴了 crosscheck「MR 说明」的比例和评审人的回复;最后一行是工作目录。
+# 输出统计;最后一行是工作目录。
 # 需要 python3,以及已登录的 glab(GitHub 用 gh)。
 
 set -eu
@@ -160,14 +160,14 @@ if platform == "gitlab":
         fail("glab 读不到这个项目的 MR 列表。请确认已登录(glab auth login)、当前仓库的 origin 指向这个 GitLab 项目;不要去找或打印凭证")
     mrs = [dict(iid=m.get("iid"), title=m.get("title", ""), author=(m.get("author") or {}).get("username", ""),
                 merged_at=m.get("merged_at") or "", updated_at=m.get("updated_at") or "", web_url=m.get("web_url", ""),
-                head_sha=m.get("sha") or "", has_note="<!-- crosscheck:begin -->" in (m.get("description") or "")) for m in listed]
+                head_sha=m.get("sha") or "") for m in listed]
 else:
     listed = pages("repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc", max_pages=10)
     if listed is None:
         fail("gh 读不到这个仓库的 PR 列表。请确认已登录(gh auth login);不要去找或打印凭证")
     mrs = [dict(iid=m.get("number"), title=m.get("title", ""), author=(m.get("user") or {}).get("login", ""),
                 merged_at=m.get("merged_at") or "", updated_at=m.get("updated_at") or "", web_url=m.get("html_url", ""),
-                head_sha=(m.get("head") or {}).get("sha", ""), has_note="<!-- crosscheck:begin -->" in (m.get("body") or "")) for m in listed]
+                head_sha=(m.get("head") or {}).get("sha", "")) for m in listed]
 mrs = [m for m in mrs if m["iid"] and m["merged_at"] and (parse_time(m["merged_at"]) or now) >= since]
 mrs.sort(key=lambda m: m["merged_at"], reverse=True)
 mrs = mrs[:limit]
@@ -212,7 +212,7 @@ for m in mrs:
     cp = os.path.join(cache, "%s.json" % m["iid"])
     old = crlib.load_json(cp, {})
     if old and old.get("updated_at") == m["updated_at"] and isinstance(old.get("notes"), list):
-        records.append(dict(old, has_note=m["has_note"])); reused += 1
+        records.append(old); reused += 1
         continue
     notes = fetch_notes(m)
     if notes is None:
@@ -270,28 +270,14 @@ for rec in project_rules.discover(crlib.Source(root)):
 with open(os.path.join(work, "existing-rules.txt"), "w", encoding="utf-8") as f:
     f.write("\n".join(existing))
 
-# ---------- MR 说明的使用情况 ----------
-REPLY = re.compile(r"^\s*(有误|有|无)(?=$|[\s,，。.!！:：;；、])")
-noted = [r for r in records if r.get("has_note")]
-replies = {"有": 0, "无": 0, "有误": 0}
-for r in noted:
-    for x in r.get("notes", []):
-        if x.get("author") == r.get("author"):
-            continue
-        m = REPLY.match(x.get("body") or "")
-        if m:
-            replies[m.group(1)] += 1
 
 with open(os.path.join(work, "meta.txt"), "w", encoding="utf-8") as f:
     f.write("repo_root=%s\nrepo_id=%s\nplatform=%s\ndays=%d\nsince=%s\nmrs=%d\nnotes=%d\nreviewers=%d\nbatches=%d\n"
-            "feedback=%d\ncache=%s\nproject_dir=%s\nmr_note=%d\n"
-            % (root, repo_id, platform, days, since_s, len(records), len(notes), len(people), len(batches), len(fb), cache, pdir, len(noted)))
+            "feedback=%d\ncache=%s\nproject_dir=%s\n"
+            % (root, repo_id, platform, days, since_s, len(records), len(notes), len(people), len(batches), len(fb), cache, pdir))
 
 print("mining: 最近 %d 天合并的 MR %d 个(新拉取 %d,用缓存 %d%s),人工评论 %d 条,评审人 %d 位,分成 %d 批;crosscheck 判断记录 %d 条"
       % (days, len(records), fetched, reused, ",读取失败 %d" % failed if failed else "", len(notes), len(people), len(batches), len(fb)))
-if records:
-    print("MR_NOTE: %d/%d 个 MR 的描述里贴了 crosscheck 的 MR 说明(%d%%);评审人回复:有 %d、无 %d、有误 %d"
-          % (len(noted), len(records), round(100 * len(noted) / len(records)), replies["有"], replies["无"], replies["有误"]))
 if not notes and not fb:
     print("EMPTY: 这段时间里没有可用的人工评论,也没有 crosscheck 的判断记录")
 print(work)

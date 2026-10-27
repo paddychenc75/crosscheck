@@ -419,21 +419,10 @@ class TestGitLab(Base):
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
         self.assertEqual(self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))["platform"], "gitlab")
 
-class TestEvalAdoptionStats(Base):
-    def test_adoption_and_stats(self):
+class TestStats(Base):
+    def test_stats_lists_near_misses(self):
         remote = self.bare("shop")
-        repo = self.make_repo("shop", {"src/a.ts": "line1\nline2\nline3\nline4\nline5\n", "src/b.ts": "keep\n"}, remote=remote)
-        self.git(repo, "push", "-q", "origin", "main")
-        self.git(repo, "switch", "-qc", "mr")
-        head = self.commit(repo, {"src/a.ts": "line1\nBAD\nline3\nline4\nline5\n", "src/b.ts": "keep\nBAD2\n"}, "mr")
-        self.git(repo, "switch", "-q", "main")
-        self.commit(repo, {"src/a.ts": "line1\nFIXED\nline3\nline4\nline5\n"}, "merge")
-        self.git(repo, "merge", "-q", "--no-edit", "mr", check=False)
-        self.git(repo, "checkout", "-q", "--theirs", "src/b.ts", check=False)
-        self.write(repo, {"src/a.ts": "line1\nFIXED\nline3\nline4\nline5\n", "src/b.ts": "keep\nBAD2\n"})
-        self.git(repo, "add", "-A")
-        self.git(repo, "commit", "-qm", "merged", check=False)
-        self.git(repo, "push", "-q", "origin", "main")
+        repo = self.make_repo("shop", {"src/a.ts": "a\n"}, remote=remote)
         pdir = os.path.join(self.home, "reviews", "shop")
         rec = os.path.join(pdir, "mr-5", "20261020-100000")
         os.makedirs(rec)
@@ -441,30 +430,16 @@ class TestEvalAdoptionStats(Base):
             f.write(remote[:-len(".git")] + "\n")
         with open(os.path.join(pdir, "mr-5", "latest"), "w") as f:
             f.write("20261020-100000\n")
-        import hashlib
-        def ctx(ls, n):
-            return hashlib.sha1("\n".join(" ".join(x.split()) for x in ls[max(0, n - 3):n + 2]).encode()).hexdigest()[:12]
-        a = "line1\nBAD\nline3\nline4\nline5\n".split("\n")
-        b = "keep\nBAD2\n".split("\n")
         with open(os.path.join(rec, "findings.json"), "w") as f:
-            json.dump([{"id": "fa", "file": "src/a.ts", "line": 2, "code_line": "BAD", "context_hash": ctx(a, 2), "summary": "A", "confidence": 90},
-                       {"id": "fb", "file": "src/b.ts", "line": 2, "code_line": "BAD2", "context_hash": ctx(b, 2), "summary": "B", "confidence": 85}], f)
+            json.dump([{"id": "fa", "file": "src/a.ts", "line": 1, "summary": "A", "confidence": 90}], f)
         with open(os.path.join(rec, "meta.txt"), "w") as f:
-            f.write("target_branch=main\nhead_sha=%s\n" % head)
+            f.write("target_branch=main\n")
         with open(os.path.join(rec, "rejected.json"), "w") as f:
-            json.dump([{"file": "src/a.ts", "line": 2, "summary": "差一点", "confidence": 75, "reject_reason": "差一环"}], f, ensure_ascii=False)
-        out = self.run_script("adoption.sh", "scan", "--repo", repo).stdout
-        self.assertIn("自动判定 1 条", out)
-        pending = self.load(os.path.join(pdir, "adoption-pending.json"))
-        self.assertEqual([p["id"] for p in pending], ["fa"])
-        self.assertIn("FIXED", pending[0]["final_excerpt"])
-        self.run_script("adoption.sh", "record", "fa", "resolved", "已修复", "--repo", repo)
+            json.dump([{"file": "src/a.ts", "line": 1, "summary": "差一点", "confidence": 75, "reject_reason": "差一环"}], f, ensure_ascii=False)
         out = self.run_script("stats.sh", "--repo", repo).stdout
-        self.assertIn("### 采纳", out)
-        self.assertIn("| 1 | 0 | 1 | 0 | 1/2(样本不足) |", out)
+        self.assertNotIn("采纳", out)
         self.assertIn("### 差一点通过", out)
         self.assertIn("75 分", out)
-
 
 if __name__ == "__main__":
     unittest.main()

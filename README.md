@@ -12,14 +12,14 @@
 | 内容 | 核实过的问题、修复建议、依据 | 需求链接、一句话、请重点看、阅读顺序、影响面、需注意的改动、可能相关的测试、CR 情况 |
 | 性质 | 结论,逐条独立核实 | 事实和链接,由脚本生成或核对,不下结论 |
 
-除了找 bug 和安全问题,它还会对照需求单检查有没有做到需求、对照团队写下的规则检查规范,并记住你对每条发现的判断,同一段代码不再重复报同样的误报。另有一个**规则沉淀**命令,从最近一个季度的 MR 评论里整理出候选规则让你挑。
+除了找 bug 和安全问题,它还会对照需求单检查有没有做到需求、对照团队写下的规则检查规范,并记住你对每条发现的判断,同一段代码不再重复报同样的误报。另有一个**规则维护**命令:从最近一个季度的 MR 评论里沉淀候选规则让你挑、检查现有规则、起草或整理 `REVIEW.md`。
 
 ## 调用
 
 | 功能 | Claude Code | Codex | Cursor | 能否用自然语言 |
 |---|---|---|---|---|
 | 审查(cr) | `/crosscheck:cr` | `$cr` | `/cr` | 可以,直接说「review 一下」 |
-| 规则沉淀(cr-rules) | `/crosscheck:cr-rules` | `$cr-rules` | `/cr-rules` | 不可以,只能用命令 |
+| 规则维护(cr-rules) | `/crosscheck:cr-rules` | `$cr-rules` | `/cr-rules` | 不可以,只能用命令 |
 
 说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则审查期间的只读拦截和 token 统计都不工作;升级插件后要重新信任。
 
@@ -145,7 +145,7 @@ source.prd.label    = PRD
 | 来源 | 文件 |
 |---|---|
 | 审查约定 | `REVIEW.md`(根目录对全部改动生效,子目录只对该目录生效;根目录里单独一行的 `@文件名` 会展开成那个文件) |
-| 沉淀的规则 | `.agents/rules/**/*.md`(按 frontmatter 的 `paths` 生效;规则沉淀写到这里) |
+| 沉淀的规则 | `.agents/rules/**/*.md`(按 frontmatter 的 `paths` 生效;规则维护命令沉淀的规则写到这里) |
 | Claude Code | `CLAUDE.md`、`.claude/rules/*.md` |
 | Codex / 通用 | `AGENTS.md`、`AGENTS.override.md` |
 | Cursor | `.cursor/rules/*.mdc`、`.cursorrules`、`.cursor/BUGBOT.md` |
@@ -181,15 +181,29 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 - 「不要报」一节写团队不想再被提醒的情况,只对它所在的目录生效。你否定某条发现时,agent 会问要不要加进去。
 - 头部设置(`skip`、`limits`、`risk_paths`、`platform`)只认根目录 `REVIEW.md`,不能让插件跳过核实、降低 80 分门槛、自动改代码或 approve。
 
-### 规则沉淀
+### 规则维护
 
-用命令 `/crosscheck:cr-rules` 调用(可以带天数,如 `/crosscheck:cr-rules 30 天`):
+用命令 `/crosscheck:cr-rules` 调用,后面带的话决定做哪件事:
+
+| 命令 | 做什么 |
+|---|---|
+| `/crosscheck:cr-rules`(可带天数,如 `30 天`) | 沉淀:从 MR 评论里归纳候选规则 |
+| `/crosscheck:cr-rules 检查` | 检查现有规则 |
+| `/crosscheck:cr-rules 整理 REVIEW.md` | 起草或整理根目录的 `REVIEW.md` |
+
+所有改动都先给你看,确认后只改工作区,由你提交。
+
+**沉淀**
 
 1. 只读拉取最近一个季度已合并 MR 的人工评论(去掉机器人和系统消息)和你记下的判断,缓存到本机,下次只拉新的。
 2. 归纳出候选规则,脚本按准入清单核对:证据是评论原文、至少 2 个 MR 出现、评论后代码确实改了、能写成「必须/禁止」并有「不要报」的边界、工具查不到、不和已有规则重复。
 3. 按出现次数排好列给你挑。选中的写进 `.agents/rules/<主题>.md`,每条写规则、原因、严重级别、正反例、不要报和来源 MR;只改工作区,由你提交。
 
-Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话在 `AGENTS.md` / `CLAUDE.md` 里用 `@` 引入(会先问你)。说「检查一下我们的规则」时,agent 会逐条看规则能不能检查、有没有范围和边界、是否重复或过长,建议由负责人决定。
+Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话在 `AGENTS.md` / `CLAUDE.md` 里用 `@` 引入(会先问你)。
+
+**检查**:逐条看现有规则能不能对照代码检查、有没有原因、范围和「不要报」的边界、提到的文件和函数还在不在、linter 能不能查、有没有重复或矛盾、文件是否太长,以及在你的审查记录里是否长期被判为误报。结论按文件列出,建议由负责人决定。
+
+**整理 REVIEW.md**:还没有时按模板起草,`skip`、`risk_paths` 用仓库里确实存在的路径,「不要报」从反复被判为不成立的记录里找候选;已经有时检查头部设置能否解析、路径还能不能匹配,把正文整理成「严重程度」「每次都要检查」「不要报」三节,写给写代码 agent 的说明建议挪到 `CLAUDE.md` / `AGENTS.md`,规则太多时建议拆到 `.agents/rules/`。
 
 ## 判断记录
 
@@ -280,11 +294,11 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 skills/cr/
 ├── SKILL.md          编排流程
 ├── crosscheck.conf   插件级配置(团队统一)
-├── roles/            reviewer / rules-auditor / simplifier / verifier / analyst / judge
+├── roles/            reviewer / rules-auditor / simplifier / verifier / analyst
 ├── references/       发现结构、评分标准、误报清单、报告格式、报告之后、维护、常用说法
 ├── templates/        REVIEW.md 模板、个人配置示例
 └── scripts/          审查、规则、记录、MR 说明、规则沉淀的脚本,以及共用的 crlib.py
-skills/cr-rules/      规则沉淀(只能用命令调用),复用 skills/cr/scripts
+skills/cr-rules/      规则维护:沉淀、检查、整理 REVIEW.md(只能用命令调用),复用 skills/cr/scripts
 hooks/                Claude Code、Codex、Cursor 各一份 hook 注册
 tests/                python3 -m unittest discover -s tests
 ```

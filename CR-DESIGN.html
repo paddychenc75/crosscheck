@@ -559,7 +559,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <div class="chips">
             <span class="chip">审查（自然语言或 /cr）</span>
             <span class="chip">审查之后：表态、质疑、修复、改 MR 说明</span>
-            <span class="chip">规则沉淀（只能用命令 /crosscheck:cr-rules）</span>
+            <span class="chip">规则维护：沉淀、检查、整理 REVIEW.md（只能用命令 /crosscheck:cr-rules）</span>
           </div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -618,9 +618,9 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           </div>
           <div class="bi" aria-hidden="true">⇄</div>
           <div class="layer">
-            <div class="layer-head"><b>规则沉淀</b></div>
+            <div class="layer-head"><b>规则维护</b></div>
             <div class="chips">
-              <span class="chip">cr-rules：MR 评论 → 候选</span><span class="chip">脚本核对证据</span><span class="chip">确认后写 .agents/rules</span>
+              <span class="chip">沉淀：MR 评论 → 候选，脚本核对证据</span><span class="chip">检查现有规则</span><span class="chip">整理 REVIEW.md</span><span class="chip">确认后只改工作区</span>
             </div>
           </div>
         </div>
@@ -736,7 +736,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>CR 情况如实列出：</b>严重和重要的未修复问题附作者的判断，没表态的标“未表态”；写明基于哪个提交，之后又有提交时标出。</li>
         <li><b>需求来源：</b>配置按用途写工具名（<code>source.ticket</code>、<code>source.prd</code> 等，值是读取用的 skill 或命令名；可以写在随插件分发的 <code>crosscheck.conf</code> 里，个人配置逐项覆盖），缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），同一分支记住；agent 用配置的工具读取内容作为意图材料。MR 说明里只放链接和标题。</li>
         <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用 <code>output.page</code> 配置的工具，第一次需要同意。</li>
-        <li><b>衡量：</b>贴进 MR 的比例、评审人对“有 / 无 / 有误”的回复、评审人指出而影响面没列的调用方。</li>
+        <li><b>衡量：</b>先不做自动收集；用一段时间后直接问评审人有没有帮他找到重点，重发问卷看“难以判断影响”的比例是否下降。</li>
       </ul>
       <details class="design-basis">
         <summary>设计依据：为什么这样写 MR 说明？</summary>
@@ -767,8 +767,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
       </ul>
 
-      <h3>规则沉淀：cr-rules</h3>
-      <p>只能用命令调用（<code>/crosscheck:cr-rules</code>、Codex 的 <code>$cr-rules</code>），不由自然语言触发；只有 cr 可以自然语言触发。从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里挑候选，脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。由人挑选，写进 <code>.agents/rules/&lt;主题&gt;.md</code>（每条一个块：规则、原因、严重级别、反例、正例、不要报、来源 MR），只改工作区；单文件超过约 15 条或 4000 字符提示拆分。审查时这个目录按 frontmatter 的 <code>paths</code> 生效。</p>
+      <h3>规则维护：cr-rules</h3>
+      <p>只能用命令调用（<code>/crosscheck:cr-rules</code>、Codex 的 <code>$cr-rules</code>），不由自然语言触发；只有 cr 可以自然语言触发。一个命令管三件事：不带参数是<b>沉淀</b>；带“检查”是逐条<b>检查</b>现有规则（能不能检查、有没有范围和不要报的边界、是否重复过长、是否长期误报）；带“整理 REVIEW.md”是<b>起草或整理</b>根目录的 REVIEW.md（路径只用仓库里确实存在的，「不要报」从反复被判不成立的记录里找）。沉淀的做法：从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里挑候选，脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。由人挑选，写进 <code>.agents/rules/&lt;主题&gt;.md</code>（每条一个块：规则、原因、严重级别、反例、正例、不要报、来源 MR），只改工作区；单文件超过约 15 条或 4000 字符提示拆分。审查时这个目录按 frontmatter 的 <code>paths</code> 生效。</p>
 
       <h3>规则发现怎么保证可信</h3>
       <div class="lifecycle">
@@ -897,7 +897,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
   var demo = document.getElementById('demo');
   var ACTOR_NAMES = {
     you: '你', lead: '项目负责人', main: '主 agent', script: '脚本', hook: 'hook',
-    reviewer: 'reviewer', rules: 'rules-auditor', verifier: 'verifier', judge: 'judge',
+    reviewer: 'reviewer', rules: 'rules-auditor', verifier: 'verifier',
     gitlab: 'GitLab', repo: '规则文件'
   };
   var tracks = [

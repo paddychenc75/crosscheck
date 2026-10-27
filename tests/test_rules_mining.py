@@ -245,15 +245,6 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--pick", ",".join(str(c["no"]) for c in cands))
         self.assertIn("WARN: .agents/rules/api.md 已有 16 条规则", out)
 
-    def test_mr_note_usage(self):
-        marker = "<!-- crosscheck:begin -->\n...\n<!-- crosscheck:end -->"
-        self.mock_api(LIST, [self.mr(21, desc=marker), self.mr(22, desc=marker), self.mr(23)])
-        self.mock_api(disc(21), [{"id": "a", "notes": [note(1, "alice", "有,省了不少时间"), note(2, "dev1", "有")]}])
-        self.mock_api(disc(22), [{"id": "b", "notes": [note(3, "bob", "有误:漏了 jobs/sync.ts"), note(4, "carol", "无")]}])
-        self.mock_api(disc(23), [{"id": "c", "notes": [note(5, "alice", "有")]}])
-        out, _ = self.mine()
-        self.assertIn("MR_NOTE: 2/3 个 MR 的描述里贴了 crosscheck 的 MR 说明(67%);评审人回复:有 1、无 1、有误 1", out)
-
     def test_needs_login(self):
         r = self.run_script("mine-mrs.sh", cwd=self.repo, check=False)
         self.assertNotEqual(r.returncode, 0)

@@ -19,7 +19,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 本 skill 自包含。`skill_dir` 是本文件所在的目录:
 
 - `scripts/` — 各步骤的脚本(POSIX sh,用 `sh` 运行;多数需要 python3)。`guard.sh` 是宿主的 hook,不需要你运行
-- `roles/` — 每个角色一份说明:`reviewer`(bug、安全、需求核对)、`rules-auditor`(对照项目规则)、`simplifier`(按需)、`verifier`(独立核实)、`analyst`(为 MR 说明起草一句话和分组),以及 `judge`(合并后判断问题是否解决)
+- `roles/` — 每个角色一份说明:`reviewer`(bug、安全、需求核对)、`rules-auditor`(对照项目规则)、`simplifier`(按需)、`verifier`(独立核实)、`analyst`(为 MR 说明起草一句话和分组)
 - `references/` — `common.md`(角色共用)、`finding-schema.md`、`scoring-rubric.md`、`false-positives.md`,以及按需阅读的 `report-format.md`、`after-report.md`、`maintenance.md`、`usage.md`
 
 ## 用户怎么说
@@ -46,8 +46,8 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | 用户说 | 去读 |
 |---|---|
 | 对某条发现表态、质疑、要求修、问没报的、要求定规则 | `references/after-report.md` |
-| 「看看 review 效果 / 采纳率」「检查一下我们的规则」「拿修过的 bug 测一下」 | `references/maintenance.md` |
-| 「从最近一个季度的 MR 里沉淀规则」「总结一下评审里反复提的问题」 | 不在这里做。告诉用户用命令调用规则沉淀:Claude Code 里 `/crosscheck:cr-rules`(拷贝安装时 `/cr-rules`),Codex 里 `$cr-rules`,Cursor 里 `/cr-rules`。只有 cr 可以用自然语言触发 |
+| 「看看 review 的统计」「拿修过的 bug 测一下」 | `references/maintenance.md` |
+| 「从最近一个季度的 MR 里沉淀规则」「检查一下我们的规则」「帮我写个 REVIEW.md」 | 不在这里做。告诉用户用规则维护命令:Claude Code 里 `/crosscheck:cr-rules`(拷贝安装时 `/cr-rules`),Codex 里 `$cr-rules`,Cursor 里 `/cr-rules`。只有 cr 可以用自然语言触发 |
 
 ## 只读约束
 

@@ -9,11 +9,10 @@
 #
 # 几个维度分开统计,互不折算:
 #   判断     人对这条发现的结论(feedback.sh 记录):成立 / 不修 / 不成立 / 有争议 / 未表态
-#   采纳     MR 合并后,报过的问题在最终代码里是否真的解决了(adoption.sh 记录)
 #   去向     代码层面发生了什么:仍在 / 代码已改 / 代码没变但不再报 / 文件已不在改动里
 #   校准     不同置信度区间里,有人判断过的发现有多少是成立的
 #   差一点   没通过核实的候选的分数分布,尤其是 70–79 分那批(rejected.json),用来判断 80 分门槛是否合适
-# "代码已改"不等于"被采纳":改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算,样本不足 10 条时只给数量。
+# "代码已改"不等于问题解决了:改动可能与这条发现无关。"成立率"只按有人明确判断过的发现计算,样本不足 10 条时只给数量。
 # 另外给出每种深度的平均用时和 token。需要 python3。只读取记录,不修改任何东西。
 
 set -eu
@@ -26,7 +25,7 @@ while [ $# -gt 0 ]; do
     --all) all=yes; shift ;;
     --days) [ $# -ge 2 ] || die "--days 需要一个值"; days=$2; shift 2 ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "未知参数: $1" ;;
   esac
 done
@@ -102,12 +101,9 @@ open_now = set()
 costs = {}
 n_reviews = n_full = n_incr = n_clean = 0
 rejected_all = []
-adoption = {}
 
 for pname, pdir in projects:
     fb = list(crlib.feedback_entries(pdir).values())
-    for e in crlib._read_jsonl(os.path.join(pdir, "adoption.jsonl")):
-        adoption[e.get("id")] = e
     for e in fb:
         if cutoff and e.get("time", "").replace("-", "").replace(":", "").replace(" ", "-") < cutoff[:13]: continue
         verdict[e.get("key") or e.get("id")] = e.get("verdict")
@@ -223,18 +219,6 @@ if any(c["dur_n"] or c["tok_n"] for c in costs.values()):
         print("| %s | %d | %s | %s | %d%s |" % (depth, c["n"], dur, tok, c["tok_n"], "(其中 %d 次含子代理)" % c["sub"] if c["tok_n"] else ""))
     print()
     print("token 用量由 hook 从宿主的会话记录里读取,只算审查开始到保存之间;没有 hook(拷贝安装、Codex 未信任)或 Cursor 时不统计。")
-if adoption:
-    res = collections.Counter(e.get("result") for e in adoption.values())
-    decided = res["resolved"] + res["not_resolved"] + res["unchanged"]
-    print()
-    print("### 采纳:MR 合并后问题是否解决")
-    print()
-    print("| 已解决 | 改了但没解决 | 代码没改 | 文件已删除 | 采纳率 |")
-    print("|---|---|---|---|---|")
-    pct = ("%d%%(n=%d)" % (round(100.0 * res["resolved"] / decided), decided)) if decided >= 10 else ("%d/%d(样本不足)" % (res["resolved"], decided) if decided else "—")
-    print("| %d | %d | %d | %d | %s |" % (res["resolved"], res["not_resolved"], res["unchanged"], res["file_removed"], pct))
-    print()
-    print("采纳率 = 已解决 /(已解决 + 改了但没解决 + 代码没改)。「已解决」由 judge 对照合并后的最终代码确认,不是「代码动过」就算。运行 adoption.sh scan 更新。")
 if rejected_all:
     def conf_of(r):
         try: return int(float(r.get("confidence", 0)))

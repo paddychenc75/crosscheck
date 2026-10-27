@@ -311,7 +311,7 @@ class Note:
         cr = self.cr_lines()
         page = self.store.get("page_url", "")
         tail = ["基于提交 %s" % (self.sha[:8] or "?")] + (["[完整版](%s)" % page] if page else [])
-        cr += [" · ".join(tail), "这份说明帮你判断重点了吗?请在评论回复:有 / 无 / 有误"]
+        cr += [" · ".join(tail)]
         blocks.append(("cr", cr))
 
         def lines_of(bs):
