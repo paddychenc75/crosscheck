@@ -588,11 +588,7 @@ esac
 target_key=$(printf '%s' "$target_key" | sed 's/[^A-Za-z0-9._-]/_/g')
 # 记录按项目名存放。项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;
 # 两者在同一仓库的各个 worktree 里都一样,所以它们共用一份记录。
-if repo_id=$(origin_id); then :
-else
-  common=$(git rev-parse --git-common-dir)
-  repo_id=$(dirname "$(cd "$common" && pwd)")
-fi
+repo_id=$(python3 "$script_dir/crlib.py" repo-id)
 reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
 repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
 # 另一个同名的项目已经占用了这个目录时,加上哈希区分。
@@ -641,45 +637,10 @@ if [ "$full" = no ] && [ -f "$store_dir/baseline" ]; then
   [ "$review_scope" = incremental ] || prev_review=""
 fi
 if [ "$review_scope" = incremental ]; then
-  awk -F '\t' '
-    NR == FNR { old[$2] = $1; next }
-    { seen[$2] = 1
-      if (!($2 in old)) print "new\t" $2
-      else if (old[$2] == $1) print "unchanged\t" $2
-      else print "changed\t" $2 }
-    END { for (p in old) if (!(p in seen)) print "removed\t" p }
-  ' "$prev/hashes.txt" "$out/hashes.txt" > "$out/incremental.txt"
   # 依赖扩散:变了的文件里定义的符号,如果有没变的文件在用,那些文件也重审。
   dep_ref=""
   [ "$code_ref" = WORKTREE ] || dep_ref=$code_ref
-  CR_OUT="$out" CR_ROOT="$root" CR_REF="$dep_ref" python3 - <<'PY' || true
-import os, re, subprocess
-out, root, ref = os.environ["CR_OUT"], os.environ["CR_ROOT"], os.environ["CR_REF"]
-split = os.path.join(out, "split")
-idx = dict(l.rstrip("\n").split("\t", 1)[::-1] for l in open(os.path.join(split, "index"), encoding="utf-8") if "\t" in l)
-status = [l.rstrip("\n").split("\t", 1) for l in open(os.path.join(out, "incremental.txt"), encoding="utf-8")]
-DEF = re.compile(r"\b(?:def|function|func|class|interface|type|struct|enum|trait|fn|const|let|var)\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]{3,})")
-syms = set()
-for s, p in status:
-    if s in ("changed", "new") and p in idx:
-        for line in open(os.path.join(split, idx[p] + ".patch"), encoding="utf-8", errors="replace"):
-            # 改动行、hunk 里的上下文行和 hunk 头里的函数名:改了函数体时,定义那一行通常只是上下文
-            if (line[:1] in "+- " and not line.startswith(("+++", "---"))) or line.startswith("@@"):
-                syms.update(DEF.findall(line))
-syms = sorted(syms)[:60]
-unchanged = [p for s, p in status if s == "unchanged"]
-dep = set()
-if syms and unchanged:
-    cmd = ["git", "-C", root, "grep", "-l", "-w", "-F"] + sum([["-e", x] for x in syms], [])
-    cmd += ([ref] if ref else []) + ["--"] + unchanged
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        dep.add(line.split(":", 1)[1] if ref and line.startswith(ref + ":") else line)
-if dep:
-    with open(os.path.join(out, "incremental.txt"), "w", encoding="utf-8") as f:
-        for s, p in status:
-            f.write("%s\t%s\n" % ("dependent" if s == "unchanged" and p in dep else s, p))
-PY
+  python3 "$script_dir/incremental.py" "$out" "$prev" "$root" "$dep_ref"
   unchanged_count=$(grep -c "^unchanged$tab" "$out/incremental.txt" || true)
   mv "$out/diff.patch" "$out/diff.full.patch"
   mv "$out/files.txt" "$out/files.full.txt"
@@ -783,9 +744,8 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'target_branch=%s\n' "${target_branch#origin/}"
   printf 'api_project=%s\n' "$api_project"
   printf 'gitlab_host=%s\n' "$gitlab_host"
-  [ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier 2>/dev/null || true)
   printf 'verifier_model=%s\n' "${verifier_model:-host}"
-  printf 'finder_model=%s\n' "$(sh "$script_dir/config.sh" get model.finder 2>/dev/null || true)"
+  printf 'finder_model=%s\n' "$finder_model"
   printf 'plan_file=%s\n' "$plan_arg"
   printf 'started_at=%s\n' "$(date '+%Y-%m-%d %H:%M')"
   printf 'started_epoch=%s\n' "$(date +%s)"

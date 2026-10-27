@@ -22,6 +22,9 @@ import subprocess
 import sys
 import time
 
+sys.dont_write_bytecode = True
+import crlib
+
 GREP_BUDGET = 10.0       # 查调用方的总耗时上限(秒)
 MAX_SYMBOLS = 30         # 最多查多少个符号的调用方
 MAX_HITS = 50            # 单个符号命中超过这个数只给数量
@@ -81,15 +84,6 @@ def read_text(path):
             return f.read()
     except OSError:
         return ''
-
-
-def read_kv(path):
-    d = {}
-    for line in read_text(path).splitlines():
-        if '=' in line:
-            k, v = line.split('=', 1)
-            d[k] = v
-    return d
 
 
 # ---------- diff 解析 ----------
@@ -304,7 +298,7 @@ class Repo:
 class Facts:
     def __init__(self, rd):
         self.limits = []
-        meta = read_kv(os.path.join(rd, 'meta.txt'))
+        meta = crlib.read_kv(os.path.join(rd, 'meta.txt'))
         self.repo = Repo(meta.get('repo_root') or '.', meta.get('code_ref', ''), meta.get('base_sha', ''))
         self.diff_name = 'diff.full.patch' if os.path.exists(os.path.join(rd, 'diff.full.patch')) else 'diff.patch'
         # 测试文件被 collect-diff 移进了 skipped.patch,MR 说明里也要列出来

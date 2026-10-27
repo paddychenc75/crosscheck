@@ -22,13 +22,12 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crlib
 import sources as srcmod
 
 BEGIN, END = "<!-- crosscheck:begin -->", "<!-- crosscheck:end -->"
 SEV = {"critical": "严重", "major": "重要", "minor": "轻微"}
-CAT = {"bug": "bug", "security": "安全", "intent": "需求核对", "rules": "规范", "simplify": "可简化"}
+CAT = {"bug": "bug", "security": "安全", "intent": "需求核对", "rules": "规范"}
 VERDICT = {"invalid": "作者判为不成立", "wontfix": "作者决定不修", "valid": "作者认可,待修", "disputed": "有争议"}
 GROUP_NAME = ["接口和类型", "实现", "配置", "测试"]
 SKIP_NAME = {"generated": "生成代码", "whitespace_only": "纯格式化", "rename_only": "纯重命名", "lockfile": "lock 文件"}
@@ -48,10 +47,6 @@ def short(items, n, fmt=str):
     items = list(items)
     s = "、".join(fmt(x) for x in items[:n])
     return s + (" 等 %d 个" % len(items) if len(items) > n else "")
-
-
-def finding_key(f):
-    return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
 
 
 def split_where(where):
@@ -201,13 +196,9 @@ class Note:
             verdicts = self.verdicts()
             standing = []
             for f in crlib.load_json(os.path.join(self.d, "findings.json"), []):
-                if f.get("category") != "simplify" and finding_key(f) not in fixed:
-                    v = verdicts.get(finding_key(f), {})
+                if crlib.finding_key(f) not in fixed:
+                    v = verdicts.get(crlib.finding_key(f), {})
                     standing.append(dict(f, verdict=v.get("verdict", ""), reason=v.get("reason", "")))
-            # 判为不成立或不修的被 feedback.sh 移进了 dismissed.json,也要列出来给评审人看
-            for f in crlib.load_json(os.path.join(self.d, "dismissed.json"), []):
-                if f.get("category") != "simplify":
-                    standing.append(dict(f, verdict=f.get("verdict", "invalid"), reason=f.get("dismiss_reason", "")))
             self._findings = (len(fixed), standing)
         return self._findings
 
@@ -220,7 +211,7 @@ class Note:
         fixed, store = set(), self.meta.get("store_dir", "")
         for stamp in (os.listdir(store) if store and os.path.isdir(store) else []):
             final = crlib.load_json(os.path.join(store, stamp, "final.json"), {})
-            fixed |= {finding_key(r) for r in final.get("resolved") or [] if "代码变了" in str(r.get("resolved_reason", ""))}
+            fixed |= {crlib.finding_key(r) for r in final.get("resolved") or [] if "代码变了" in str(r.get("resolved_reason", ""))}
         fixed |= {k for k, v in self.verdicts().items()
                   if v.get("verdict") == "valid" and "--fix" in str(v.get("reason", "")) and v.get("target") == self.meta.get("target_key")}
         return fixed

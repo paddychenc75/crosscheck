@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import subprocess
 
-import test_crosscheck as fixture
+import fixture
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, fixture.SCRIPTS)
@@ -13,7 +13,6 @@ import project_rules
 
 
 class ProjectRulesTests(fixture.Base):
-    run_pipeline = fixture.TestPipeline.run_pipeline
 
     def repo_with_changes(self, extra=None):
         files = {'a.py': 'old\n', 'src/a.py': 'old\n', 'src/a.ts': 'old\n', 'ios/A.swift': 'old\n', 'android/A.kt': 'old\n'}

@@ -17,7 +17,6 @@ import re
 import sys
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crlib
 
 BANNED = re.compile(r"已实现|已覆盖|覆盖了|无风险|没有风险|有风险|风险较|没问题|没有问题|是正确的|正确地|建议|可能出错|"
@@ -25,7 +24,8 @@ BANNED = re.compile(r"已实现|已覆盖|覆盖了|无风险|没有风险|有�
 MAX_GROUPS = 6
 
 
-def norm(s):
+def compact(s):
+    """去掉所有空白,用于核对引文是不是原文的子串。"""
     return re.sub(r"\s+", "", str(s or ""))
 
 
@@ -44,7 +44,7 @@ def corpus(d):
                 parts.append(open(os.path.join(sd, name), encoding="utf-8", errors="replace").read())
             except OSError:
                 pass
-    return norm("\n".join(parts))
+    return compact("\n".join(parts))
 
 
 def acceptance(d):
@@ -102,7 +102,7 @@ def check(d):
         if BANNED.search(body):
             dropped.append({"what": what, "why": "含结论性用语:" + BANNED.search(body).group(0)})
             return None
-        if len(norm(quote)) < 6 or norm(quote) not in text:
+        if len(compact(quote)) < 6 or compact(quote) not in text:
             dropped.append({"what": what, "why": "引文在需求材料里找不到"})
             return None
         return {"text": body, "quote": quote, "source": str(item.get("source") or "")}
@@ -149,7 +149,7 @@ def check(d):
         if not isinstance(r, dict):
             continue
         c = str(r.get("criterion") or "").strip()
-        match = next((x for x in criteria if norm(c) and (norm(c) in norm(x) or norm(x) in norm(c))), None)
+        match = next((x for x in criteria if compact(c) and (compact(c) in compact(x) or compact(x) in compact(c))), None)
         if not match:
             dropped.append({"what": "需求对应:%s" % c[:30], "why": "不是 intent.md 里列出的验收标准"})
             continue

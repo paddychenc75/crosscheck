@@ -425,11 +425,11 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <div class="src a" style="--i:3"><span class="ck">✓</span><b>你补充的</b><span class="muted">「修复分页丢数据」</span></div>
             <div class="lrow a" style="--i:5"><span class="lv">项目</span><span><code>REVIEW.md</code>（从 base 读）</span><span class="n">1 份</span></div>
             <div class="lrow a" style="--i:6"><span class="lv">约定文件</span><span><code>CLAUDE.md</code>、<code>.cursor/rules/orders.mdc</code></span><span class="n">2 份</span></div>
-            <div class="tags a" style="--i:7"><span class="tag2">规则就是 Markdown，不需要编号</span><span class="tag2">风险：中 → 标准深度</span></div>
+            <div class="tags a" style="--i:7"><span class="tag2">规则就是 Markdown，不需要编号</span><span class="tag2">深度：标准</span></div>
           </div>
 
           <div class="scene" data-scene="3" hidden>
-            <div class="task a" style="--i:0"><span><code>reviewer</code> · bug、安全、需求核对，自己决定往哪查</span><span class="muted">已启动</span></div>
+            <div class="task a" style="--i:0"><span><code>reviewer</code> · 同一上下文分遍：正确性 → 安全 → 需求核对</span><span class="muted">已启动</span></div>
             <div class="task a" style="--i:1"><span><code>rules-auditor</code> · 对照 rules.txt 里的规则</span><span class="muted">已启动</span></div>
             <div class="lane a" style="--i:3"><code>reviewer</code><span class="cands"><span class="cc">paginate.ts:42</span><span class="cc">order_service.go:118</span><span class="cc">export.ts:55</span><span class="cc">paginate.ts:12</span></span></div>
             <div class="lane a" style="--i:4"><code>rules-auditor</code><span class="cands"><span class="cc">REVIEW.md「日期格式化统一用…」</span></span></div>
@@ -576,7 +576,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <span class="chip">REVIEW.md（可选，目录级 / 根目录，含「不要报」）</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
           </div></div>
           <div class="subrow"><div class="label">信号</div><div class="chips">
-            <span class="chip">测试削弱扫描</span><span class="chip">风险分级 → 建议深度</span><span class="chip">历史判断</span><span class="chip">MR 说明的事实：符号、调用方、需注意的改动</span>
+            <span class="chip">测试削弱扫描</span><span class="chip">历史判断</span><span class="chip">MR 说明的事实：符号、调用方、需注意的改动</span>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -584,13 +584,12 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="layer">
           <div class="layer-head"><b>审查</b><span>主 agent 编排；有子代理时并行，否则顺序执行</span></div>
           <div class="subrow"><div class="label">① 查找<br>尽量不漏</div><div class="roles">
-            <div class="role"><b>reviewer</b><span>bug、安全、需求核对。能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；先看测试和检查的改动</span></div>
+            <div class="role"><b>reviewer</b><span>能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；在同一个上下文里分遍查：正确性 → 安全 → 需求核对，deep 加影响面</span></div>
             <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
-            <div class="role"><b>simplifier（按需）</b><span>用户要求时才启动：可复用的已有代码、重复、多余的写法</span></div>
-            <div class="role"><b>analyst</b><span>同时起草 MR 说明的一句话和分组，必须引用材料原文，不判断对错</span></div>
+                        <div class="role"><b>analyst</b><span>同时起草 MR 说明的一句话和分组，必须引用材料原文，不判断对错</span></div>
           </div></div>
           <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
-            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；deep 下写脚本复现。最好用和查找不同的模型</span></div>
+            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；每批最多 3 条，严重问题单独核实；deep 下经 run-check.sh 复现。最好用和查找不同的模型</span></div>
           </div></div>
           <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
             <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、合并同一规则、排序、条数上限、编号</span></div>
@@ -642,7 +641,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>步骤</th><th>谁做</th><th>产出</th></tr>
         <tr><td>0. 需求来源（缺了才有）</td><td>主 agent 问一次；用配置的工具读取</td><td>需求单、需求文档的链接和内容；同一分支记住</td></tr>
-        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>risk.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
+        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
         <tr><td>2. 装配规则</td><td><code>collect-rules.sh</code></td><td><code>rules.txt</code>、<code>rules-index.json</code></td></tr>
         <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>，同时 <code>analyst</code> 起草 MR 说明（并行）</td><td><code>candidates.json</code>；<code>analysis.json</code>（经 <code>analysis_check.py</code> 校验）</td></tr>
         <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
@@ -663,31 +662,23 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h3>深度</h3>
       <div class="table-wrap"><table>
         <tr><th>档位</th><th>查找</th><th>核实</th><th>上限</th></tr>
-        <tr><td>quick</td><td>主 agent 自己做 reviewer</td><td>主 agent 自己核实</td><td>5 条</td></tr>
-        <tr><td>standard（默认）</td><td>reviewer、rules-auditor 并行</td><td>verifier 子代理，只读代码</td><td>缺陷 10 条；需求核对、规范、简化各 5 条</td></tr>
-        <tr><td>deep</td><td>再加一个 <code>lens=impact</code> 的 reviewer，从使用方往回查</td><td>verifier 可以跑项目已有的类型检查和测试来复现</td><td>同 standard</td></tr>
+        <tr><td>quick</td><td>主 agent 自己按 reviewer 说明做第 1–3 遍</td><td>主 agent 自己核实</td><td>5 条</td></tr>
+        <tr><td>standard（默认）</td><td>reviewer（同一上下文分遍：正确性、安全、需求核对）、rules-auditor 并行</td><td>verifier 子代理，只读代码，每批最多 3 条</td><td>缺陷 10 条；需求核对、规范各 5 条</td></tr>
+        <tr><td>deep</td><td>同 standard，reviewer 多做一遍影响面（从使用方往回查）</td><td>verifier 可以跑项目已有的类型检查和测试来复现</td><td>同 standard</td></tr>
       </table></div>
-      <p>用户要求简化建议时，任何档位都再加一个 simplifier。风险高（命中 <code>risk_paths</code>、数据库迁移、改动很大、测试被削弱等）时只建议 deep，不自己换。改动较大时按约 1000 行一批，reviewer 和 rules-auditor 每批各跑一次。</p>
+      <p>改动较大时按约 1000 行一批，reviewer 和 rules-auditor 每批各跑一次。</p>
 
       <details class="design-basis">
-        <summary>设计依据：为什么从四个查找角色合并成两个？</summary>
+        <summary>设计依据：为什么一个 reviewer 在同一上下文里分遍查？</summary>
         <ul>
-          <li><b>成本：</b>四个查找角色各自从头读一遍 diff 和材料，重复阅读是 token 的大头；bug 和安全的查法本来就相近，都是顺着调用链和数据流往下追。</li>
-          <li><b>公开实践：</b><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor 的 Bugbot</a> 把固定的多遍流水线换成能自己决定往哪查的 agent，是他们效果提升最大的一次；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 也报告了给 reviewer 仓库访问和执行能力后，严重问题抓得更多、误报更少。</li>
-          <li><b>保留独立的 rules-auditor：</b>“只认写下来的规则、不许用自己的偏好”和 reviewer 的判断标准差别最大，合在一起最容易互相稀释。</li>
-          <li><b>simplifier 改为按需：</b><a href="https://www.uber.com/blog/ureview/">Uber uReview</a> 的数据显示，可读性挑刺、小的重构建议这类评论开发者评分一直最差。</li>
-          <li><b>deep 去掉同模型换序重复查：</b>同一模型的盲区相同；要加强核实，换一个和查找不同的模型。</li>
+          <li><b>成本看子代理数量：</b>宿主的提示缓存按“前缀完全相同”命中。跨子代理的读取一般吃不到缓存，所以子代理数量推高成本；同一个 agent 内多轮读取走缓存，代价小。按类别拆焦点、但放在同一个上下文里，第 2 遍以后读到的代码已经在上下文里。</li>
+          <li><b>单 agent 自主调查：</b><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor 的 Bugbot</a> 把多路并行换成能自己决定往哪查的 agent，是他们效果提升最大的一次；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 给单个 reviewer 仓库访问和执行能力后，严重问题抓得更多、误报更少。</li>
+          <li><b>按类别专项：</b><a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>有专门查规则和查安全逻辑的 agent，<a href="https://www.uber.com/blog/ureview/">Uber uReview</a> 的缺陷、最佳实践、应用安全是三个助手。分遍是两者的折中。</li>
+          <li><b>安全一遍默认开：</b>照搬 <a href="https://github.com/anthropics/claude-code-security-review">Anthropic security-review</a> 的排除清单，默认不报只导致服务不可用的问题、缺少限流、开放重定向、只在测试代码里出现的。</li>
+          <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
+          <li><b>去掉 simplifier：</b>Uber 的数据显示可读性挑刺、小的重构建议评分一直最差，宿主也自带 /simplify。</li>
         </ul>
-        <p><b>待验证：</b>合并后的召回和 token 变化，要在同一批改动上对比。</p>
-      </details>
-      <details class="design-basis">
-        <summary>业界实践：审查流程</summary>
-        <ul>
-          <li><b>对比基准：</b>GitHub / GitLab 的 PR / MR diff 从源分支与目标分支最新的 merge-base 算起（三点比较）。<a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests">GitHub：PR 的三点比较（merge-base）</a></li>
-          <li><b>需求来源：</b>CodeRabbit、Qodo 从 PR 关联的需求单拉取标题、描述和验收标准，逐条对照。<a href="https://docs.coderabbit.ai/issues/pr-validation">CodeRabbit：对照关联 issue 检查 PR</a>；<a href="https://docs.qodo.ai/qodo-documentation/qodo-merge/integrations/ticketing-integrations">Qodo：需求单符合度</a></li>
-          <li><b>只评论改动的行：</b>Google AutoCommenter 发现不限制时约 80% 的评论落在没改的代码上。<a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter（屏蔽不可执行规则后有用率 54%→80%+）</a></li>
-          <li><b>增量审查：</b>每次提交后只重新评审新改动，是 AI 评审工具的常见做法。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a></li>
-        </ul>
+        <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
       </details>
     </section>
 
@@ -696,17 +687,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="cards">
         <div class="card"><h4><span class="num">1</span>reviewer</h4>
           <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。最多 15 条，查到一半的也交，写明 <code>needs_check</code>。</p>
-          <div class="accept"><code>lens=impact</code>（deep）：从使用方往回查漏改的地方、被破坏的隐式契约、撤销了最近的修复。</div></div>
+          <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。</div></div>
         <div class="card"><h4><span class="num">2</span>rules-auditor</h4>
           <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
           <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
-        <div class="card"><h4><span class="num">3</span>simplifier（按需）</h4>
-          <p>可复用的已有 helper、重复、多余的抽象、没用上的新代码。严重程度固定轻微，最多 5 条，和缺陷分开展示。</p>
-          <div class="accept">只在用户说“顺便看看能不能简化”时启动。</div></div>
-        <div class="card"><h4><span class="num">4</span>verifier</h4>
+        <div class="card"><h4><span class="num">3</span>verifier</h4>
           <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。</p>
-          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。deep 下运行命令必须经 <code>run-check.sh</code> 留记录、由 hook 见证，报告标「已复现 / 已复现（自报）/ 读代码推断」；声称跑过但记录对不上的最高 60 分。</div></div>
-        <div class="card"><h4><span class="num">5</span>analyst（MR 说明）</h4>
+          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
+        <div class="card"><h4><span class="num">4</span>analyst（MR 说明）</h4>
           <p>和查找角色同时启动，只读需求材料和脚本整理的代码块清单，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
           <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
       </div>
@@ -755,12 +743,12 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>层</th><th>来源</th><th>生效范围</th></tr>
         <tr><td>L3 目录级</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录下的改动</td></tr>
-        <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行；单独一行的 <code>@文件名</code> 展开成那个文件（和 Claude Code Review 一样，一层、最多 8 个）</td></tr>
-                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.cursor/BUGBOT.md</code>、<code>.github/instructions/</code>、<code>.agents/rules/</code>（沉淀的规则）、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
+        <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行</td></tr>
+                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code>、<code>.agents/rules/</code>（沉淀的规则）</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
       </table></div>
       <ul>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
-        <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>、<code>risk_paths</code>、<code>platform</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
+        <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
         <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」（或 <code>Do not report</code>）的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
         <li><b>仓库里不需要专属目录：</b>插件只认一个可选的 <code>REVIEW.md</code>；这次改动的意图和计划在调用时提供，不放进仓库。</li>
         <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
@@ -819,11 +807,11 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h2>八、文件存放</h2>
       <pre><code>review_dir/                 本次审查（系统临时目录）
 ├── diff.patch  files.txt  ranges.txt  skipped.txt  batches.txt  meta.txt
-├── intent.md  sources.json  discussions.json  weakening.txt  risk.txt  settings.json  history.json
+├── intent.md  sources.json  discussions.json  weakening.txt  settings.json  history.json
 ├── rules.txt  rules-index.json
-├── candidates.json  verify/batch-*.json  verify/result-*.json  runs/（运行记录和见证）
+├── candidates.json  verify/batch-*.json  verify/result-*.json  runs/（运行记录）
 ├── analysis-facts.json  analyst.json  analysis.json
-└── final.json  findings.json  rejected.json  report.json  report.md  mr.md  mr.html
+└── final.json  findings.json  rejected.json  report.md  mr.md  mr.html
 
 插件/skills/cr/crosscheck.conf   团队统一的配置（需求来源、网页版工具），随插件分发
 
@@ -913,9 +901,9 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           log: [['collect-diff', '拉取 MR !128(code.company.com)'], ['collect-diff', '5 个文件 · +186 −31 · 跳过 2 个'], ['collect-context', '测试削弱 1 处'], ['guard', '审查开始,拦截写操作']] },
         { title: '意图与规则', actors: ['script', 'repo'],
           cap: '从 MR 描述、关联需求、提交说明、人工讨论和你的补充里整理出意图和验收标准；规则直接读仓库里的 Markdown，PR/MR 从 base 读。',
-          log: [['collect-context', '→ intent.md(验收标准 2 条)'], ['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc'], ['risk', '中 → standard']] },
+          log: [['collect-context', '→ intent.md(验收标准 2 条)'], ['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc']] },
         { title: '查找候选', actors: ['main', 'reviewer', 'rules'],
-          cap: '两个查找角色并行。reviewer 自己决定往哪里深挖，先看被削弱的测试；rules-auditor 只对照写下来的规则，每条违反写出出处和原文。查到一半的也交。',
+          cap: '两个查找角色并行。reviewer 自己决定往哪里深挖，在同一个上下文里分遍查正确性、安全、需求核对，后几遍读到的代码走缓存；rules-auditor 只对照写下来的规则，每条违反写出出处和原文。查到一半的也交。',
           log: [['主 agent', '启动 reviewer、rules-auditor(并行)'], ['reviewer', '4 条候选'], ['rules-auditor', '1 条候选 · 引文 REVIEW.md'], ['主 agent', '合并去重 → 5 条']] },
         { title: '独立核实', actors: ['verifier', 'script'],
           cap: 'verifier 只拿到候选结论，逐条重新读代码，先尝试推翻再打分，并给出读过的代码和排除的可能。脚本核对依据位置和规则引文，低于 80 分的不报但留档。',

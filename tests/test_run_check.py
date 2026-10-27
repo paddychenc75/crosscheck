@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-import test_crosscheck as fixture
+import fixture
 
 P = "src/orders/paginate.ts"
 EV = [{"file": P, "lines": "1-2"}]

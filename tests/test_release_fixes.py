@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-import test_crosscheck as fixture
+import fixture
 
 
 def save_baseline(t, rd):
@@ -68,7 +68,6 @@ class RiskAndHead(fixture.Base):
 
 
 class PipelineFixes(fixture.ProjectFixture):
-    run_pipeline = fixture.TestPipeline.run_pipeline
 
     def test_unreadable_code_stops_aggregate(self):
         rd, _ = self.collect("feature")
@@ -106,7 +105,6 @@ class PipelineFixes(fixture.ProjectFixture):
 
 
 class JudgedAfterReview(fixture.ProjectFixture):
-    run_pipeline = fixture.TestPipeline.run_pipeline
 
     def test_judged_carried_finding_is_dropped_and_renumbered(self):
         rd, _ = self.collect("feature")

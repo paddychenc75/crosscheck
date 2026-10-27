@@ -21,7 +21,7 @@
 | 审查(cr) | `/crosscheck:cr` | `$cr` | `/cr` | 可以,直接说「review 一下」 |
 | 规则维护(cr-rules) | `/crosscheck:cr-rules` | `$cr-rules` | `/cr-rules` | 不可以,只能用命令 |
 
-说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则审查期间的只读拦截和 token 统计都不工作;升级插件后要重新信任。
+说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则审查期间的只读拦截不工作;升级插件后要重新信任。
 
 ## 审查
 
@@ -38,7 +38,6 @@
 | 快速过一遍 | 「快速看一下」 | `--depth quick` |
 | 上线前仔细审 | 「仔细看看」「上线前深度审一下」 | `--depth deep` |
 | 只关心某一方面 | 「只看安全问题」「只对照团队规范」 | `--only bug,security,rules` |
-| 顺便看看能不能简化 | 「顺便看看有没有能简化的」 | `--only bug,security,rules,simplify` |
 | 告诉它改动的目的 | 「这次是为了修复分页丢数据」 | `--intent "…"` |
 | 给方案、接口文档 | 「方案在 docs/plan.md」 | `--doc <文件>`(可多次) |
 | 给需求链接 | 「需求单是 <链接>」「这是 hotfix,没有需求单」 | `--source ticket=<链接>`、`ticket=none:hotfix` |
@@ -48,7 +47,7 @@
 | 从头完整审一遍 | 「重新审」「全量」 | `--full` |
 | 审完顺手修掉 | 「审完把问题修掉」 | `--fix` |
 
-- **深度**:没说时按 standard。quick 由主 agent 自己查和核实,最多 5 条;deep 多一个 reviewer 从调用方往回查影响面,verifier 可以跑项目已有的检查和测试来复现。风险高时(数据库迁移、鉴权或资金相关、改动很大、测试被削弱等)会建议 deep,只建议,不自己换。
+- **深度**:没说时按 standard。查找由一个 reviewer 在同一个上下文里分遍做(正确性 → 安全 → 需求核对),规则由 rules-auditor 单独查。quick 由主 agent 自己查和核实,最多 5 条;deep 时 reviewer 多做一遍影响面(从调用方往回查),verifier 可以跑项目已有的检查和测试来复现。
 - **对比基准**:和 GitHub / GitLab 一样以远端最新为准,审查前先从 origin 拉取目标分支(只更新 `origin/` 下的远程跟踪分支)。当前分支离 develop、release/* 这类分支比离默认分支更近时,会先问你对比哪个。
 - **改动很大**:按约 1000 行一批审查;超过 4 批时先问你是全部审、只审某个目录,还是用 quick。
 - 不带 `--fix` 时不改任何文件;「review 一下」「这个该怎么修」都不算修改请求。
@@ -76,17 +75,16 @@
 
 - **第一行**:审查范围、深度、全量还是增量;接着一行写意图取自哪些来源。
 - **概览表**:每条缺陷和需求核对一行。
-- **逐条发现**:标题写明严重程度、维度和怎么确认的——**已复现**(deep 下实际运行并由 hook 见证)、**已复现(自报)**(有运行记录但没有 hook)、**读代码推断**。每条包含位置、从被审查版本里摘出的问题代码、会导致什么错误结果、修复建议,以及折叠的依据(读过的代码、排除了哪些可能、复现结果)。
+- **逐条发现**:标题写明严重程度、维度和怎么确认的——**已复现**(deep 下实际运行过,有运行记录)或**读代码推断**。每条包含位置、从被审查版本里摘出的问题代码、会导致什么错误结果、修复建议,以及折叠的依据(读过的代码、排除了哪些可能、复现结果)。
 - **需求核对**:没有做到的验收标准。
 - **规范**:违反团队书面规则的地方,逐字引用规则原文和出处。
-- **可简化**:只在你要求时才有,最多 5 条。
 - **测试和检查被削弱**:删了断言、新增 skip、降低覆盖率阈值、放宽 CI 等,由脚本扫出,单独列出。
 - **已按历史判断忽略**(折叠):因为你以前的判断而没报的,可以展开核对。
-- **末尾**:风险等级、用了哪些规则文件、跳过了多少文件、查了哪些维度、消耗、报告文件的链接。
+- **末尾**:用了哪些规则文件、跳过了多少文件、查了哪些维度、消耗、报告文件的链接。
 
-**核实与打分**:verifier 必须给出依据,脚本核对依据里的代码位置真实存在,不存在或没给的最高 50 分;规则发现的出处和引文对不上的作废;AI 声称跑过但拿不出运行记录的,按读代码推断处理、最高 60 分。低于 80 分的不展示,存在记录里。
+**核实与打分**:verifier 必须给出依据,脚本核对依据里的代码位置真实存在,不存在或没给的最高 50 分;规则发现的出处和引文对不上的作废;AI 声称跑过但拿不出运行记录的,按读代码推断处理、最高 60 分。verifier 每批最多核实 3 条,严重问题单独核实。低于 80 分的不展示,存在记录里。
 
-报告直接显示在对话里,同时存一份到 `~/.crosscheck/reviews/` 并用系统默认程序打开。`CROSSCHECK_OPEN=0` 不自动打开,`CROSSCHECK_OPEN_CMD=code` 指定打开的程序;SSH、CI 和没有图形界面的 Linux 上只给链接。
+报告直接显示在对话里,同时存一份到 `~/.crosscheck/reviews/`,报告末尾给出它的链接。
 
 ## MR 说明
 
@@ -103,8 +101,7 @@
 | 测试 | 你写的「怎么验证的」,以及可能相关的测试文件(未执行) |
 | CR 情况 | 已修复几条;未修复的严重和重要问题附你的判断和理由,没表态的标「未表态」;写明基于哪个提交 |
 
-- 不写已实现、已覆盖、无风险这类结论。影响面只按名字在本仓库文本匹配,依赖注入、反射、跨服务调用搜不到;签名不变的行为变化由 CR 报告负责。
-- 仓库有 MR 模板(`.gitlab/merge_request_templates/`、`.github/pull_request_template.md`)时按模板标题填,模板里需要你自己写的几节放在标记之外,重新生成时不会被覆盖。
+- 不写已实现、已覆盖、无风险这类结论。改了哪些函数和接口按 TS/JS、Go、Python、Java/Kotlin 的写法识别,其他语言退到 git 标出的所在函数或文件级;配置只看改动行里的键。影响面只按名字在本仓库文本匹配,依赖注入、反射、跨服务调用搜不到;签名不变的行为变化由 CR 报告负责。
 - 提交推送到远端后,代码位置带 GitLab / GitHub 的行链接。
 - 另有完整版 `mr.html`。配置了 `output.page` 时,第一次会问要不要生成网页版,之后随 CR 报告更新同一个页面,描述里多一行「完整版」链接。
 - 插件不提交 MR、不改 MR 描述,只给出 `glab mr create/update` 或 `gh pr create/edit` 命令,由你执行。
@@ -114,7 +111,7 @@
 审查会把下面这些汇总成「意图」交给各个角色,用来判断某个行为变化是不是有意的、有没有做到需求:
 
 - MR 描述;本地分支时用提交说明。
-- 关联的需求单:GitLab Issue 用 `glab` 读,GitHub issue 用 `gh` 读,其他系统配 `issue_cmd`。
+- 关联的需求单:GitLab Issue 用 `glab` 读,GitHub issue 用 `gh` 读,其他系统用配置的需求来源(见下)。
 - MR / PR 上已有的人工讨论(已经有人指出的问题不重复报)。
 - `--intent`、`--doc` 给的说明和文档。
 - 配置的需求来源(见下)。
@@ -144,13 +141,12 @@ source.prd.label    = PRD
 
 | 来源 | 文件 |
 |---|---|
-| 审查约定 | `REVIEW.md`(根目录对全部改动生效,子目录只对该目录生效;根目录里单独一行的 `@文件名` 会展开成那个文件) |
+| 审查约定 | `REVIEW.md`(根目录对全部改动生效,子目录只对该目录生效) |
 | 沉淀的规则 | `.agents/rules/**/*.md`(按 frontmatter 的 `paths` 生效;规则维护命令沉淀的规则写到这里) |
 | Claude Code | `CLAUDE.md`、`.claude/rules/*.md` |
 | Codex / 通用 | `AGENTS.md`、`AGENTS.override.md` |
-| Cursor | `.cursor/rules/*.mdc`、`.cursorrules`、`.cursor/BUGBOT.md` |
+| Cursor | `.cursor/rules/*.mdc` |
 | GitHub Copilot | `.github/copilot-instructions.md`、`.github/instructions/*.instructions.md` |
-| 其他 | `GEMINI.md`、`.windsurfrules`、`CONVENTIONS.md` |
 
 - 只有范围覆盖本次改动文件的规则才生效;约定文件里的操作说明(怎么跑测试等)不当作审查规则。
 - 审查 PR/MR、其他分支或提交范围时,规则从 base 那一版读,PR 改不了审查用的规则;审查自己当前的分支时读工作区。
@@ -164,7 +160,6 @@ source.prd.label    = PRD
 ---
 skip: ["src/gen/**"]                 # 不审查的路径
 limits: { minor: 3 }                 # 条数上限
-risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 ---
 ## 每次都要检查
 
@@ -179,7 +174,7 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 - 写成能对照代码检查的短句,加一句原因;「注意性能」这类笼统的要求会被跳过。
 - 从一两条开始,单个文件不超过约 15 条;linter 和 CI 能查的不写。
 - 「不要报」一节写团队不想再被提醒的情况,只对它所在的目录生效。你否定某条发现时,agent 会问要不要加进去。
-- 头部设置(`skip`、`limits`、`risk_paths`、`platform`)只认根目录 `REVIEW.md`,不能让插件跳过核实、降低 80 分门槛、自动改代码或 approve。
+- 头部设置(`skip`、`limits`)只认根目录 `REVIEW.md`,不能让插件跳过核实、降低 80 分门槛、自动改代码或 approve。
 
 ### 规则维护
 
@@ -203,7 +198,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 
 **检查**:逐条看现有规则能不能对照代码检查、有没有原因、范围和「不要报」的边界、提到的文件和函数还在不在、linter 能不能查、有没有重复或矛盾、文件是否太长,以及在你的审查记录里是否长期被判为误报。结论按文件列出,建议由负责人决定。
 
-**整理 REVIEW.md**:还没有时按模板起草,`skip`、`risk_paths` 用仓库里确实存在的路径,「不要报」从反复被判为不成立的记录里找候选;已经有时检查头部设置能否解析、路径还能不能匹配,把正文整理成「严重程度」「每次都要检查」「不要报」三节,写给写代码 agent 的说明建议挪到 `CLAUDE.md` / `AGENTS.md`,规则太多时建议拆到 `.agents/rules/`。
+**整理 REVIEW.md**:还没有时按模板起草,`skip` 用仓库里确实存在的路径,「不要报」从反复被判为不成立的记录里找候选;已经有时检查头部设置能否解析、路径还能不能匹配,把正文整理成「严重程度」「每次都要检查」「不要报」三节,写给写代码 agent 的说明建议挪到 `CLAUDE.md` / `AGENTS.md`,规则太多时建议拆到 `.agents/rules/`。
 
 ## 判断记录
 
@@ -239,7 +234,6 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | `security` | 注入、越权、密钥泄漏、不安全反序列化、SSRF、路径穿越等,要求给出攻击路径 |
 | `intent` | 没有满足意图里明确的验收标准 |
 | `rules` | 违反项目写下的规范,必须引用原文 |
-| `simplify` | 可复用已有代码、重复、过度设计;默认不查 |
 
 - 不报风格、命名、可读性、日志措辞和影响很小的性能优化。
 - 只审会在产品路径上执行的代码:测试、日志、构建产物、lock 文件、生成代码、vendored 代码和 `REVIEW.md` 的 `skip` 路径整个跳过(测试被削弱另外扫描);只改注释或排版、原样移动的代码、没有调用方的代码不当作问题。
@@ -268,16 +262,15 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 设置 | 作用 |
 |---|---|
 | `gitlab_hosts` | 按 GitLab 处理的域名,逗号分隔,可以带子路径(如 `company.com/gitlab`);私有化 GitLab 的域名不含 "gitlab" 时必填 |
-| `issue_cmd` | 读取非 GitLab 需求单的命令,`{key}` 替换成编号 |
 | `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型 |
 | `source.<类别>`、`source.required`、`source.<类别>.label`、`source.<类别>.match` | 需求来源,见上 |
 | `output.page` | 生成和更新 MR 说明网页版用的 skill 或命令名;不写就只生成本地文件 |
 
-平台按 `--platform` → `CR_PLATFORM` → `gitlab_hosts` → `REVIEW.md` 的 `platform` → 域名 → 链接形态的顺序判断。私有化 GitLab 需要先 `glab auth login --hostname <域名>`。
+平台按 `--platform` → `CR_PLATFORM` → `gitlab_hosts` → 域名和链接形态的顺序判断。私有化 GitLab 需要先 `glab auth login --hostname <域名>`。
 
 ## 成本
 
-报告末尾有一行「消耗」:用时、启动的查找角色和 verifier 数、候选和通过的条数,以及 token 用量。token 由插件的 hook 从会话记录里读取:Claude Code 包含子代理;Codex 是否包含子代理未知;Cursor 的 hook 不提供用量,不统计。统计不到时写明原因(hook 没运行,或读不到用量)。只读用量数字,不读对话内容。
+报告末尾有一行「消耗」:用时、启动的查找角色和 verifier 数、候选和通过的条数,以及 token 用量。token 只在 Claude Code 里统计:由插件的 hook 从会话记录里读取,包含子代理;Codex、Cursor 不统计。统计不到时写明原因(hook 没运行、读不到用量,或这个宿主不统计)。只读用量数字,不读对话内容。
 
 ## 依赖和常见情况
 
@@ -285,7 +278,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 - GitHub PR 用 `gh`,GitLab MR 用 `glab`(都要已登录)。没有或没登录时改用 git 直接拉取代码,但拿不到标题、描述和关联需求,目标分支不是默认分支时要说明一下。
 - **必须有本地仓库**。只给 MR 链接而没有本地克隆不行;不在仓库目录里时告诉它仓库在哪。
 - **连不上内网 GitLab**:常见于沙箱环境,放开网络或换个环境再试,或改审本地分支。
-- **明明登录了却提示没登录**:多半是登录用的环境变量写在 `~/.zshrc` 里,而 agent 的终端不读它。脚本会指出是哪个文件的哪几个变量(不读取、不输出值),并借你的登录 shell 再试一次;一劳永逸的办法是挪到 `~/.zshenv`。
+- **明明登录了却提示没登录**:多半是登录用的环境变量写在 `~/.zshrc` 里,而 agent 的终端不读它。脚本会指出是哪个文件的哪几个变量(不读取、不输出值),办法是把它们挪到 `~/.zshenv` 或宿主的环境变量配置里;在那之前会改用 git 直接拉取代码。
 - **用自己的历史 bug 检验**:说「拿我们修过的 bug 测一下能不能抓到」,agent 会从 `git log` 挑修 bug 的提交,对引入 bug 的那次改动跑审查,再挑普通改动看误报。
 
 ## 结构
@@ -294,7 +287,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 skills/cr/
 ├── SKILL.md          编排流程
 ├── crosscheck.conf   插件级配置(团队统一)
-├── roles/            reviewer / rules-auditor / simplifier / verifier / analyst
+├── roles/            reviewer / rules-auditor / verifier / analyst
 ├── references/       发现结构、评分标准、误报清单、报告格式、报告之后、维护、常用说法
 ├── templates/        REVIEW.md 模板、个人配置示例
 └── scripts/          审查、规则、记录、MR 说明、规则沉淀的脚本,以及共用的 crlib.py
@@ -303,7 +296,7 @@ hooks/                Claude Code、Codex、Cursor 各一份 hook 注册
 tests/                python3 -m unittest discover -s tests
 ```
 
-`skills/cr/` 自包含,不依赖宿主专属功能:支持子代理时各角色并行,不支持时由主 agent 依次执行。`hooks/` 只提供额外的拦截和 token 统计,没有它审查照常运行。为什么这样设计见 [DESIGN.md](DESIGN.md)。
+脚本的入口都是 `.sh`,实现放在同名的 `.py` 模块里;每个模块只做一件事(例如收集上下文由 `intent.py`、`discussions.py`、`weakening.py`、`platform_api.py` 组成,公共函数在 `crlib.py`)。`skills/cr/` 自包含,不依赖宿主专属功能:支持子代理时各角色并行,不支持时由主 agent 依次执行。`hooks/` 只提供额外的拦截和 token 统计,没有它审查照常运行。为什么这样设计见 [DESIGN.md](DESIGN.md)。
 
 想调整行为,直接改对应文件:阈值和评分在 `references/scoring-rubric.md`,不该报的在 `references/false-positives.md`,各角色的关注点在 `roles/`。测试里 `tests/bin/glab` 模拟 GitLab,`tests/bin-gh/gh` 模拟 GitHub。
 
@@ -314,5 +307,5 @@ tests/                python3 -m unittest discover -s tests
 - **影响面靠名字匹配**:依赖注入、反射、MyBatis XML、跨服务调用、再导出搜不到,同名方法会混在一起(标「同名歧义」)。
 - **MR 说明可以被改**:贴进 MR 后作者能改,评审人应以写明的提交和 MR 最新提交对照。
 - **需求来源靠你配置的工具**:能否读到取决于工具和权限;读取发生在审查开始前,只读拦截还没生效。
-- **执行见证只防幻觉**:Codex、Cursor 的 hook 没有独立的退出码,见证只能核对输出;不防刻意伪造。
+- **运行记录只防幻觉**:声称跑过的命令要有 `run-check.sh` 留下的记录,但记录本身不防刻意伪造。
 - **真实环境验证不足**:私有化 GitLab 子路径部署、GitHub 的 issue 和评论读取主要用模拟的 `glab` / `gh` 测过;判断记录只在本机。

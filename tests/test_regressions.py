@@ -4,11 +4,10 @@ import os
 from pathlib import Path
 import subprocess
 
-import test_crosscheck as fixture
+import fixture
 
 
 class PipelineRegressions(fixture.ProjectFixture):
-    run_pipeline = fixture.TestPipeline.run_pipeline
 
     def test_missing_quote_is_rejected(self):
         rd, _ = self.collect('feature')

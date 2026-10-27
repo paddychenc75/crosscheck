@@ -37,6 +37,21 @@ def save_json(path, data):
         f.write("\n")
 
 
+def read_text(path):
+    """读文本文件;读不到返回 None。"""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def clip(s, n):
+    """截到 n 个字符,并注明已截断。"""
+    s = (s or "").strip()
+    return s if len(s) <= n else s[:n] + "\n……(已截断)"
+
+
 def norm(s):
     return " ".join(str(s).split())
 
@@ -48,6 +63,11 @@ def ctx_hash(lines, n):
 
 def short_hash(s, n=8):
     return hashlib.sha1(str(s).encode("utf-8")).hexdigest()[:n]
+
+
+def finding_key(f):
+    """跨审查识别同一条发现:有 id 用 id,否则用 文件|维度|首次出现|摘要。"""
+    return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
 
 
 # ---------- glob ----------
@@ -265,6 +285,7 @@ class Source:
     def __init__(self, root, ref=None):
         self.root, self.ref = root, ref
         self._tree = None
+        self._lines = {}
 
     def files(self):
         if self._tree is None:
@@ -288,6 +309,13 @@ class Source:
                 return f.read()
         except (OSError, RuntimeError):
             return None
+
+    def lines(self, path):
+        """按行读文件(带缓存);读不到返回 None。"""
+        if path not in self._lines:
+            text = self.read(path)
+            self._lines[path] = None if text is None else text.split("\n")
+        return self._lines[path]
 
 
 def code_source(meta):
@@ -364,13 +392,49 @@ def home():
     return os.environ.get("CROSSCHECK_HOME") or os.path.join(os.path.expanduser("~"), ".crosscheck")
 
 
+def strip_remote(url):
+    """origin 地址去掉协议、账号、凭证和端口,如 https://u:t@host:8443/g/p.git → host/g/p。不要输出原始地址。"""
+    u = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://", "", url.strip())
+    u = re.sub(r"^[^@/]*@", "", u)
+    u = re.sub(r"^([^/:]*):[0-9]+/", r"\1/", u)
+    u = u.replace(":", "/", 1)
+    return re.sub(r"\.git$", "", u.rstrip("/"))
+
+
+def repo_identity(cwd=None):
+    """项目的身份:origin 去凭证后的地址;没有远程时用主工作区的路径(各个 worktree 一致)。"""
+    args = ["git"] + (["-C", cwd] if cwd else [])
+    url = subprocess.run(args + ["remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+    if url:
+        return strip_remote(url)
+    common = subprocess.run(args + ["rev-parse", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
+    if not os.path.isabs(common):
+        common = os.path.join(cwd or os.getcwd(), common)
+    return os.path.dirname(os.path.abspath(common))
+
+
+def project_dir(repo_id):
+    """项目的记录目录:reviews/ 下 .repo 第一行等于 repo_id 的那个;没有返回 None。"""
+    reviews = os.path.join(home(), "reviews")
+    if not os.path.isdir(reviews):
+        return None
+    for name in sorted(os.listdir(reviews)):
+        try:
+            with open(os.path.join(reviews, name, ".repo"), encoding="utf-8") as f:
+                if f.readline().strip() == repo_id:
+                    return os.path.join(reviews, name)
+        except OSError:
+            pass
+    return None
+
+
 SEV_ORDER = {"critical": 0, "major": 1, "minor": 2}
 SEV_NAME = {"critical": "严重", "major": "重要", "minor": "轻微"}
 
 
 # ---------- 人的判断 ----------
 
-def _read_jsonl(path):
+def read_jsonl(path):
     out = []
     try:
         with open(path, encoding="utf-8") as f:
@@ -386,7 +450,7 @@ def _read_jsonl(path):
 
 def feedback_entries(pdir):
     """项目的判断记录 feedback.jsonl,按 key 合并,时间晚的为准。"""
-    entries = _read_jsonl(os.path.join(pdir, "feedback.jsonl")) if pdir else []
+    entries = read_jsonl(os.path.join(pdir, "feedback.jsonl")) if pdir else []
     latest = {}
     for e in entries:
         k = e.get("key") or e.get("id")
@@ -405,3 +469,21 @@ def author_hash(root=None):
         who = ""
     return short_hash(who or os.environ.get("USER", "unknown"))
 
+
+
+if __name__ == "__main__":
+    # 给 shell 脚本用:config get KEY / config path / config plugin-path / repo-id
+    import sys
+    cmd = sys.argv[1:2]
+    if cmd == ["repo-id"]:
+        print(repo_identity())
+    elif cmd == ["path"]:
+        print(config_path())
+    elif cmd == ["plugin-path"]:
+        print(plugin_config_path())
+    elif cmd == ["get"] and len(sys.argv) >= 3:
+        v = config().get(sys.argv[2], "")
+        if v:
+            print(v)
+    else:
+        sys.exit(2)

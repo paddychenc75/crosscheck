@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
-import test_crosscheck as fixture
+import fixture
 
 LIST = "projects/:id/merge_requests?state=merged&per_page=100&page=1"
 CHECKS = {k: True for k in ("project_specific", "not_tool_catchable", "not_subjective", "not_overturned", "no_conflict", "generalizable")}

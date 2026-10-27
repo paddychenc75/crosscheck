@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-import test_crosscheck as fixture
+import fixture
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = fixture.SCRIPTS
@@ -35,11 +35,6 @@ class Repo(fixture.Base):
         r = self.run_script("collect-diff.sh", "--base", "main", *args, cwd=self.repo, check=check)
         return r, (self.review_dir(r.stdout) if r.returncode == 0 else None)
 
-    def py(self, name, *args, check=True):
-        r = subprocess.run(["python3", os.path.join(SCRIPTS, name)] + list(args), env=self.env, capture_output=True, text=True)
-        if check and r.returncode != 0:
-            self.fail("%s 失败:\n%s\n%s" % (name, r.stdout, r.stderr))
-        return r
 
 
 class Sources(Repo):
@@ -71,7 +66,7 @@ class Sources(Repo):
 
     def test_staged_documents_join_intent_and_title(self):
         self.config(TEAM)
-        stage = self.py("sources.py", "stage").stdout.strip()
+        stage = self.run_py("sources.py", "stage").stdout.strip()
         Path(stage, "prd.md").write_text("url: https://docs.acme.example.com/d/abc\ntitle: 订单游标分页 PRD\ntool: acme-kit:doc-reader\n---\n"
                                          "## 验收标准\n- 接口支持 cursor 参数\n", encoding="utf-8")
         Path(stage, "ticket.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
@@ -112,7 +107,7 @@ class AnalystCheck(Repo):
 
     def check(self, raw):
         Path(self.rd, "analyst.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        out = self.py("analysis_check.py", self.rd).stdout
+        out = self.run_py("analysis_check.py", self.rd).stdout
         return out, self.load(os.path.join(self.rd, "analysis.json"))
 
     def test_quotes_must_come_from_material(self):
@@ -132,7 +127,7 @@ class AnalystCheck(Repo):
         self.assertEqual(sorted(sum((g["hunks"] for g in a["groups"]), [])), sorted(self.hunks))
 
     def test_missing_reply_fails_softly(self):
-        out = self.py("analysis_check.py", self.rd).stdout
+        out = self.run_py("analysis_check.py", self.rd).stdout
         self.assertIn("STATUS: failed", out)
 
 
@@ -148,7 +143,7 @@ class MrNote(Repo):
         Path(self.rd, "final.json").write_text('{"groups": {}, "resolved": []}', encoding="utf-8")
 
     def note(self, *args):
-        out = self.py("mr_note.py", self.rd, *args).stdout
+        out = self.run_py("mr_note.py", self.rd, *args).stdout
         return out, Path(self.rd, "mr.md").read_text(encoding="utf-8")
 
     def test_markdown_has_facts_links_and_cr_status(self):
@@ -175,8 +170,8 @@ class MrNote(Repo):
         self.assertIn("轻微", html)
 
     def test_author_focus_page_url_and_unpushed_note(self):
-        self.py("sources.py", "set", self.rd, "focus", json.dumps([{"where": "api/orders.ts:1", "ask": "兼容期够不够"}], ensure_ascii=False))
-        self.py("sources.py", "set", self.rd, "page_url", "https://pages.example.com/p/1")
+        self.run_py("sources.py", "set", self.rd, "focus", json.dumps([{"where": "api/orders.ts:1", "ask": "兼容期够不够"}], ensure_ascii=False))
+        self.run_py("sources.py", "set", self.rd, "page_url", "https://pages.example.com/p/1")
         bare = self.bare("shop")
         self.git(self.repo, "remote", "add", "origin", "https://github.com/acme/shop.git")
         self.git(self.repo, "config", "remote.origin.pushurl", bare)

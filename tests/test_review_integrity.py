@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-import test_crosscheck as fixture
+import fixture
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, fixture.SCRIPTS)

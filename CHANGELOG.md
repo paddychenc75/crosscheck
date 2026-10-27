@@ -6,8 +6,8 @@
 
 **MR 说明**
 
-- 新增 MR 说明(`mr-note.sh` → `mr.md`、`mr.html`):基本信息和需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况,30 行以内,包在 `crosscheck:begin/end` 标记里;有 MR 模板时按模板标题填。只有事实和链接,不下结论。
-- 事实由脚本生成(`analysis_facts.py`):改了哪些函数、接口、配置键及签名变化,本仓库里的调用方(文本匹配,标明能力边界),迁移、配置、环境变量、依赖变化,生成代码、纯格式化、纯重命名、lock 文件,代码块编号和审查量。
+- 新增 MR 说明(`mr-note.sh` → `mr.md`、`mr.html`):基本信息和需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况,30 行以内,包在 `crosscheck:begin/end` 标记里。只有事实和链接,不下结论。
+- 事实由脚本生成(`analysis_facts.py`):改了哪些函数、接口(识别 TS/JS、Go、Python、Java/Kotlin,其他语言退到函数上下文或文件级)、配置键(只看改动行)及签名变化,本仓库里的调用方(文本匹配,标明能力边界),迁移、配置、环境变量、依赖变化,生成代码、纯格式化、纯重命名、lock 文件,代码块编号和审查量。
 - 新角色 `analyst` 起草一句话和分组,`analysis_check.py` 核对引文、编号和禁用词,对不上的删掉。
 - CR 情况:已修复数量;未修复的严重和重要问题附作者的判断和理由,未表态的也列出;写明基于哪个提交,之后又有提交时标出。表态、`--fix`、重新审查后重新生成。
 - 代码位置在提交推送后带上 GitLab / GitHub 行链接;给出 `glab mr create/update`、`gh pr create/edit` 命令,由开发者自己执行,插件不提交 MR。
@@ -21,16 +21,30 @@
 
 **收敛**
 
-- 去掉采纳收集:`adoption.sh`、`judge` 角色和统计里的采纳率,以及 MR 说明末尾的反馈问题和使用统计。没有真实使用数据之前,这套收集的维护成本高于收益;需要时再加回来。`stats.sh` 保留判断、去向、校准、差一点通过和成本。
+- 工程化收敛,脚本从约 7100 行降到约 6000 行,每个机制要么对应问卷里的痛点或精确率,要么有业界做法支撑(DESIGN.md 决策 20):
+  - 去掉采纳收集:`adoption.sh`、`judge` 角色,以及 MR 说明末尾的反馈问题和使用统计。
+  - 去掉 `stats.sh` 汇总统计,判断记录和 `rejected.json` 照常保存。
+  - 去掉风险分级和「建议用 deep」(`risk.txt`、`risk_paths`、`SUGGEST`);`REVIEW.md` 头部只剩 `skip`、`limits`,平台判断去掉 `REVIEW.md` 的 `platform`。
+  - 去掉同根因合并展示(`display-groups.json`、`report.json`、`report_groups.py`)。
+  - 去掉 simplifier 和 `--only simplify`。
+  - 去掉 `issue_cmd` 和 Jira 编号识别,统一走需求来源 `source.ticket`。
+  - 去掉 `REVIEW.md` 的 `@` 引入,以及 `.cursor/BUGBOT.md`、`.cursorrules`、`.windsurfrules`、`GEMINI.md`、`CONVENTIONS.md`。
+  - 去掉自动打开报告(`CROSSCHECK_OPEN*`)和旧记录目录迁移。
+  - 去掉借用登录 shell 重试 glab(`CR_USER_SHELL`),保留变量写在哪个文件的提示和 git 兜底。
+  - 去掉执行记录的宿主见证和两档封顶;token 只统计 Claude Code。
+  - 去掉 MR 模板适配;事实脚本去掉 C#、PHP、Ruby、shell 的识别和配置文件的完整展开。
+- reviewer 改成在同一个上下文里分遍查:正确性 → 安全 → 需求核对,deep 加影响面(不再单独启动影响面 reviewer)。安全一遍默认不报只导致服务不可用的问题、缺少限流、开放重定向和只在测试代码里的问题。跨子代理的读取一般吃不到缓存,同一上下文多遍走缓存;规则仍由 rules-auditor 单独查。
+- verifier 每批最多 3 条,critical 单独一批。
 
 **核实**
 
-- 每条发现标「已复现 / 已复现(自报)/ 读代码推断」:verifier 的运行必须经 `run-check.sh` 留下记录(命令、退出码、测试数、日志),hook 独立见证;记录对不上的降为推断、最高 60 分,报告展示的输出取自真实日志。
+- 每条发现标「已复现 / 读代码推断」:verifier 的运行必须经 `run-check.sh` 留下记录(命令、退出码、测试数、日志);声称运行但没有记录的按读代码推断处理、最高 60 分,报告展示的输出取自运行日志。
 
 **规则**
 
 - 新增规则维护命令 `cr-rules`,管三件事:沉淀、检查现有规则、起草或整理根目录 `REVIEW.md`(原来 cr 里的「检查一下我们的规则」并入这里)。沉淀从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里沉淀规则。脚本核对证据(原文摘录、至少 2 个 MR、评论后确实改了代码或讨论已解决)、写法(必须/禁止、严重级别、不要报边界)和去重,按出现次数和评审人数排序列出候选和准入检查结果;选中的写进 `.agents/rules/<主题>.md`。只能用命令调用(`/crosscheck:cr-rules`、`$cr-rules`),不由自然语言触发;只有 cr 可以自然语言触发。替换了原来靠 agent 手动总结规则的做法。
 - 审查规则来源新增 `.agents/rules/`(frontmatter `paths` 或 `globs` 定范围,支持「不要报」一节)。
+- 规则维护的「整理 REVIEW.md」只处理 `skip`、`limits` 两项头部设置。
 
 ## [0.2.0] - 未发布(试验性)
 

@@ -1,9 +1,8 @@
 """analysis_facts.py:MR 说明的事实部分(符号、调用方、需注意、可跳过、审查量)。"""
 import json
 import os
-import subprocess
 
-import test_crosscheck as fixture
+import fixture
 
 SCRIPT = os.path.join(fixture.SCRIPTS, "analysis_facts.py")
 
@@ -12,7 +11,7 @@ class Facts(fixture.Base):
     def facts(self, repo, *args):
         r = self.run_script("collect-diff.sh", *args, cwd=repo)
         rd = self.review_dir(r.stdout)
-        p = subprocess.run(["python3", SCRIPT, rd], capture_output=True, text=True, env=self.env)
+        p = self.run_py("analysis_facts.py", rd, check=False)
         self.assertEqual(p.returncode, 0, p.stderr)
         with open(os.path.join(rd, "analysis-facts.json"), encoding="utf-8") as f:
             return json.load(f), rd
@@ -252,7 +251,7 @@ class AttentionAndSkip(Facts):
             f.write("diff --git a/x.ts b/x.ts\n@@ -1 +1 @@\n-a\n+export function zzz(\n")
         with open(os.path.join(rd, "meta.txt"), "w") as f:
             f.write("repo_root=%s\ncode_ref=UNAVAILABLE\n" % self.tmp)
-        p = subprocess.run(["python3", SCRIPT, rd], capture_output=True, text=True, env=self.env)
+        p = self.run_py("analysis_facts.py", rd, check=False)
         self.assertEqual(p.returncode, 0, p.stderr)
         data = self.load(os.path.join(rd, "analysis-facts.json"))
         self.assertTrue(any("读不到被审查的代码" in l for l in data["limits"]))

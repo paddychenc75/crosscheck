@@ -213,14 +213,15 @@ sys.exit(0 if path == root or path.startswith(root + os.sep) else 1)' "$root" "$
 
 # 只认用户主目录下的 shell 配置和凭证文件,以及 gh/glab 自己的配置。
 # 仓库里同名的文件(比如 dotfiles 仓库里的 .zshrc、项目里的 .env.example)是正常的审查对象,不拦。
+# 主目录下的 shell 配置和凭证文件名(去掉开头的点),secret_file 和下面 awk 里的 secret() 共用这一份。
+SECRET_NAMES="zshrc zshenv zprofile zlogin bashrc bash_profile bash_login profile netrc git-credentials"
 secret_file() {
-  h=${HOME:-/nonexistent}
   case "$1" in
-    "$h"/.zshrc|"$h"/.zshenv|"$h"/.zprofile|"$h"/.zlogin|"$h"/.bashrc|"$h"/.bash_profile|"$h"/.bash_login|"$h"/.profile|"$h"/.netrc|"$h"/.git-credentials) return 0 ;;
-    "~"/.zshrc|"~"/.zshenv|"~"/.zprofile|"~"/.zlogin|"~"/.bashrc|"~"/.bash_profile|"~"/.bash_login|"~"/.profile|"~"/.netrc|"~"/.git-credentials) return 0 ;;
     */glab-cli/config.yml|*/glab-cli/hosts.yml|*/gh/config.yml|*/gh/hosts.yml) return 0 ;;
   esac
-  return 1
+  case "${1%/*}" in "${HOME:-/nonexistent}"|"~") ;; *) return 1 ;; esac
+  name=${1##*/}
+  case " $SECRET_NAMES " in *" ${name#.} "*) [ "$name" != "${name#.}" ] ;; *) return 1 ;; esac
 }
 
 if [ "$kind" = file ]; then
@@ -256,7 +257,8 @@ if command -v python3 >/dev/null 2>&1; then
   [ -n "$write_path" ] && deny "shell 写入仓库文件 $write_path"
 fi
 
-hit=$(printf '%s\n' "$cmd" | awk -v home="${HOME:-/nonexistent}" '
+hit=$(printf '%s\n' "$cmd" | awk -v home="${HOME:-/nonexistent}" -v names="$SECRET_NAMES" '
+BEGIN { names_re = names; gsub(/ /, "|", names_re); gsub(/\./, "\\.", names_re) }
 function bad(s) { print s; found = 1; exit }
 function secret(full,   np, pre, i2, rest) { # 主目录下的 shell 配置和凭证文件,或 gh/glab 的配置
   gsub(/["\047]/, "", full)
@@ -265,7 +267,7 @@ function secret(full,   np, pre, i2, rest) { # 主目录下的 shell 配置和�
   for (i2 = 1; i2 <= 4; i2++)
     if (index(full, pre[i2]) == 1) {
       rest = substr(full, length(pre[i2]) + 1)
-      if (rest ~ /^\.(zshrc|zshenv|zprofile|zlogin|bashrc|bash_profile|bash_login|profile|netrc|git-credentials)$/) return 1
+      if (rest ~ ("^\\.(" names_re ")$")) return 1
     }
   return 0
 }
