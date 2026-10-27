@@ -43,7 +43,7 @@ verifier 保留候选的全部字段(包括 `cid`)，修正有偏差的 `line`�
 | `verdict` | 一句话:检查了什么、看到了什么,足以支撑这个分数。 |
 | `evidence` | 依据:核实时读过、能支撑结论的代码位置,`[{"file": "...", "lines": "38-47", "note": "改动处"}]`。脚本会核对这些位置在被审查的那一版里真实存在(引用审查材料时写文件名即可,如 `{"file": "intent.md", "lines": "验收标准 2"}`);没给依据或引用不存在的,分数最高 50。 |
 | `ruled_out` | 排除了哪些可能,字符串数组,例如「base 版本用的是 Math.ceil,问题由本次改动引入」「唯一调用方没有对 total 取整」。 |
-| `repro` | 可选,deep 模式下复现过时填写:`{"cmd": "运行了什么", "result": "看到了什么"}`。 |
+| `verification` | 怎么确认的:`{"method": "inferred"}`(读代码判断,可省略),或 `{"method": "executed", "runs": ["r1"], "outcome": "reproduced" \| "refuted" \| "inconclusive"}`(deep 下经 `run-check.sh` 运行过,`runs` 是它输出的编号)。脚本核对运行记录,对不上的改为 `inferred`、分数最高 60。 |
 | `compat` | 可选。修复会改变函数签名、公共行为、默认值、数据或序列化格式时才写:哪些行为保持不变、哪些调用方受影响、有没有更兼容的改法。 |
 | `history_match` / `previously` | 前者表示和项目里已有的「不成立/不修」判断是同一个问题且代码没变;后者表示以前被否定过、代码变了之后重新评估仍然成立。 |
 | `suppressed_by` | 因为命中 `REVIEW.md` 的「不要报」(写 `review`)、误报清单(`false-positives`)或历史判断(`history`)而打低分时填写,报告和被否决的记录里能看出是被什么挡掉的。 |
@@ -57,6 +57,8 @@ verifier 保留候选的全部字段(包括 `cid`)，修正有偏差的 `line`�
 | `cid` | 候选编号,`prepare-verify.sh` 分配,verifier 原样保留。 |
 | `from_prev` | 增量时,上次的发现在变了的文件里,需要重新核实。 |
 | `id`、`since`、`no` | `aggregate.sh` 分配:固定编号、首次报告的时间、报告里的序号。 |
+| `verification_status`、`mark` | `aggregate.sh` 核对运行记录后填写:`executed`(有宿主见证)→ 已复现;`self_reported`(有记录但没有 hook 见证)→ 已复现(自报);`inferred` / `failed` → 读代码推断。 |
+| `repro` | `aggregate.sh` 从运行记录里取:运行编号、命令、退出码、测试数、日志末尾 5 行、是否有见证。verifier 不填。 |
 
 ## 硬性要求
 

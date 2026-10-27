@@ -35,7 +35,7 @@ d = os.environ["CR_DIR"]
 per = max(1, int(os.environ["CR_PER"]))
 cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
 PREV_VERDICT = ("confidence", "verdict", "evidence", "ruled_out", "no", "status", "history_match", "previously",
-                "suppressed_by", "reject_reason", "also_lines", "carried_unchanged", "compat", "cid")
+                "suppressed_by", "reject_reason", "also_lines", "carried_unchanged", "compat", "cid", "verification", "verification_status", "mark", "repro")
 MERGED = re.compile(r"\(共 \d+ 处,其余在第 [^)]* 行\)$")
 notes = crlib.load_json(os.path.join(d, "rules-notes.json"), [])
 keep = []

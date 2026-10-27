@@ -1,0 +1,22 @@
+#!/bin/sh
+# 测试用的假 gh:api 请求从 $MOCK_GH/api/<路径>.json 读取;pr view 按 --json 的字段从 $MOCK_GH/pr_<字段>.txt 读取。
+case "$1" in
+  auth) exit 0 ;;
+  api)
+    shift
+    [ "$1" = --paginate ] && shift
+    key=$(printf '%s' "$1" | sed 's#[/?&=:%]#_#g')
+    f="$MOCK_GH/api/$key.json"
+    if [ -f "$f" ]; then cat "$f"; exit 0; fi
+    echo '{"message":"Not Found"}' >&2; exit 1 ;;
+  pr)
+    case "$2" in
+      diff) cat "$MOCK_GH/diff.patch"; exit 0 ;;
+      view)
+        fields=""
+        while [ $# -gt 0 ]; do [ "$1" = --json ] && fields=$2; shift; done
+        f="$MOCK_GH/pr_$(printf '%s' "$fields" | tr ',' '_').txt"
+        [ -f "$f" ] && cat "$f"; exit 0 ;;
+    esac ;;
+esac
+exit 0

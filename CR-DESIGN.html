@@ -354,6 +354,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     <a href="#overview">总体设计</a>
     <a href="#flows">审查流程</a>
     <a href="#roles">角色</a>
+    <a href="#mrnote">MR 说明</a>
     <a href="#rules">项目规则</a>
     <a href="#metrics">判断与度量</a>
     <a href="#storage">文件存放</a>
@@ -366,7 +367,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     <header class="hero">
       <h1>Crosscheck CR 方案</h1>
       <p>本地 AI 代码审查。先尽量把可疑的地方找出来，再由独立的 verifier 逐条核实、给出依据，只报 80 分以上的；规则就是仓库里的 Markdown；用合并时问题有没有真的解决来衡量效果。</p>
-      <p class="muted">0.2.0（试验性）收敛版：只留业界验证过有效的机制，其余的在有真实使用数据之前不做。关键设计旁的“设计依据”可展开查看。来源核对日期：2026-10-26。</p>
+      <p class="muted">0.3.0（试验性）：一次审查产出两份东西——给开发者自己修的 CR 报告，和给 MR 评审人看的 MR 说明。0.2.0 收敛版的原则不变：只留业界验证过有效的机制，其余的在有真实使用数据之前不做。关键设计旁的“设计依据”可展开查看。来源核对日期：2026-10-26。</p>
       <div class="toolbar">
         <button type="button" id="themeBtn">切换深浅色</button>
       </div>
@@ -680,21 +681,52 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <div class="accept">只在用户说“顺便看看能不能简化”时启动。</div></div>
         <div class="card"><h4><span class="num">4</span>verifier</h4>
           <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。</p>
-          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。</div></div>
-        <div class="card"><h4><span class="num">5</span>judge</h4>
+          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。deep 下运行命令必须经 <code>run-check.sh</code> 留记录、由 hook 见证，报告标「已复现 / 已复现（自报）/ 读代码推断」；声称跑过但记录对不上的最高 60 分。</div></div>
+        <div class="card"><h4><span class="num">5</span>analyst（MR 说明）</h4>
+          <p>和查找角色同时启动，只读需求材料和脚本整理的代码块清单，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
+          <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
+        <div class="card"><h4><span class="num">6</span>judge</h4>
           <p>MR 合并后，对“代码改了”的那些发现判断问题是否真的解决。不因为代码动过就判为解决。</p>
           <div class="accept">结果记进 <code>adoption.jsonl</code>，是采纳率的来源。</div></div>
       </div>
     </section>
 
+    <section id="mrnote">
+      <h2>五、MR 说明与需求来源</h2>
+      <p>团队问卷（约 27 人）：52% 卡在“改动太大、难以判断影响”，15% 缺需求背景，15% 缺验证手段，“意见不准”只有 4%。这不是多找几个问题能解决的，所以审查之外再给 MR 评审人一份 <b>MR 说明</b>，由开发者贴进 MR 描述。</p>
+      <div class="table-wrap"><table>
+        <tr><th></th><th>CR 报告</th><th>MR 说明</th></tr>
+        <tr><td>给谁看</td><td>开发者自己，照着修</td><td>MR 评审人</td></tr>
+        <tr><td>内容</td><td>核实过的问题、修复建议、依据</td><td>需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况</td></tr>
+        <tr><td>性质</td><td>结论，逐条独立核实</td><td>事实和链接，脚本生成或核对，不下结论</td></tr>
+        <tr><td>去处</td><td>留在本地</td><td>开发者贴进 MR 描述（30 行以内）；可生成网页版，随 CR 报告更新</td></tr>
+      </table></div>
+      <ul>
+        <li><b>事实交给脚本：</b><code>analysis_facts.py</code> 提取改了哪些函数、接口、配置键和签名变化，用 <code>git grep</code> 找本仓库里的调用方，标出迁移、配置、环境变量、依赖变化和可跳过的文件。表头写明能力边界：依赖注入、反射、跨服务调用搜不到；签名不变的行为变化由 CR 报告负责。</li>
+        <li><b>请重点看由作者点名：</b>最多 3 处，每处写想要什么反馈；没点名时列出脚本挑的候选并标“自动列出”。</li>
+        <li><b>CR 情况如实列出：</b>严重和重要的未修复问题附作者的判断，没表态的标“未表态”；写明基于哪个提交，之后又有提交时标出。</li>
+        <li><b>需求来源：</b>配置按用途写工具名（<code>source.ticket</code>、<code>source.prd</code> 等，值是读取用的 skill 或命令名；可以写在随插件分发的 <code>crosscheck.conf</code> 里，个人配置逐项覆盖），缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），同一分支记住；agent 用配置的工具读取内容作为意图材料。MR 说明里只放链接和标题。</li>
+        <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用 <code>output.page</code> 配置的工具，第一次需要同意。</li>
+        <li><b>衡量：</b>贴进 MR 的比例、评审人对“有 / 无 / 有误”的回复、评审人指出而影响面没列的调用方。</li>
+      </ul>
+      <details class="design-basis">
+        <summary>设计依据：为什么这样写 MR 说明？</summary>
+        <ul>
+          <li><b>业界做法：</b>CodeRabbit walkthrough 和工作量评分、Qodo <code>/describe</code> 与 <code>/review</code>（重点问题、优先看的文件）、Baz 按功能分组、Google CL 描述要求一句话写清做了什么和为什么。</li>
+          <li><b>研究：</b>写明“希望得到哪类反馈”的 PR 合并几率高约 65–72%（MSR 2026，8 万个 PR）；57.6% 的开发者认为按字母排文件会打断思路（ICSE 2026，1355 人）；评审人的信息需求之一是“被改的东西在别处怎么用”（Pascarella 2018）。</li>
+          <li><b>不做的：</b>风险分（缺历史缺陷数据）、时序图、需求逐条标“已实现”、拆分建议——都无法核实。长模板没人读，所以限 30 行。</li>
+        </ul>
+      </details>
+    </section>
+
     <section id="rules">
-      <h2>五、项目规则</h2>
+      <h2>六、项目规则</h2>
       <p>规则就是仓库里的 Markdown 文件，越具体的越先。<b><code>REVIEW.md</code> 是可选的</b>：团队已有的 <code>CLAUDE.md</code>、<code>AGENTS.md</code> 等直接就能用，只有想专门调整审查时才需要写；一条规则都没有也照常工作，只是没有“规范”一节。</p>
       <div class="table-wrap"><table>
         <tr><th>层</th><th>来源</th><th>生效范围</th></tr>
         <tr><td>L3 目录级</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录下的改动</td></tr>
         <tr><td>L2 项目级</td><td>根目录 <code>REVIEW.md</code></td><td>全部改动；头部设置由脚本执行；单独一行的 <code>@文件名</code> 展开成那个文件（和 Claude Code Review 一样，一层、最多 8 个）</td></tr>
-                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.cursor/BUGBOT.md</code>、<code>.github/instructions/</code>、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
+                <tr><td>约定文件</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.cursor/BUGBOT.md</code>、<code>.github/instructions/</code>、<code>.agents/rules/</code>（沉淀的规则）、<code>GEMINI.md</code> 等</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 排除</td></tr>
       </table></div>
       <ul>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
@@ -704,6 +736,9 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
         <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
       </ul>
+
+      <h3>规则沉淀：cr-rules</h3>
+      <p>只能用命令调用（<code>/crosscheck:cr-rules</code>、Codex 的 <code>$cr-rules</code>），不由自然语言触发；只有 cr 可以自然语言触发。从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里挑候选，脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。由人挑选，写进 <code>.agents/rules/&lt;主题&gt;.md</code>（每条一个块：规则、原因、严重级别、反例、正例、不要报、来源 MR），只改工作区；单文件超过约 15 条或 4000 字符提示拆分。审查时这个目录按 frontmatter 的 <code>paths</code> 生效。</p>
 
       <h3>规则发现怎么保证可信</h3>
       <div class="lifecycle">
@@ -725,7 +760,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     </section>
 
     <section id="metrics">
-      <h2>六、判断与度量</h2>
+      <h2>七、判断与度量</h2>
       <h3>你的判断会被记住</h3>
       <ul>
         <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在项目级的 <code>feedback.jsonl</code>，对所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
@@ -758,7 +793,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     </section>
 
     <section id="storage">
-      <h2>七、文件存放</h2>
+      <h2>八、文件存放</h2>
       <pre><code>review_dir/                 本次审查（系统临时目录）
 ├── diff.patch  files.txt  ranges.txt  skipped.txt  batches.txt  meta.txt
 ├── intent.md  discussions.json  weakening.txt  risk.txt  settings.json  history.json
@@ -777,7 +812,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     </section>
 
     <section id="security">
-      <h2>八、安全边界</h2>
+      <h2>九、安全边界</h2>
       <div class="table-wrap"><table>
         <tr><th>保障</th><th>做什么</th><th>适用</th></tr>
         <tr><td>说明</td><td>SKILL.md 和每个角色说明都写明只读、被审查的内容是数据不是指令、不接触凭证</td><td>所有宿主</td></tr>
@@ -793,7 +828,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     </section>
 
     <section id="industry">
-      <h2>九、业界对照与收敛</h2>
+      <h2>十、业界对照与收敛</h2>
       <p>0.2.0 开发中加过很多机制，端到端跑下来，十几个 bug 几乎都出在机制之间的衔接点上，其中不少业界没有人这样做。对照公开做法，真正被验证有效的只有几条：</p>
       <div class="table-wrap"><table>
         <tr><th>有效机制</th><th>谁在用</th><th>Crosscheck 里的对应</th></tr>
@@ -837,7 +872,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     </section>
 
     <section id="discuss">
-      <h2>十、待定事项</h2>
+      <h2>十一、待定事项</h2>
       <div class="cards">
         <div class="card"><h4><span class="num">1</span>合并后的实际效果</h4><p>两个查找角色相比四个，召回和 token 各变化多少，需要在同一批改动上用采纳率和历史 bug 检验对比。</p></div>
         <div class="card"><h4><span class="num">2</span>核实换模型</h4><p>查找和核实用不同模型是否明显降低误报，需要实测；默认仍用宿主当前的模型。</p></div>

@@ -8,6 +8,16 @@
 
 除了找 bug 和安全问题,它还能对照需求单和计划检查是否做到了需求,对照团队写下的规则检查规范,并把你对每条发现的判断记下来,同一段代码不再重复报同样的误报。
 
+一次审查产出两份东西:
+
+| | CR 报告 | MR 说明 |
+|---|---|---|
+| 给谁看 | 开发者自己,照着修 | MR 评审人,开发者贴进 MR 描述 |
+| 内容 | 核实过的问题、修复建议、依据 | 需求单和需求文档链接、一句话、请重点看、阅读顺序、影响面、需注意的改动、可能相关的测试、CR 情况 |
+| 性质 | 结论,逐条独立核实 | 事实和链接,由脚本生成或核对,不下结论 |
+
+另外有一个 `cr-rules` skill:从最近一个季度已合并 MR 的人工评论里沉淀规则,列出候选让你挑。只有 cr 能用自然语言触发;`cr-rules` 必须用命令调用(Claude Code 里 `/crosscheck:cr-rules`,Codex 里 `$cr-rules`,Cursor 里 `/cr-rules`),不会被一句话误触发。
+
 
 ## 安装
 
@@ -25,7 +35,7 @@ crosscheck 通过插件市场分发,本仓库只提供插件本体和三家的�
 
 ### 拷贝安装(没有 hook)
 
-克隆仓库,把 `skills/cr/` 整个目录拷到对应 agent 的 skills 目录下:
+克隆仓库,把 `skills/cr/` 整个目录拷到对应 agent 的 skills 目录下;要用规则沉淀,把 `skills/cr-rules/` 也拷到同一个目录下(它复用 cr 的脚本):
 
 ```
 git clone https://github.com/paddychenc75/crosscheck.git
@@ -106,7 +116,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | 想做什么 | 可以这样说 |
 |---|---|
 | 看审查效果和采纳率 | "看看 review 的效果" |
-| 从 MR 评论里总结规则 | "从最近一个月的 MR 评论里总结一下规则" |
+| 从 MR 里沉淀规则 | 命令 `/crosscheck:cr-rules`(Codex 里 `$cr-rules`,Cursor 里 `/cr-rules`),可以带上天数,如 `/crosscheck:cr-rules 30 天`。不能用自然语言触发 |
 | 检查规则还好不好用 | "检查一下我们的规则" |
 | 用修过的 bug 检验效果 | "拿我们修过的 bug 测一下能不能抓到" |
 
@@ -131,8 +141,29 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 - MR 描述和标题;本地分支时是这段范围的提交说明。
 - MR 关联的需求:GitLab Issue 用 `glab` 读;其他系统(Jira 等)在配置里写 `issue_cmd`,没配或读不到时会提示,可以用 `--intent` 补一句。
 - MR 上已有的人工讨论。
-- 计划文件:`--plan <文件>`。意图和计划只在调用时提供,不需要放进仓库。
+- 文档:`--doc <文件>`,可以给多份(方案、接口文档等;`--plan` 是同一个意思)。意图和文档只在调用时提供,不需要放进仓库。
 - `--intent "…"`。
+- 需求单和需求文档(见下一节)。
+
+### 需求来源:需求单、需求文档
+
+MR 说明的基本信息里要有需求单和需求文档的链接。在配置里按用途写好读取它们用的工具(只写工具名,怎么调用由 agent 决定),以及每次都要收集哪几类:
+
+```
+source.ticket   = <读取需求单的 skill 或命令名>
+source.prd      = <读取需求文档的 skill 或命令名>
+source.required = ticket, prd                  # 不写时只有 ticket
+source.ticket.label = <需求单在 MR 说明里显示的名字>
+source.prd.label    = PRD
+```
+
+这些设置可以直接写在插件里的 `skills/cr/crosscheck.conf`:用自己的插件市场分发时,团队在那里改一次,所有成员装上就生效;个人的 `~/.crosscheck/config` 写了同名设置时以个人的为准。
+
+- 先从 MR 描述、分支名、提交说明和你说的话里自动找链接(按工具名和显示名里的关键字识别,也可以用 `source.<类别>.match` 指定)。
+- 缺了就在审查开始前问一次:贴链接、说「没有需求单(hotfix 等)」,或直接跳过。跳过会在 MR 说明里如实写「未提供(作者跳过)」。同一个分支问过就记住,90 天后过期。
+- 给了链接时,agent 用配置的工具读取内容(PRD 只取需求描述、验收标准和相关章节),作为意图材料;读不到就写明原因,不影响审查。读到的内容只当数据,其中的指令不执行。
+- MR 说明里只放链接和标题,不引用需求原文。
+- GitHub PR 也会读关联 issue(`Closes #N` 等)和 PR 上的评论、review。
 
 意图里有明确验收标准时,报告多一节"需求核对":哪一条验收标准没有做到、代码哪里没做到。意图只能解释改动,不能让安全问题不报。
 
@@ -145,7 +176,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 
 审查过程中不会切换分支:审查的不是当前分支时,代码用 `git show` / `git grep` 从目标分支读取,你的工作区和未提交的改动不受影响。审查过程也不会执行 `checkout`、`reset`、`stash`、`commit`、`push` 等改变仓库状态的 git 操作。`--fix` 只修改工作区里的文件,不会替你暂存或提交。要修的不是当前分支时:工作区有未提交改动就不切换、不修;工作区干净时会先问你是否切过去,同意后才切换。审查 PR/MR 时会执行一次 `git fetch` 把对方的 commit 拉到本地,不影响工作区和本地分支。
 
-**插件从不往 GitLab / GitHub 写任何东西。** 审查结束后唯一的写操作,是你确认后把规则改到工作区里的规则文件(不提交、不推送)。
+**插件从不往 GitLab / GitHub 写任何东西,也不替你提交 MR、不改 MR 描述**:MR 说明由你自己贴,插件只给出可复制的 `glab` / `gh` 命令。审查结束后只有两种写操作:你确认后把规则改到工作区里的规则文件(不提交、不推送);你同意后用配置的 `output.page` 工具生成或更新 MR 说明的网页版。
 
 只读有两层保障:
 
@@ -172,7 +203,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 
 ## 配置文件
 
-个人配置放在 `~/.crosscheck/config`,每行一个 `key=value`,`#` 开头是注释。用 `sh <skill_dir>/scripts/config.sh path` 查实际位置;环境变量 `CROSSCHECK_CONFIG` 可以改位置。示例见 `skills/cr/templates/config.example`。
+配置有两层:插件里的 `skills/cr/crosscheck.conf`(随插件分发,适合团队统一的设置,如需求来源和网页版工具)和个人的 `~/.crosscheck/config`(逐项覆盖插件里的)。每行一个 `key=value`,`#` 开头是注释。用 `sh <skill_dir>/scripts/config.sh path` 查实际位置;环境变量 `CROSSCHECK_CONFIG` 可以改位置。示例见 `skills/cr/templates/config.example`。
 
 | 设置 | 作用 |
 |---|---|
@@ -180,6 +211,8 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | `issue_cmd` | 读取非 GitLab 需求单的命令,`{key}` 替换成编号,如 `jira issue view {key} --plain` |
 | `model.finder` | 查找角色用的模型,可以用更便宜的。不写就用宿主当前的模型 |
 | `model.verifier` | 核实用的模型,最好和查找用的不同(两者的盲区不同)。调用时说"核实换成某某模型"会覆盖它 |
+| `source.<类别>`、`source.required`、`source.<类别>.label`、`source.<类别>.match` | 需求来源,见「需求来源」一节 |
+| `output.page` | 生成和更新 MR 说明网页版用的 skill 或命令名。不写就只生成本地文件 |
 
 模型名要写当前宿主认识的名字(`sonnet`、`opus` 是 Claude Code 的写法;Codex、Cursor 写各自的模型名)。宿主不支持给子代理指定模型时,照常用宿主的模型运行,报告的「已检查」一行会写明配置了什么、实际由宿主决定。
 
@@ -208,6 +241,7 @@ cp -R crosscheck/skills/cr ~/.claude/skills/cr
 | Cursor | `.cursor/rules/*.mdc`(`alwaysApply` 或 `globs` 命中改动文件)、`.cursorrules` |
 | GitHub Copilot | `.github/copilot-instructions.md`、`.github/instructions/*.instructions.md`(按 `applyTo`,`excludeAgent: code-review` 的不用) |
 | 其他 | `GEMINI.md`、`.windsurfrules`、`CONVENTIONS.md` |
+| 沉淀的规则 | `.agents/rules/**/*.md`(按 frontmatter 的 `paths` 或 `globs`;`cr-rules` 写到这里) |
 
 - 只有范围覆盖本次改动文件的规则才生效。
 - 约定文件里的操作说明(怎么跑测试、用哪个包管理器)不会被当成 review 规则,只采用能对照代码检查的条目。
@@ -280,11 +314,29 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 - **从 MR 评论里总结**:说"从最近一个月的 MR 评论里总结一下规则"。agent 只读地取最近合并的 MR 的人工评论,找出在多个 MR 里被不同的人反复指出的问题,写成能检查的规则候选和证据给你挑;你选中的才改进 `REVIEW.md`(只改工作区)。
 - **检查规则**:说"检查一下我们的规则"。agent 逐条看能不能对照代码检查、提到的文件和函数还在不在、有没有重复或矛盾,把建议列给你。规则的去留由负责人决定,不按命中次数自动删。
 
+## MR 说明
+
+审查结束后在报告后面给出 MR 说明,贴进 MR 描述即可。它包在 `<!-- crosscheck:begin -->` / `<!-- crosscheck:end -->` 里,控制在 30 行以内,只有事实和链接:
+
+- **基本信息**:需求单、需求文档的链接和标题(或「未提供(作者跳过)」「无需求单:hotfix」)、分支、规模、审查量(1–5,按规则估算)。
+- **一句话**:你用 `--intent` 写的;没写时由 analyst 按需求材料起草(引文必须能在材料里找到,脚本核对),会提示你确认。
+- **请重点看**:你点名的最多 3 处,每处可以写想要什么反馈。没点名时列出脚本挑的候选(未修复的严重问题、本次之外有调用方的签名变化、迁移和新环境变量),标明「自动列出」。研究显示写明「希望得到哪类反馈」的 PR 更容易得到有效评审。
+- **阅读顺序**:按 接口和类型 → 实现 → 配置 → 测试 分组,每组一句目的(必须引用材料原文);生成代码、纯格式化、纯重命名、lock 文件列为「可跳过」。
+- **影响面**:签名变了或被删除的函数、接口、配置键,以及本次改动之外的调用方。只按名字在本仓库文本匹配,依赖注入、反射、跨服务调用搜不到;签名不变的行为变化不在这里,由 CR 报告负责。
+- **需注意**:数据库迁移、配置键增删、新环境变量、依赖变化。
+- **测试**:你写的「怎么验证的」(`--tested`),以及可能相关的测试文件(未执行)。
+- **CR 情况(作者本地运行)**:已修复几条;未修复的严重和重要问题逐条列出,附你的判断和理由,没表态的标「未表态」;轻微的只给数量。写明基于哪个提交,之后又有提交时会标出来。
+- 最后一行请评审人回复「有 / 无 / 有误」,用来衡量这份说明有没有用。
+
+不写已实现、已覆盖、无风险这类结论,不画图。仓库有 MR 模板(`.gitlab/merge_request_templates/`、`.github/pull_request_template.md`)时按模板的标题填,模板里需要你自己写的几节放在标记之外,重新生成时不会被覆盖。提交推送到远端之后,代码位置会带上 GitLab / GitHub 的行链接。
+
+另有一份完整版 `mr.html`(全部调用方、代码块、验收标准对应的改动、全部未修复问题)。配置了 `output.page` 时,第一次会问要不要生成网页版,同意后用那个工具发布,描述里多一行「完整版」链接;之后 CR 报告一更新(重新审查、表态、`--fix`),MR 说明和网页都会跟着更新,链接不变。
+
 ## 报告长什么样
 
 - **第一行**:审查范围、深度、全量还是增量。接着一行写意图取自哪些来源。
 - **概览表**:每条缺陷和需求核对一行,列出严重程度、维度、位置和摘要。
-- **逐条发现**,每条包含:
+- **逐条发现**,标题标明怎么确认的:**已复现**(deep 下实际运行并由 hook 见证)、**已复现(自报)**(有运行记录但没有加载 hook)、**读代码推断**。AI 声称跑过但没有运行记录的,按读代码推断处理并降分。每条包含:
   - 位置:`文件:行号`。
   - 问题代码:从被审查的那一版代码里摘出的原文,带行号,出问题的那一行有标记。
   - 问题:具体的输入或状态会导致什么错误结果。
@@ -468,10 +520,11 @@ risk_paths: ["src/payment/**"]       # 改动命中时建议用 deep
 ```
 skills/cr/
 ├── SKILL.md        编排流程
-├── roles/          reviewer / rules-auditor / simplifier / verifier,以及 judge(采纳判断)
+├── roles/          reviewer / rules-auditor / simplifier / verifier / analyst(MR 说明),以及 judge(采纳判断)
 ├── references/     发现结构、评分标准、误报清单、报告格式、报告之后的处理、维护、常用说法
 ├── templates/      REVIEW.md 模板、配置示例
-└── scripts/        审查流程、规则、记录、统计的脚本,以及共用的 crlib.py
+└── scripts/        审查流程、规则、记录、统计、MR 说明、规则沉淀的脚本,以及共用的 crlib.py
+skills/cr-rules/    从 MR 评论里沉淀规则(SKILL.md、roles/miner.md、agents/openai.yaml),复用 skills/cr/scripts;只能用命令调用
 hooks/
 ├── hooks.json          Claude Code 的 hook 注册
 ├── codex-hooks.json    Codex 的 hook 注册(在 .codex-plugin/plugin.json 里指定)
@@ -487,7 +540,7 @@ tests/                  python3 -m unittest discover -s tests
 
 改动较大时会自动按约 1000 行一批拆开审查,每批独立进行;用环境变量 `CR_BATCH_LINES` 调整每批的行数。
 
-测试用 `python3 -m unittest discover -s tests`,其中 `tests/bin/glab` 模拟 GitLab。
+测试用 `python3 -m unittest discover -s tests`,其中 `tests/bin/glab` 模拟 GitLab,`tests/bin-gh/gh` 模拟 GitHub。
 
 ## 已知限制
 
@@ -499,6 +552,9 @@ tests/                  python3 -m unittest discover -s tests
 - 私有化 GitLab 部署在子路径下时,`glab` 的 `GITLAB_HOST` 设置没有在真实环境里验证过。
 - 判断记录只在本机,代表你自己的判断;团队共享常见误报靠把它写进 `REVIEW.md` 的「不要报」。
 - 采纳判断里,"代码改了"的情况由 `judge` 判断问题是否真的解决,仍可能判错。
+- MR 说明的影响面靠名字做文本匹配:依赖注入、反射、MyBatis XML、跨服务调用、再导出搜不到,同名方法会混在一起(标「同名歧义」);签名不变的行为变化不在影响面里。
+- MR 说明里的「CR 情况」是作者本地运行的结果,贴进 MR 后作者可以改,评审人应以它写明的提交和 MR 最新提交对照。
+- 读取需求单、需求文档靠 agent 调用你配置的工具,能否读到取决于工具和权限;读取发生在审查开始前,只读拦截还没生效。
 
 ### 核实完整性与重复展示
 

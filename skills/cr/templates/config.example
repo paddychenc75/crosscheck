@@ -12,3 +12,13 @@ gitlab_hosts=code.company.com
 # 宿主不支持给子代理指定模型(例如 Cursor 部分计费方案下子代理固定用默认模型)时,照常用宿主的模型运行,报告里会说明。
 # model.finder=sonnet
 # model.verifier=opus
+
+# 可选:需求来源和 MR 说明网页版。团队统一的设置建议写在插件里的 crosscheck.conf,这里写个人覆盖。
+# 按用途分类,每类写读取它用的 skill 或命令名(多个用逗号分隔),怎么调用由 agent 决定。
+# source.ticket = <读取需求单的 skill 或命令名>
+# source.prd = <读取需求文档的 skill 或命令名>
+# source.required = ticket, prd                # 每次都要收集(可跳过)的类别;不写时只有 ticket
+# source.ticket.label = <显示名>               # MR 说明里显示的名字
+# source.prd.label = PRD
+# source.ticket.match = <链接里的关键字>       # 识别链接用;不写时从工具名和显示名推出
+# output.page = <发布网页的 skill 或命令名>    # 不写就只生成本地文件

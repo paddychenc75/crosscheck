@@ -11,6 +11,8 @@ def kind(path):
         return 'review'
     if path.startswith('.claude/rules/') and path.endswith('.md'):
         return 'claude'
+    if path.startswith('.agents/rules/') and path.endswith('.md'):
+        return 'agents-rules'
     if path.startswith('.cursor/rules/') and path.endswith(('.mdc', '.md')):
         return 'cursor'
     if path.startswith('.github/instructions/') and path.endswith('.instructions.md'):
@@ -52,7 +54,7 @@ def describe(path, text):
     if source is None:
         raise ValueError('不是支持的项目规则文件: ' + path)
     fm, body = crlib.parse_frontmatter(text)
-    native = source in ('claude', 'cursor', 'copilot') and path.startswith(('.claude/rules/', '.cursor/rules/', '.github/instructions/'))
+    native = source in ('claude', 'cursor', 'copilot', 'agents-rules') and path.startswith(('.claude/rules/', '.cursor/rules/', '.github/instructions/', '.agents/rules/'))
     scope = [os.path.dirname(path) + '/**'] if '/' in path else ['**']
     if path in ('.claude/CLAUDE.md', '.github/copilot-instructions.md'):
         scope = ['**']
@@ -62,8 +64,10 @@ def describe(path, text):
         scope = [owner + '/**'] if owner else ['**']
     issues = []
     if native:
-        key = {'claude': 'paths', 'cursor': 'globs', 'copilot': 'applyTo'}[source]
-        wrong = set(fm) & ({'path', 'paths', 'glob', 'globs', 'applyTo', 'apply_to'} - {key})
+        key = {'claude': 'paths', 'cursor': 'globs', 'copilot': 'applyTo', 'agents-rules': 'paths'}[source]
+        if source == 'agents-rules' and 'globs' in fm and 'paths' not in fm:
+            key = 'globs'      # .agents/rules 没有统一的标准,paths 和 globs 都认
+        wrong = set(fm) & ({'path', 'paths', 'glob', 'globs', 'applyTo', 'apply_to'} - {key} - ({'paths', 'globs'} if source == 'agents-rules' else set()))
         if wrong:
             issues.append('范围字段应为 %s，不能使用 %s' % (key, ', '.join(sorted(wrong))))
         try:

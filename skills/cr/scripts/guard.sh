@@ -14,6 +14,8 @@
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #   另外  在审查开始和保存时调用 usage.sh,尽力统计这次审查消耗的 token
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
+#         run-check.sh 执行后,从宿主给的输出里取它的 CR-RUN 行,记进 review_dir/runs/witness.jsonl,
+#         供 aggregate.sh 核对"声称跑过的命令真的跑过"
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
 # 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
@@ -117,6 +119,16 @@ case "$event" in
     failed=no
     [ "$event" = PostToolUseFailure ] && failed=yes
     if [ "$kind" = shell ] && [ -f "$marker" ]; then
+      # run-check.sh 的运行记录由宿主独立见证:从宿主给的输出里取最后一个哨兵行,记进 review_dir/runs/witness.jsonl。
+      if runs run-check.sh && [ -f "$dir/$sid.review" ]; then
+        rd=$(cat "$dir/$sid.review" 2>/dev/null)
+        line=$(printf '%s\n' "$result" | tr -d '\r' | grep -E '^CR-RUN id=r[0-9]+ exit=-?[0-9]+ sha=[0-9a-f]+$' | tail -n 1)
+        if [ -n "$line" ] && [ -d "$rd" ]; then
+          mkdir -p "$rd/runs" 2>/dev/null
+          printf '%s\n' "$line" | sed -E "s/^CR-RUN id=([^ ]+) exit=([^ ]+) sha=([^ ]+)\$/{\"id\":\"\\1\",\"exit\":\\2,\"sha\":\"\\3\",\"event\":\"$event\",\"host\":\"$host\",\"failed\":$( [ "$failed" = yes ] && echo true || echo false )}/" \
+            >> "$rd/runs/witness.jsonl" 2>/dev/null || true
+        fi
+      fi
       if runs collect-diff.sh; then
         case "$failed:$result" in
           yes:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" "$dir/$sid.review" ;;

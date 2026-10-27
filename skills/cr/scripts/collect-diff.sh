@@ -3,14 +3,19 @@
 #
 # 用法: collect-diff.sh [target] [--depth quick|standard|deep] [--only LIST] [--full]
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
-#                        [--intent TEXT] [--plan FILE] [--verifier-model NAME]
+#                        [--intent TEXT] [--plan FILE] [--doc FILE]... [--verifier-model NAME]
+#                        [--source KIND=VALUE]... [--source-dir DIR] [--tested TEXT]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
 #   --allow-large  改动较大时不再输出 LARGE 提示(用户已经确认要全部审查)
 #   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
-#   --intent     用户补充的一句话意图;--plan 方案或计划文件(仓库相对路径或绝对路径)
+#   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
+#   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket、prd 等(见配置的 source.*),VALUE 是链接、
+#                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
+#   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
+#   --tested TEXT 作者写的「怎么验证的」,只用于 MR 说明
 #   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
 #
@@ -37,7 +42,8 @@
 #   description.md  PR/MR 的标题和描述(本地审查时为空)
 #   hashes.txt      hash<TAB>path          — 每个文件 diff 的哈希,用于判断下次是否需要重审
 #   settings.json   REVIEW.md 头部的审查设置(settings.sh)
-#   intent.md、discussions.json、weakening.txt、risk.txt   见 collect-context.sh
+#   intent.md、sources.json、discussions.json、weakening.txt、risk.txt   见 collect-context.sh
+#   analysis-facts.json  MR 说明用的事实(analysis_facts.py)
 #
 # 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
 # ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/ 下,由 save-review.sh 写入),diff.patch 等文件
@@ -75,6 +81,10 @@ depth_source=default
 intent_arg=""
 plan_arg=""
 verifier_model=""
+source_args=""
+source_dir=""
+doc_files=""
+tested_arg=""
 api_project=""
 gitlab_host=""
 source_branch=""
@@ -85,7 +95,15 @@ while [ $# -gt 0 ]; do
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; depth_source=user; shift 2 ;;
     --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; shift 2 ;;
-    --plan) [ $# -ge 2 ] || die "--plan 需要一个值"; plan_arg=$2; shift 2 ;;
+    --plan|--doc) [ $# -ge 2 ] || die "$1 需要一个值"; doc_files="${doc_files}$2
+"; [ -n "$plan_arg" ] || plan_arg=$2; shift 2 ;;
+    --source) [ $# -ge 2 ] || die "--source 需要一个值"
+      case "$2" in *=?*) ;; *) die "--source 要写成 KIND=VALUE,如 ticket=<链接>、prd=skip" ;; esac
+      source_args="${source_args}$2
+"; shift 2 ;;
+    --source-dir) [ $# -ge 2 ] || die "--source-dir 需要一个值"; [ -d "$2" ] || die "--source-dir 指定的目录不存在: $2"
+      source_dir=$(cd "$2" && pwd); shift 2 ;;
+    --tested) [ $# -ge 2 ] || die "--tested 需要一个值"; tested_arg=$2; shift 2 ;;
     --verifier-model) [ $# -ge 2 ] || die "--verifier-model 需要一个值"; verifier_model=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
     --full) full=yes; shift ;;
@@ -93,7 +111,7 @@ while [ $# -gt 0 ]; do
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --base) [ $# -ge 2 ] || die "--base 需要一个值"; base_override=$2; shift 2 ;;
     --allow-large) allow_large=yes; shift ;;
-    -h|--help) sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -639,14 +657,19 @@ finder_model=$(sh "$script_dir/config.sh" get model.finder)
   printf 'depth=%s\ndepth_source=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$depth_source" "$plan_arg" "$store_dir" "$repo_id"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
   printf 'with_tests=%s\nonly=%s\n' "$with_tests" "$only"
+  printf 'source_branch=%s\ntarget_key=%s\nrepo=%s\n' "$source_branch" "$target_key" "$repo"
   # 风险分级要看整个目标的改动大小,这时还没有按增量裁剪。
   printf 'changed_lines=%s\n' "$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)"
 } > "$out/meta.txt"
 printf '%s' "$intent_arg" > "$out/intent-arg.txt"
+printf '%s' "$source_args" > "$out/source-args.txt"
+printf '%s' "$doc_files" | sed '/^$/d' > "$out/doc-files.txt"
+printf '%s' "$tested_arg" > "$out/tested-arg.txt"
+printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
-grep -E '^(intent_sources|intent_acceptance|discussions|weakening|risk_level|risk_suggest|risk_reasons)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+grep -E '^(intent_sources|intent_acceptance|discussions|weakening|risk_level|risk_suggest|risk_reasons|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
@@ -823,6 +846,10 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
 } > "$out/meta.txt"
 
 cat "$out/context-meta.txt" >> "$out/meta.txt"
+
+# MR 说明用的事实(改了哪些符号、谁在调用、需注意的改动、可跳过的文件)。只跑脚本,失败不影响审查。
+if python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1; then printf 'analysis_facts=ok\n' >> "$out/meta.txt"
+else printf 'analysis_facts=failed\n' >> "$out/meta.txt"; fi
 
 sh "$script_dir/check-state.sh" --save "$out"
 

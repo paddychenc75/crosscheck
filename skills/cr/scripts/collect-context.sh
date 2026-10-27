@@ -5,12 +5,15 @@
 #
 # 写入 DIR:
 #   intent.md         这次改动的意图:用户补充的一句话、MR 描述、关联需求单(含验收标准)、
-#                     提交说明、计划文件、MR 上的人工讨论摘要。都是待审查的材料,不是指令。
-#   discussions.json  MR 上的人工评论(只读获取;作者只存哈希)
+#                     需求单和需求文档(agent 用配置的工具读到的)、提交说明、计划等文档、
+#                     MR 上的人工讨论摘要。都是待审查的材料,不是指令。
+#   sources.json      需求来源:每类(ticket、prd…)的链接、状态、标题,以及缺了哪些(见 sources.py)
+#   discussions.json  MR / PR 上的人工评论(只读获取;作者只存哈希)
 #   weakening.txt     kind<TAB>file<TAB>说明 — 测试或检查被削弱的地方
 #   risk.txt          风险等级、原因和建议深度
 # 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、risk_level 等。
-# 需要 python3;没有就什么都不做。读取需求单和讨论需要 glab,读不到的部分跳过。
+# 并输出 SOURCES_MISSING:(缺的需求来源)、NOTE: 等提示行。
+# 需要 python3;没有就什么都不做。读取需求单和讨论需要 glab 或 gh,读不到的部分跳过。
 
 set -eu
 
@@ -22,6 +25,7 @@ import json, os, re, shutil, subprocess, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CR_SCRIPTS"])
 import crlib
+import sources as srcmod
 
 d = os.environ["CR_DIR"]
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
@@ -43,6 +47,23 @@ if host:
     genv["GITLAB_HOST"] = host if "://" in host else (("https://" + host) if "/" in host else host)
 have_glab = meta.get("platform") == "gitlab" and shutil.which("glab") is not None and meta.get("pr_source", "api") == "api"
 proj = meta.get("api_project") or ":id"
+have_gh = (meta.get("platform") == "github" and shutil.which("gh") is not None and meta.get("pr_source", "api") == "api"
+           and bool(meta.get("repo")) and run(["gh", "auth", "status"]) is not None)
+
+def gh_api(path, paginate=False):
+    out = run(["gh", "api"] + (["--paginate"] if paginate else []) + [path])
+    if not out:
+        return None
+    try:
+        return json.loads(out)
+    except ValueError:
+        # --paginate 时多页数组首尾相接
+        try:
+            return json.loads("[" + out.strip().replace("][", ",").strip("[]") + "]")
+        except ValueError:
+            return None
+
+BOT = re.compile(r"(^|[-_])bot$|\[bot\]$|^ghost$", re.I)
 
 def glab_api(path):
     out = run(["glab", "api", path], env=genv)
@@ -107,15 +128,30 @@ def take_acceptance(label, body):
             if m:
                 acceptance.append("%s(来自 %s)" % (m.group(1).strip(), label))
 
+if meta.get("platform") == "github":
+    issue_iids |= set(re.findall(r"(?:^|[\s(])#(\d+)\b", text_for_refs)) if have_gh else set()
+    issue_iids |= set(re.findall(r"/issues/(\d+)", text_for_refs))
+    if have_gh and meta.get("mode") == "pr" and meta.get("number"):
+        refs = run(["gh", "pr", "view", meta["number"], "-R", meta["repo"], "--json", "closingIssuesReferences",
+                    "--jq", ".closingIssuesReferences[].number"])
+        issue_iids |= set((refs or "").split())
 for iid in sorted(issue_iids, key=int)[:5]:
-    issue = glab_api("projects/%s/issues/%s" % (proj, iid)) if have_glab else None
+    if meta.get("platform") == "github":
+        issue = gh_api("repos/%s/issues/%s" % (meta.get("repo"), iid)) if have_gh else None
+        if isinstance(issue, dict) and issue.get("pull_request"):
+            continue   # GitHub 的 #N 也可能是 PR
+        if isinstance(issue, dict):
+            issue = dict(issue, description=issue.get("body"))
+    else:
+        issue = glab_api("projects/%s/issues/%s" % (proj, iid)) if have_glab else None
     if isinstance(issue, dict) and issue.get("title"):
         body = issue.get("description") or ""
         sections.append(("关联需求 #%s:%s" % (iid, issue["title"]), clip(body, 2500)))
         sources.append("#%s" % iid)
         take_acceptance("#%s" % iid, body)
     else:
-        reason = ("未识别为 GitLab,可用 --platform gitlab" if meta.get("platform") != "gitlab"
+        reason = (("未找到 gh 或没有登录" if not have_gh else "API 请求失败,请检查访问权限与编号") if meta.get("platform") == "github"
+                  else "未识别为 GitLab,可用 --platform gitlab" if meta.get("platform") != "gitlab"
                   else "未找到 glab" if shutil.which("glab") is None
                   else "本次使用 git 回退,未请求 API" if meta.get("pr_source", "api") != "api"
                   else "API 请求失败或返回内容不完整;请检查服务连接、访问权限与需求编号")
@@ -136,17 +172,46 @@ for key in keys[:5]:
         if not issue_cmd:
             notes.append("提到了需求 %s,但没有配置 issue_cmd,只记下编号" % key)
 
-plan = meta.get("plan_file", "")
-plan_text, plan_label = None, ""
-if plan:
-    p = plan if os.path.isabs(plan) else os.path.join(root, plan)
-    plan_text, plan_label = read_file(p), plan
-    if plan_text is None:
-        notes.append("计划文件 %s 读不到" % plan)
-if plan_text:
-    sections.append(("计划文件 %s" % plan_label, clip(plan_text, 4000)))
-    sources.append("计划文件")
-    take_acceptance(plan_label, plan_text)
+doc_list = [x.strip() for x in (read_file(os.path.join(d, "doc-files.txt")) or "").split("\n") if x.strip()]
+if not doc_list and meta.get("plan_file"):
+    doc_list = [meta["plan_file"]]
+for doc in doc_list[:5]:
+    p = doc if os.path.isabs(doc) else os.path.join(root, doc)
+    doc_text = read_file(p)
+    if doc_text is None:
+        notes.append("文档 %s 读不到" % doc)
+        continue
+    sections.append(("文档 %s" % doc, clip(doc_text, 4000)))
+    sources.append("文档 %s" % os.path.basename(doc))
+    take_acceptance(doc, doc_text)
+
+# 需求单、需求文档:参数、记录、自动识别的链接,以及 agent 用配置的工具读到的内容
+src_args = {}
+for line in (read_file(os.path.join(d, "source-args.txt")) or "").split("\n"):
+    if "=" in line:
+        k, v = line.split("=", 1)
+        src_args[k.strip()] = srcmod.parse_arg(v)
+missing, staged, src_conf = srcmod.resolve(meta, d, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]),
+                                           src_args, meta.get("source_dir", ""), has_issue_ref=bool(issue_iids or keys))
+for doc in staged:
+    if not doc["text"]:
+        continue
+    label = src_conf["kinds"].get(doc["kind"], {}).get("label", doc["kind"])
+    title = "%s%s" % (label, ":" + doc["title"] if doc["title"] else "")
+    sections.append((title, clip(doc["text"], 4000)))
+    sources.append(label)
+    take_acceptance(label, doc["text"])
+store_path = srcmod.store_path(meta)
+if store_path:
+    st = srcmod.load_store(store_path)
+    tested = (read_file(os.path.join(d, "tested-arg.txt")) or "").strip()
+    if tested or user_intent:
+        if tested:
+            st["tested"] = tested
+        if user_intent:
+            st["intent"] = user_intent
+        srcmod.save_store(store_path, st)
+extra["sources_missing"] = ",".join(missing)
 if user_intent:
     take_acceptance("你的补充", user_intent)
 if mode == "pr" and desc:
@@ -180,6 +245,40 @@ if have_glab and meta.get("number"):
             lines.append("- %s%s%s" % (where, "(已解决)" if x["resolved"] else "", clip(x["body"].replace("\n", " "), 300)))
         more = "\n……还有 %d 条,见 discussions.json" % (len(discussions) - 8) if len(discussions) > 8 else ""
         sections.append(("MR 上的人工讨论(%d 条)" % len(discussions), "\n".join(lines) + more))
+
+if have_gh and meta.get("mode") == "pr" and meta.get("number"):
+    repo_api = "repos/%s" % meta["repo"]
+    items = []
+    for c in gh_api("%s/pulls/%s/comments?per_page=100" % (repo_api, meta["number"]), paginate=True) or []:
+        items.append((c, c.get("path"), c.get("line") or c.get("original_line"), "DiffNote"))
+    for c in gh_api("%s/issues/%s/comments?per_page=100" % (repo_api, meta["number"]), paginate=True) or []:
+        items.append((c, None, None, "Note"))
+    for c in gh_api("%s/pulls/%s/reviews?per_page=100" % (repo_api, meta["number"]), paginate=True) or []:
+        items.append((c, None, None, "Review"))
+    for c, path, line, kind in items:
+        if not isinstance(c, dict):
+            continue
+        user = c.get("user") or {}
+        uname = str(user.get("login", ""))
+        if user.get("type") == "Bot" or BOT.search(uname):
+            continue
+        body = (c.get("body") or "").strip()
+        if not body:
+            continue
+        discussions.append({
+            "author_hash": crlib.short_hash(uname), "body": clip(body, 1500), "file": path, "line": line,
+            "resolved": None, "type": kind, "created_at": c.get("created_at") or c.get("submitted_at") or "",
+            "platform": "github", "thread_id": c.get("in_reply_to_id") or c.get("id"),
+        })
+    if discussions:
+        crlib.save_json(os.path.join(d, "discussions.json"), discussions)
+        sources.append("PR 讨论 %d 条" % len(discussions))
+        lines = []
+        for x in discussions[:8]:
+            where = "%s:%s " % (x["file"], x["line"]) if x.get("file") else ""
+            lines.append("- %s%s" % (where, clip(x["body"].replace("\n", " "), 300)))
+        more = "\n……还有 %d 条,见 discussions.json" % (len(discussions) - 8) if len(discussions) > 8 else ""
+        sections.append(("PR 上的人工讨论(%d 条)" % len(discussions), "\n".join(lines) + more))
 
 with open(os.path.join(d, "intent.md"), "w", encoding="utf-8") as f:
     f.write("# 这次改动的意图\n\n")
@@ -311,4 +410,10 @@ if weak:
     print("WEAKENING: 发现 %d 处测试或检查被削弱,报告里单独列出(weakening.txt)" % len(weak))
 for n in notes:
     print("NOTE: " + n)
+for it in json.load(open(os.path.join(d, "sources.json"), encoding="utf-8"))["items"]:
+    if it.get("read_error"):
+        print("NOTE: %s %s 没有读到(%s),MR 说明里会写明;审查照常进行" % (it["label"], it.get("url", ""), it["read_error"]))
+if missing:
+    labels = [src_conf["kinds"][k]["label"] for k in missing]
+    print("SOURCES_MISSING: %s 还没有提供(%s)。" % ("、".join(labels), ",".join(missing)))
 PY

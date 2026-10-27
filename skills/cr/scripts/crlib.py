@@ -335,21 +335,28 @@ def config_path():
         os.environ.get("CROSSCHECK_HOME") or os.path.join(os.path.expanduser("~"), ".crosscheck"), "config")
 
 
+def plugin_config_path():
+    """随插件分发的配置(skills/cr/crosscheck.conf),团队在自己的插件市场里改它;个人配置逐项覆盖它。"""
+    return os.environ.get("CROSSCHECK_PLUGIN_CONFIG") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crosscheck.conf")
+
+
 def config():
     d = {}
-    try:
-        with open(config_path(), encoding="utf-8") as f:
-            for line in f:
-                s = line.strip()
-                if not s or s.startswith("#") or "=" not in s:
-                    continue
-                k, v = s.split("=", 1)
-                v = re.sub(r"\s+#.*$", "", v).strip()
-                if v.startswith("~/"):
-                    v = os.path.join(os.path.expanduser("~"), v[2:])
-                d[k.strip()] = v
-    except OSError:
-        pass
+    for path in (plugin_config_path(), config_path()):
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith("#") or "=" not in s:
+                        continue
+                    k, v = s.split("=", 1)
+                    v = re.sub(r"\s+#.*$", "", v).strip()
+                    if v.startswith("~/"):
+                        v = os.path.join(os.path.expanduser("~"), v[2:])
+                    d[k.strip()] = v
+        except OSError:
+            pass
     return d
 
 

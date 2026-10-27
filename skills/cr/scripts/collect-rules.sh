@@ -8,6 +8,8 @@
 #     REVIEW.md 里标题为「不要报」(或 Do not report)的一节是团队不想再被提醒的情况,只用来压掉发现,不作为要检查的规则
 #   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.cursor/BUGBOT.md、.github/instructions/ 等
 #     (按各自的路径或 frontmatter 范围生效;Copilot 的 excludeAgent: code-review 会被排除)
+#   → .agents/rules/**/*.md:从 MR 评论沉淀的规则(cr-rules),范围取 frontmatter 的 paths(或 globs),没有就是整个仓库;
+#     其中的「不要报」一节和 REVIEW.md 一样只用来压掉发现
 # 写入 DIR:
 #   rules.txt         规则正文,每块以一行头部开始:
 #                     === RULES layer=<L3|L2|external> source=<来源> file=<路径> scope=<glob> ===
@@ -22,7 +24,7 @@ set -eu
 
 command -v python3 >/dev/null 2>&1 || { echo "collect-rules: 需要 python3" >&2; exit 1; }
 dir=${1:-}
-case "$dir" in -h|--help|"") sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+case "$dir" in -h|--help|"") sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 [ -f "$dir/meta.txt" ] || { echo "collect-rules: $dir 不是 collect-diff.sh 的输出目录" >&2; exit 1; }
 
 CR_SCRIPTS=$(cd "$(dirname "$0")" && pwd) CR_DIR=$(cd "$dir" && pwd) python3 - <<'PY'
@@ -66,7 +68,7 @@ def split_suppress(body):
 def add(layer, record, scope, applies):
     body = record["body"].strip("\n")
     if body.strip() and applies:
-        text, suppress = split_suppress(body) if record["source"] == "review" else (body, "")
+        text, suppress = split_suppress(body) if record["source"] in ("review", "agents-rules") else (body, "")
         blocks.append({"layer": layer, "source": record["source"], "file": record["file"], "scope": scope,
                        "applies_files": applies, "text": text, "suppress": suppress, "offset": record["offset"]})
 

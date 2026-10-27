@@ -17,6 +17,7 @@
 | 测试也一起看 | 「测试也一起看」 |
 | 从头完整审一遍 | 「重新审」「全量审一遍」 |
 | 告诉它改动的目的 | 「这次是为了修复分页丢数据」「方案在 docs/plan.md」 |
+| 给需求链接 | 「需求单是 <链接>,PRD 是 <链接>」「这是 hotfix,没有需求单」 |
 
 **审查之后**
 
@@ -26,15 +27,17 @@
 | 修复 | 「把第 1、3 条修掉」 |
 | 看没报的 | 「还有别的吗」「70 多分的那些是什么」 |
 | 定规则 | 「以后这种别报了」「以后都要检查 X」 |
+| 改 MR 说明 | 「重点请看 api/orders.ts:42 的兼容分支」「补一句:本地跑过 jest」「PRD 是 <链接>」 |
+| MR 说明生成网页 | 「生成网页版」(配置了 `output.page` 时) |
 
 **维护**
 
 | 想做的 | 可以这样说 |
 |---|---|
 | 看效果和采纳率 | 「看看 review 的效果」 |
-| 从 MR 评论里总结规则 | 「从最近一个月的 MR 评论里总结一下规则」 |
+| 从 MR 里沉淀规则 | 用命令 `/crosscheck:cr-rules`(Codex 里 `$cr-rules`),不能用自然语言触发 |
 | 检查规则还好不好用 | 「检查一下我们的规则」 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 
-配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、读取需求单的 `issue_cmd`、查找和核实用的模型 `model.finder` / `model.verifier`。
+配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、读取需求单的 `issue_cmd`、查找和核实用的模型 `model.finder` / `model.verifier`、需求来源 `source.*`(每类写读取用的工具名,`source.required` 写每次都要收集的类别)、MR 说明网页版用的工具 `output.page`。
 

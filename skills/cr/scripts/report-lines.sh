@@ -14,6 +14,7 @@
 #   CHECKED:   「已检查:」那一行
 #   TRIMMED:   因条数上限没有展示的条数
 #   GUARD:     没有检测到只读拦截时说明一句(检测到就不输出)
+#   MARK:      每条展示的发现怎么确认的:<编号><TAB>已复现 | 已复现(自报) | 读代码推断,写进该条标题
 #   FEEDBACK:  报告末尾提示怎么快速表态
 
 set -eu
@@ -43,6 +44,10 @@ except ValueError as e:
 crlib.save_json(os.path.join(d, "report.json"), display)
 if display.get("display_groups"):
     print("GROUPED: 同一问题合并展示 %d 组；关联编号及依据保留" % len(display["display_groups"]))
+for fs in display.get("groups", {}).values():
+    for f in fs:
+        if f.get("no"):
+            print("MARK: %s\t%s" % (f["no"], f.get("mark") or "读代码推断"))
 risk = crlib.read_kv(os.path.join(d, "risk.txt"))
 DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
 
@@ -143,6 +148,17 @@ if m.get("finder_model"):
     extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
 if m.get("verifier_model", "host") not in ("", "host"):
     extra.append("核实模型配置:%s(实际执行模型由宿主说明)" % m["verifier_model"])
+rs = final.get("runs") or {}
+if rs.get("total") or rs.get("failed_claims"):
+    part = "运行 %d 次" % rs.get("total", 0)
+    if rs.get("guarded"):
+        part += "(见证 %d)" % rs.get("witnessed", 0)
+    else:
+        part += "(没有 hook,未见证)"
+    part += " · 复现成功 %d" % rs.get("reproduced", 0)
+    if rs.get("failed_claims"):
+        part += " · 声称执行未通过校验 %d" % rs["failed_claims"]
+    extra.append(part)
 print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), m.get("depth"), "增量" if m.get("review_scope") == "incremental" else "全量",
       " · " + " · ".join(extra) if extra else ""))
 
