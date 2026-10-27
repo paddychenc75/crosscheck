@@ -270,7 +270,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 
 ## 成本
 
-报告末尾有一行「消耗」:用时、启动的查找角色和 verifier 数、候选和通过的条数,以及 token 用量。token 只在 Claude Code 里统计:由插件的 hook 从会话记录里读取,包含子代理;Codex、Cursor 不统计。统计不到时写明原因(hook 没运行、读不到用量,或这个宿主不统计)。只读用量数字,不读对话内容。
+报告末尾有一行「消耗」:用时、启动的查找角色和 verifier 数、候选和通过的条数,以及 token 用量。token 在 Claude Code 和 Codex 里统计:由插件的 hook 从会话记录里读取,包含子代理;Cursor 不统计。统计不到时写明原因(hook 没运行、读不到用量,或这个宿主不统计)。只读用量数字,不读对话内容。
 
 ## 依赖和常见情况
 

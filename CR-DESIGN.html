@@ -677,6 +677,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>安全一遍默认开：</b>照搬 <a href="https://github.com/anthropics/claude-code-security-review">Anthropic security-review</a> 的排除清单，默认不报只导致服务不可用的问题、缺少限流、开放重定向、只在测试代码里出现的。</li>
           <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
           <li><b>去掉 simplifier：</b>Uber 的数据显示可读性挑刺、小的重构建议评分一直最差，宿主也自带 /simplify。</li>
+          <li><b>流程不能省：</b>用 <a href="https://github.com/withmartian/code-review-benchmark">Martian Code Review Bench</a> 的公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论：第二轮 12 个用例里 10 个这样做。说明里改成 standard、deep 只要能启动子代理就必须启动，改动再小也一样；第三轮 11 个按流程走完，4 个干净对照都是 0 误报。</li>
         </ul>
         <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
       </details>
@@ -687,12 +688,12 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="cards">
         <div class="card"><h4><span class="num">1</span>reviewer</h4>
           <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。最多 15 条，查到一半的也交，写明 <code>needs_check</code>。</p>
-          <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。</div></div>
+          <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。改动违反了接口写明的约定、或去掉了原有的锁、事务、过滤条件、校验时，即使现在没人这样调用也要提交。</div></div>
         <div class="card"><h4><span class="num">2</span>rules-auditor</h4>
           <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
           <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
         <div class="card"><h4><span class="num">3</span>verifier</h4>
-          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。</p>
+          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
           <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
         <div class="card"><h4><span class="num">4</span>analyst（MR 说明）</h4>
           <p>和查找角色同时启动，只读需求材料和脚本整理的代码块清单，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
