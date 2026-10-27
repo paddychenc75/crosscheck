@@ -13,6 +13,8 @@ for fs in final.get("groups", {}).values():
     for f in fs:
         if f.get("no"):
             print("MARK: %s\t%s" % (f["no"], f.get("mark") or "读代码推断"))
+            if f.get("raised_in_discussion"):
+                print("DISCUSSED: %s\t讨论中已有人提出,代码仍未改" % f["no"])
 DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
 
 # 审查范围

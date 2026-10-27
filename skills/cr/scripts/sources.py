@@ -141,7 +141,7 @@ def detect(text, conf):
     return found
 
 
-def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=None):
+def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=None, issue=None):
     """合并参数、记录、暂存的文档和自动识别,写 sources.json,返回 (缺的类别, 文档列表)。"""
     conf = settings(cfg)
     path = store_path(meta)
@@ -161,7 +161,8 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
         elif k in auto:
             entry = {"status": "given", "url": auto[k], "source": "自动识别"}
         elif k == "ticket" and has_issue_ref:
-            entry = {"status": "given", "url": "", "source": "提交说明或描述里的需求编号"}
+            entry = {"status": "given", "url": (issue or {}).get("url", ""), "title": (issue or {}).get("title", ""),
+                     "source": "提交说明或描述里的需求编号"}
         kdocs = [x for x in docs if x["kind"] == k]
         if entry and entry.get("status") == "given" and kdocs and not entry.get("title"):
             entry["title"] = next((x["title"] for x in kdocs if x["title"]), "")
@@ -169,7 +170,10 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
                 store[k]["title"] = entry["title"]
                 changed = True
         if entry is None and k in conf["required"]:
-            missing.append(k)
+            if os.environ.get("CR_NONINTERACTIVE") == "1":
+                entry = {"status": "unasked", "source": "非交互运行"}   # 没人可问:不算缺,也不记进记录
+            else:
+                missing.append(k)
         out.append(dict(entry or {"status": "missing"}, kind=k, label=c["label"], tools=c["tools"],
                         required=k in conf["required"], docs=[x["file"] for x in kdocs],
                         read_error=next((x["error"] for x in kdocs if x["error"]), "")))

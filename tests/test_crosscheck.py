@@ -162,6 +162,36 @@ class TestPipeline(ProjectFixture):
         carried = [x for g in final["groups"].values() for x in g if x["status"] == "carried"]
         self.assertEqual([x["summary"] for x in carried], ["B"])
 
+    def test_resubmitted_unchanged_finding_uses_this_round_verdict(self):
+        # 没变的文件里的历史发现被重新提交核实:没通过就是已解决,通过则带入新分数
+        rd, _ = self.collect("feature")
+        P, L = "src/orders/paginate.ts", "src/auth/login.ts"
+        cands = [{"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "A", "failure_scenario": "x"},
+                 {"file": L, "line": 1, "category": "bug", "severity": "major", "summary": "B", "failure_scenario": "x"}]
+        self.run_pipeline(rd, cands, {"A": (90, [{"file": P, "lines": "2"}]), "B": (90, [{"file": L, "lines": "1"}])})
+        with open(os.path.join(rd, "report.md"), "w") as f:
+            f.write("报告\n")
+        self.run_script("save-review.sh", rd)
+        self.git(self.repo, "switch", "-q", "feature")
+        self.write(self.repo, {"src/orders/paginate.ts": "export function page(t: number, s: number) {\n  return Math.round(t / s)\n}\n// TODO\n"})
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "--amend", "--no-edit", "-q")
+        self.git(self.repo, "switch", "-q", "main")
+        rd2, _ = self.collect("feature")
+        prev = self.load(os.path.join(rd2, "prev-findings.json"))
+        cs = []
+        for p in prev:
+            c = dict(p, from_prev=True)
+            c.pop("confidence"); c.pop("verdict")
+            c["raised_in_discussion"] = p["summary"] == "A"
+            cs.append(c)
+        final, _ = self.run_pipeline(rd2, cs, {"A": (90, [{"file": P, "lines": "2"}]), "B": (10, [{"file": L, "lines": "1"}])})
+        self.assertEqual([x["summary"] for x in final["resolved"]], ["B"])
+        self.assertIn("重新核实", final["resolved"][0]["resolved_reason"])
+        carried = [x for g in final["groups"].values() for x in g if x["status"] == "carried"]
+        self.assertEqual([x["summary"] for x in carried], ["A"])
+        self.assertTrue(carried[0]["raised_in_discussion"])
+
 
 class TestDependents(Base):
     def test_unchanged_file_using_changed_symbol_is_rechecked(self):

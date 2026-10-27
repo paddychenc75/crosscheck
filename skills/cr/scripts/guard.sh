@@ -13,7 +13,7 @@
 #         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
 #   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
 #         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
-#   另外  Claude Code 下,在审查开始和保存时调用 usage.sh 统计这次审查消耗的 token;其他宿主不统计
+#   另外  Claude Code、Codex 下,在审查开始和保存时调用 usage.sh 统计这次审查消耗的 token;Cursor 不统计
 #
 # 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
 # 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
@@ -144,15 +144,19 @@ if [ "$kind" = shell ]; then
     *save-review.sh*)
       if runs save-review.sh; then
         # 保存之前把这次审查的 token 用量写进 review_dir,由 save-review.sh 一并存下。
-        review_dir=$(printf '%s\n' "$cmd" | awk '{
-          n = split($0, t, /[ \t]+/)
-          for (i = 1; i < n; i++) { w = t[i]; gsub(/["\047]/, "", w); if (w ~ /(^|\/)save-review\.sh$/) { d = t[i + 1]; gsub(/["\047]/, "", d); print d; exit } }
-        }')
+        # 优先用 collect-diff.sh 执行完时记下的目录;命令里常写成 $D 这样的变量,按文字解析会拿到字面量。
+        review_dir=$(cat "$dir/$sid.review" 2>/dev/null)
+        if [ -z "$review_dir" ]; then
+          review_dir=$(printf '%s\n' "$cmd" | awk '{
+            n = split($0, t, /[ \t]+/)
+            for (i = 1; i < n; i++) { w = t[i]; gsub(/["\047]/, "", w); if (w ~ /(^|\/)save-review\.sh$/) { d = t[i + 1]; gsub(/["\047]/, "", d); print d; exit } }
+          }')
+        fi
         if [ -n "$review_dir" ] && [ -f "$review_dir/meta.txt" ]; then
           sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
           # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"。
           if [ ! -s "$review_dir/usage.txt" ]; then
-            if [ "$host" = cursor ] || grep -q '^transcript=.*/\.codex/' "$dir/$sid.usage" 2>/dev/null; then reason=unsupported
+            if [ "$host" = cursor ]; then reason=unsupported
             elif [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
             printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
           fi

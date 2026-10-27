@@ -98,6 +98,26 @@ class Sources(Repo):
         self.assertIn("KIND=VALUE", r.stderr)
 
 
+class NonInteractive(Repo):
+    def test_missing_sources_become_unasked(self):
+        self.config(TEAM)
+        for args, env in (("--non-interactive", None), (None, "1")):
+            with self.subTest(args=args):
+                if env:
+                    self.env["CR_NONINTERACTIVE"] = env
+                r, rd = self.collect(*([args] if args else []), "--source", "ticket=skip")
+                self.assertNotIn("SOURCES_MISSING", r.stdout)
+                prd = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "prd")
+                self.assertEqual(prd["status"], "unasked")
+        self.run_py("mr_note.py", rd)
+        md = Path(rd, "mr.md").read_text(encoding="utf-8")
+        self.assertIn("PRD:未提供(非交互运行,没有询问)", md)
+        # 没有记进记录:交互运行时仍然会问
+        self.env.pop("CR_NONINTERACTIVE")
+        r, _ = self.collect("--source", "ticket=skip")
+        self.assertIn("SOURCES_MISSING: PRD", r.stdout)
+
+
 class AnalystCheck(Repo):
     def setUp(self):
         super().setUp()
@@ -193,6 +213,59 @@ class MrNote(Repo):
         out, md = self.note()
         self.assertIn("https://gitlab.example.com/eng/shop/-/blob/", md)
 
+    def meta_add(self, text):
+        meta = Path(self.rd, "meta.txt")
+        meta.write_text(meta.read_text() + text, encoding="utf-8")
+
+    def test_pr_mode_links_use_platform_head_and_self_hosted_url(self):
+        # PR/MR:head 在平台上,不要求分支已推送;自建 GitLab 带端口、主机名没有点
+        self.meta_add("mode=pr\nurl=http://localhost:8080/eng/shop/-/merge_requests/7\nrepo_id=localhost/eng/shop\n")
+        out, md = self.note()
+        self.assertNotIn("还没有推送", out)
+        self.assertIn("](http://localhost:8080/eng/shop/-/blob/", md)
+        self.meta_add("url=\ngitlab_host=http://git.corp:9000\nrepo=eng/shop\n")
+        _, md = self.note()
+        self.assertIn("](http://git.corp:9000/eng/shop/-/blob/", md)
+        self.meta_add("gitlab_host=\nrepo_id=intranet/eng/shop\n")
+        _, md = self.note()
+        self.assertIn("](https://intranet/eng/shop/-/blob/", md)
+
+    def test_note_when_links_cannot_be_built(self):
+        out, md = self.note()   # 没有远程:repo_id 是本地路径
+        self.assertIn("NOTE: 没有找到远程仓库的网页地址", out)
+        self.assertNotIn("](http", md)
+
+    def test_no_newer_warning_when_nothing_newer(self):
+        self.meta_add("source_branch=feature\n")
+        _, md = self.note()
+        self.assertNotIn("审查之后又有", md)
+        # PR/MR 模式:本地分支多出来的提交不是"审查之后的新提交"
+        self.commit(self.repo, {"api/orders.ts": "export function listOrders(opts: { cursor?: string }) {\n  return opts || 1\n}\n"}, "本地新提交")
+        self.meta_add("mode=pr\n")
+        out, md = self.note()
+        self.assertNotIn("审查之后又有", md + out)
+
+    def test_auto_focus_skips_findings_and_notes_once(self):
+        Path(self.rd, "analysis.json").write_text(json.dumps({"summary": {"text": "起草的一句话"}}, ensure_ascii=False), encoding="utf-8")
+        self.run_py("sources.py", "set", self.rd, "intent", "")
+        out, md = self.note()
+        self.assertEqual(out.count("AI 按需求材料起草"), 1)
+        focus = md.split("### 可能值得重点看(自动列出)")[1].split("###")[0]
+        self.assertNotIn("旧参数没兼容", focus)
+        self.assertEqual(focus.strip().count("\n"), 0)   # 只有一条:签名变化,一行
+        self.assertLessEqual(md.count("旧参数没兼容"), 1)
+
+    def test_discussed_marker_in_note_and_report_lines(self):
+        Path(self.rd, "findings.json").write_text(json.dumps([
+            {"id": "f1", "no": 1, "file": "api/orders.ts", "line": 1, "category": "bug", "severity": "major",
+             "summary": "旧参数没兼容", "raised_in_discussion": True}], ensure_ascii=False), encoding="utf-8")
+        _, md = self.note()
+        self.assertIn("讨论中已有人提出,代码仍未改", md)
+        Path(self.rd, "final.json").write_text(json.dumps({"groups": {"defects": [
+            {"no": 1, "summary": "x", "raised_in_discussion": True}]}, "resolved": []}), encoding="utf-8")
+        out = self.run_script("report-lines.sh", self.rd).stdout
+        self.assertIn("DISCUSSED: 1\t讨论中已有人提出,代码仍未改", out)
+
     def test_feedback_reasons_and_new_commits(self):
         hist = os.path.dirname(self.kv(os.path.join(self.rd, "meta.txt"))["store_dir"])
         os.makedirs(hist, exist_ok=True)
@@ -228,7 +301,7 @@ class GitHubContext(fixture.Base):
             "\t".join(["改 a", "https://github.com/acme/gh/pull/5", base, head, "f", "main"]) + "\n", encoding="utf-8")
         Path(self.ghmock, "pr_body.txt").write_text("Closes #7\n", encoding="utf-8")
         Path(self.ghmock, "pr_closingIssuesReferences.txt").write_text("7\n", encoding="utf-8")
-        self.api("repos/acme/gh/issues/7", {"title": "a 要改成 b", "body": "## 验收标准\n- a.ts 内容为 b\n"})
+        self.api("repos/acme/gh/issues/7", {"title": "a 要改成 b", "html_url": "https://github.com/acme/gh/issues/7", "body": "## 验收标准\n- a.ts 内容为 b\n"})
         self.api("repos/acme/gh/pulls/5/comments?per_page=100", [{"user": {"login": "alice", "type": "User"}, "body": "这里要判空", "path": "a.ts", "line": 1, "id": 1}])
         self.api("repos/acme/gh/issues/5/comments?per_page=100", [{"user": {"login": "ci[bot]", "type": "Bot"}, "body": "build ok", "id": 2}])
         self.api("repos/acme/gh/pulls/5/reviews?per_page=100", [{"user": {"login": "bob", "type": "User"}, "body": "整体可以", "id": 3}])
@@ -237,6 +310,8 @@ class GitHubContext(fixture.Base):
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
         self.assertIn("关联需求 #7:a 要改成 b", intent)
         self.assertIn("a.ts 内容为 b(来自 #7)", intent)
+        ticket = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "ticket")
+        self.assertEqual((ticket["url"], ticket["title"]), ("https://github.com/acme/gh/issues/7", "a 要改成 b"))
         disc = self.load(os.path.join(rd, "discussions.json"))
         self.assertEqual(sorted(x["body"] for x in disc), ["整体可以", "这里要判空"])
         self.assertTrue(all(x["platform"] == "github" for x in disc))

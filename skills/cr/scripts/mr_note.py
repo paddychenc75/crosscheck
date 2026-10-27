@@ -33,6 +33,7 @@ GROUP_NAME = ["接口和类型", "实现", "配置", "测试"]
 SKIP_NAME = {"generated": "生成代码", "whitespace_only": "纯格式化", "rename_only": "纯重命名", "lockfile": "lock 文件"}
 ATT_NAME = {"migration": "数据库迁移", "config_key": "配置键", "env_var": "环境变量", "dependency": "依赖变化", "signature": "接口签名变化"}
 MAX_LINES = 30
+MAJOR_SHOWN = 4   # CR 情况里最多展开的严重和重要发现条数
 
 
 def git(root, *args):
@@ -86,18 +87,39 @@ class Note:
         self.link_base = self._link_base()
 
     # ---------- 链接 ----------
+    def _web_base(self):
+        """仓库的网页地址(不含末尾斜杠)。依次用:PR/MR 的网页地址、gitlab_host 加仓库路径、https:// 加 repo_id。"""
+        m = self.meta
+        url = m.get("url", "")
+        base = re.sub(r"/(-/)?merge_requests/\d+.*$|/pull/\d+.*$", "", url)
+        if url and base != url:
+            return base
+        if m.get("gitlab_host") and m.get("repo"):
+            host = m["gitlab_host"].rstrip("/")
+            return (host if "://" in host else "https://" + host) + "/" + m["repo"]
+        rid = m.get("repo_id", "")
+        # 没有远程时 repo_id 是本地路径,不是网址
+        if "/" in rid and not rid.startswith(("/", ".", "~")):
+            return "https://" + rid
+        return None
+
     def _link_base(self):
-        rid, sha = self.meta.get("repo_id", ""), self.sha
-        if not rid or not sha or "/" not in rid or "." not in rid.split("/")[0] or not self.root:
+        sha = self.sha
+        base = self._web_base()
+        if not sha or not self.root:
             return None
-        if not git(self.root, "branch", "-r", "--contains", sha):
+        if not base:
+            self.notes.append("没有找到远程仓库的网页地址,代码位置写成 文件:行号,没有链接")
+            return None
+        # PR/MR 的 head 提交在平台上(refs/pull/N/head、merge-requests/N/head),不需要分支已推送
+        if self.meta.get("mode") != "pr" and not git(self.root, "branch", "-r", "--contains", sha):
             self.notes.append("提交 %s 还没有推送到远端,代码位置写成 文件:行号,没有链接;推送后重新生成即可带上链接" % sha[:8])
             return None
         if self.meta.get("code_ref") == "WORKTREE" and git(self.root, "status", "--porcelain", "--untracked-files=no"):
             self.notes.append("工作区有未提交的改动,MR 里的代码和审查的不一致;提交并重新审查后再贴")
             return None
-        github = self.meta.get("platform") == "github" or rid.startswith("github.com/")
-        return "https://%s/%s/%s/" % (rid, "blob" if github else "-/blob", sha)
+        github = self.meta.get("platform") == "github" or base.startswith("https://github.com/")
+        return "%s/%s/%s/" % (base, "blob" if github else "-/blob", sha)
 
     def loc(self, path, line=None, md=True):
         text = "%s:%s" % (path, line) if line else path
@@ -221,27 +243,40 @@ class Note:
         if chosen:
             return chosen[:3], True
         auto = []
-        _, standing = self.findings()
-        for f in standing:
-            if f.get("severity") in ("critical", "major") and f.get("verdict") not in ("invalid",):
-                auto.append({"where": "%s:%s" % (f.get("file"), f.get("line")), "ask": "CR 报告里未修复的%s问题:%s" % (SEV.get(f.get("severity"), ""), f.get("summary", ""))})
         for s in self.impact():
             if s["outside"]:
-                auto.append({"where": "%s:%s" % (s["file"], s.get("line", "")), "ask": "`%s` 签名%s,本次改动之外有 %d 处调用" % (
+                auto.append({"where": "%s:%s" % (s["file"], s.get("line", "")), "ask": "`%s` 签名%s,另有 %d 处调用" % (
                     s["name"], "变化" if s["change"] == "signature_changed" else "被删除", s["total"])})
-        for a in self.facts.get("attention", []):
-            if a.get("type") in ("migration", "env_var"):
-                auto.append({"where": "%s%s" % (a.get("file"), ":%s" % a["line"] if a.get("line") else ""), "ask": a.get("detail", "")})
+        for t in ("migration", "env_var"):
+            for a in self.facts.get("attention", []):
+                if a.get("type") == t:
+                    # 位置已经是文件路径,说明里不再重复
+                    auto.append({"where": "%s%s" % (a.get("file"), ":%s" % a["line"] if a.get("line") else ""),
+                                 "ask": a.get("detail", "").replace(a.get("file", ""), "").strip()})
+        if not auto:
+            # 没有别的可列时才用发现,而且只列 CR 情况里没有展示的,避免同一条出现两次
+            _, standing = self.findings()
+            for f in self.major_of(standing)[MAJOR_SHOWN:]:
+                if f.get("verdict") != "invalid":
+                    auto.append({"where": "%s:%s" % (f.get("file"), f.get("line")), "ask": f.get("summary", "")})
         return auto[:3], False
+
+    @staticmethod
+    def major_of(standing):
+        return [f for f in standing if f.get("severity") in ("critical", "major")]
 
     def reviewed_newer(self):
         branch = self.meta.get("source_branch", "")
         if not branch or not self.sha or not self.root:
             return ""
-        now = git(self.root, "rev-parse", "-q", "--verify", branch + "^{commit}") or git(self.root, "rev-parse", "-q", "--verify", "origin/%s^{commit}" % branch)
+        refs = ["origin/%s^{commit}" % branch]
+        if self.meta.get("mode") != "pr":
+            refs.insert(0, branch + "^{commit}")   # PR/MR 只和本地已知的平台上的分支头比,本地分支可能有没推送的提交
+        now = next((x for x in (git(self.root, "rev-parse", "-q", "--verify", r) for r in refs) if x), "")
         if now and now != self.sha:
             n = git(self.root, "rev-list", "--count", "%s..%s" % (self.sha, now))
-            return n or "?"
+            if n.isdigit() and int(n) > 0:
+                return n
         return ""
 
     # ---------- 渲染 ----------
@@ -331,7 +366,7 @@ class Note:
         depth = {"quick": "quick", "deep": "deep"}.get(self.meta.get("depth", ""), "standard")
         head = "**CR 情况(作者本地运行)** · crosscheck %s · %s" % (version(), depth)
         out = [head]
-        major = [f for f in standing if f.get("severity") in ("critical", "major")]
+        major = self.major_of(standing)
         minor = [f for f in standing if f.get("severity") not in ("critical", "major")]
         parts = ["已修复 %d 条" % fixed]
         if major:
@@ -341,13 +376,15 @@ class Note:
         if not major and not minor:
             parts.append("没有未修复的发现")
         out.append(";".join(parts) + (":" if major else ""))
-        for f in major[:4]:
+        for f in major[:MAJOR_SHOWN]:
             why = VERDICT.get(f.get("verdict"), "未表态")
             if f.get("reason"):
                 why += ":" + f["reason"]
+            if f.get("raised_in_discussion"):
+                why += "(讨论中已有人提出,代码仍未改)"
             out.append("- [%s] %s %s — %s" % (SEV.get(f.get("severity"), ""), self.loc(f.get("file", ""), f.get("line")), f.get("summary", ""), why))
-        if len(major) > 4:
-            out.append("- 另有 %d 条,见完整版" % (len(major) - 4))
+        if len(major) > MAJOR_SHOWN:
+            out.append("- 另有 %d 条,见完整版" % (len(major) - MAJOR_SHOWN))
         newer = self.reviewed_newer()
         if newer:
             out.append("> 审查之后又有 %s 个提交,未经 crosscheck 审查" % newer)
@@ -435,6 +472,8 @@ class Note:
         rows = []
         for f in standing:
             why = VERDICT.get(f.get("verdict"), "未表态") + (":" + f["reason"] if f.get("reason") else "")
+            if f.get("raised_in_discussion"):
+                why += "(讨论中已有人提出,代码仍未改)"
             rows.append([e(SEV.get(f.get("severity"), "")), e(CAT.get(f.get("category"), f.get("category", ""))),
                          self.loc(f.get("file", ""), f.get("line"), md=False), e(f.get("summary", "")), e(why)])
         newer = self.reviewed_newer()
@@ -509,7 +548,7 @@ def main(argv):
     print("page=%s" % note.conf.get("page", ""))
     print("page_url=%s" % note.store.get("page_url", ""))
     print("update=%s" % update)
-    for n in note.notes:
+    for n in dict.fromkeys(note.notes):
         print("NOTE: %s" % n)
     return 0
 

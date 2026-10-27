@@ -203,7 +203,7 @@ for c in cands:
         rejected.append(dict(c, confidence=0, verdict="没有核实结果", reject_reason="没有核实结果"))
         continue
     item = dict(r)
-    for k in ("found_by", "pass_hits", "from_prev", "id", "since"):
+    for k in ("found_by", "pass_hits", "from_prev", "id", "since", "raised_in_discussion"):
         if k in c and k not in item:
             item[k] = c[k]
     for k in ("from_prev", "id", "since"):
@@ -244,7 +244,8 @@ for c in cands:
         reasons.append(why)
     conf = apply_runs(item, conf, reasons)
     line = to_int(item.get("line"))
-    if not crlib.in_ranges(ranges, f, line):
+    # 没变的文件不在这次的 diff 里,重新核实的历史发现不按改动行判断
+    if not (c.get("from_prev") and status.get(f) in ("unchanged", "dependent")) and not crlib.in_ranges(ranges, f, line):
         conf = 0; reasons.append("不在改动的行上")
     item["confidence"] = conf
     if conf >= THRESHOLD:
@@ -259,19 +260,23 @@ prev_ids = {p.get("id") for p in prev}
 # 上次之后被判为不成立或不修、代码也没变的,不再带入。上下文哈希不含判断记录,所以这里要自己看。
 judged = {h.get("id"): h for h in crlib.load_json(os.path.join(d, "history.json"), [])
           if h.get("id") and h.get("verdict") in ("invalid", "wontfix") and h.get("same_code")}
+# 这一轮重新提交核实的历史发现:有核实结果就以这一轮为准(通过则带入,没通过则已解决),不看文件有没有变。
+resubmitted = {c.get("id") for c in cands if c.get("from_prev")}
+reverified = {x.get("id") for x in passed if x.get("from_prev")}
 for p in prev:
     st = status.get(p.get("file"))
     if st == "unchanged" and p.get("id") in judged:
         h = judged[p["id"]]
         history.append(dict(p, history_match=p["id"], suppressed_by="history",
                             verdict="已在 %s 被判为%s:%s" % (h.get("time", ""), h.get("verdict_name", ""), h.get("reason", ""))))
-    elif st == "unchanged":
-        carried.append(dict(p, carried_unchanged=True))
     elif st in (None, "removed"):
         resolved.append(dict(p, resolved_reason="文件已不在改动里"))
-reverified = {x.get("id") for x in passed if x.get("from_prev")}
-for p in prev:
-    if status.get(p.get("file")) in ("changed", "dependent") and p.get("id") not in reverified:
+    elif p.get("id") in resubmitted:
+        if p.get("id") not in reverified:
+            resolved.append(dict(p, resolved_reason="重新核实后不再成立"))
+    elif st == "unchanged":
+        carried.append(dict(p, carried_unchanged=True))
+    elif st in ("changed", "dependent"):
         resolved.append(dict(p, resolved_reason="代码变了,重新核实后不再成立"))
 new, again = [], []
 for x in passed:

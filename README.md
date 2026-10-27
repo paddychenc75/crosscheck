@@ -18,8 +18,8 @@
 
 | 功能 | Claude Code | Codex | Cursor | 能否用自然语言 |
 |---|---|---|---|---|
-| 审查(cr) | `/crosscheck:cr` | `$cr` | `/cr` | 可以,直接说「review 一下」 |
-| 规则维护(cr-rules) | `/crosscheck:cr-rules` | `$cr-rules` | `/cr-rules` | 不可以,只能用命令 |
+| 审查(cr) | `/crosscheck:cr` | `$crosscheck:cr`(拷贝安装时 `$cr`) | `/cr` | 可以,直接说「review 一下」 |
+| 规则维护(cr-rules) | `/crosscheck:cr-rules` | `$crosscheck:cr-rules`(拷贝安装时 `$cr-rules`) | `/cr-rules` | 不可以,只能用命令 |
 
 说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则审查期间的只读拦截不工作;升级插件后要重新信任。
 
@@ -262,7 +262,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 设置 | 作用 |
 |---|---|
 | `gitlab_hosts` | 按 GitLab 处理的域名,逗号分隔,可以带子路径(如 `company.com/gitlab`);私有化 GitLab 的域名不含 "gitlab" 时必填 |
-| `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型 |
+| `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder=sonnet`、`model.verifier=opus`:查找读得最多,用便宜的;核实把关准确率,用强的且最好不同。Codex、Cursor 要写各自的模型名 |
 | `source.<类别>`、`source.required`、`source.<类别>.label`、`source.<类别>.match` | 需求来源,见上 |
 | `output.page` | 生成和更新 MR 说明网页版用的 skill 或命令名;不写就只生成本地文件 |
 

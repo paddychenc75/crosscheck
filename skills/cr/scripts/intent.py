@@ -97,6 +97,7 @@ def collect(api, meta, review_dir):
 
     # 关联的需求单:GitLab / GitHub Issue(#123、Closes #123、/-/issues/123);其他需求系统走 source.ticket
     refs = issue_refs(api, meta, desc + "\n" + commits + "\n" + user_intent)
+    first_issue = {}
     for iid in sorted(refs, key=int)[:5]:
         issue = read_issue(api, meta, iid)
         if issue == "pr":
@@ -105,6 +106,8 @@ def collect(api, meta, review_dir):
             body = issue.get("description") or ""
             it.add("关联需求 #%s:%s" % (iid, issue["title"]), crlib.clip(body, 2500), "#%s" % iid)
             it.take_acceptance("#%s" % iid, body)
+            if not first_issue:   # MR 说明里的需求单链接用第一个读到的
+                first_issue = {"url": issue.get("web_url") or issue.get("html_url") or "", "title": issue["title"]}
         else:
             it.notes.append("关联需求 #%s 没有读到(%s);可用 --intent 或 --doc 补充" % (iid, api.why_unreadable()))
 
@@ -119,7 +122,7 @@ def collect(api, meta, review_dir):
         it.add("文档 %s" % doc, crlib.clip(text, 4000), "文档 %s" % os.path.basename(doc))
         it.take_acceptance(doc, text)
 
-    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), user_intent)
+    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), user_intent, first_issue)
     if user_intent:
         it.take_acceptance("你的补充", user_intent)
     if mode == "pr" and desc:
@@ -127,14 +130,14 @@ def collect(api, meta, review_dir):
     return it, (missing, conf)
 
 
-def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent):
+def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent, issue=None):
     """需求单、需求文档:参数、记录、自动识别的链接,以及 agent 用配置的工具读到的内容。"""
     args = {}
     for line in (crlib.read_text(os.path.join(review_dir, "source-args.txt")) or "").split("\n"):
         if "=" in line:
             k, v = line.split("=", 1)
             args[k.strip()] = srcmod.parse_arg(v)
-    missing, staged, conf = srcmod.resolve(meta, review_dir, text, args, meta.get("source_dir", ""), has_issue_ref=has_issue_ref)
+    missing, staged, conf = srcmod.resolve(meta, review_dir, text, args, meta.get("source_dir", ""), has_issue_ref=has_issue_ref, issue=issue)
     for doc in staged:
         if not doc["text"]:
             continue

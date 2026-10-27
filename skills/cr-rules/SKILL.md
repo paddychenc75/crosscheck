@@ -51,6 +51,8 @@ sh <cr_dir>/scripts/mine-mrs.sh [--days <n>] [--repo <目录>]
 
 > 阅读 `<skill_dir>/roles/miner.md` 并严格照做。`work_dir` 是 `<path>`。这一批是 `batch-<n>.json`。[含判断记录。] 只回复 JSON。
 
+配置里设了 `model.finder` 时(`sh <cr_dir>/scripts/config.sh get model.finder`),启动 miner 也用那个模型。
+
 **不能启动子代理时**,阅读 `roles/miner.md` 自己逐批执行。
 
 把每个回复原样写成 `<work_dir>/result-<n>.json`。不要自己修改或补充候选。
@@ -83,7 +85,7 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edi
 - **工具能不能查。** linter、格式化、类型检查、CI 已经能拦住的,建议交给工具。
 - **重复和矛盾。** 不同文件里几乎相同或互相冲突的规则。
 - **长度。** 单个文件超过约 15 条或 4000 字符时重要的容易被稀释(Copilot 这类工具只读前 4000 字符),建议按目录或主题拆到 `.agents/rules/`。
-- **误报情况。** 从 MR 评论沉淀的规则(末尾有 `<!-- 来源:… -->`)和其他规则,在 `~/.crosscheck/reviews/<项目>/` 的审查记录里看它有没有被引用过(`findings.json` 的 `rule_file`、`rule_quote`),以及在 `feedback.jsonl` 里被判为成立还是不成立。命中后长期被判不成立的,建议停用或补上「不要报」的边界。
+- **误报情况。** 从 MR 评论沉淀的规则(末尾有 `<!-- 来源:… -->`)和其他规则,在记录目录下 `reviews/<项目>/` 的审查记录里(记录目录是环境变量 CROSSCHECK_HOME 指定的位置,默认 `~/.crosscheck`)看它有没有被引用过(`findings.json` 的 `rule_file`、`rule_quote`),以及在 `feedback.jsonl` 里被判为成立还是不成立。命中后长期被判不成立的,建议停用或补上「不要报」的边界。
 
 把结论按文件列给用户,每条写清建议怎么改。用户确认要改的,给出改动的 diff,同意后只改工作区。
 
@@ -95,7 +97,7 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edi
 
 - `skip`:仓库里确实存在的生成代码、vendored 目录(用 `git ls-files` 找,比如 `**/generated/**`、`*.pb.go`)。lock 文件、测试、构建产物 crosscheck 本来就跳过,不用写。
 - 「每次都要检查」:先空着,或者只放用户这次说的一两条;提醒用户可以用沉淀从 MR 评论里找。
-- 「不要报」:`~/.crosscheck/reviews/<项目>/feedback.jsonl` 里同一类发现被判为不成立 2 次以上、原因说得清条件的,改写成「在什么条件下不报」作为候选。
+- 「不要报」:记录目录下 `reviews/<项目>/feedback.jsonl` 里同一类发现被判为不成立 2 次以上、原因说得清条件的,改写成「在什么条件下不报」作为候选。
 
 把草稿给用户看,确认后写到仓库根目录。
 

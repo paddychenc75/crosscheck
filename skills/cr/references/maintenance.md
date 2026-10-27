@@ -4,7 +4,7 @@
 
 ## 规则维护
 
-沉淀规则、检查规则、整理 `REVIEW.md` 都由单独的命令做,只能显式调用:Claude Code 里 `/crosscheck:cr-rules`(拷贝安装时 `/cr-rules`),Codex 里 `$cr-rules`,Cursor 里 `/cr-rules`;带上「检查」或「整理 REVIEW.md」选择要做的事。用户用自然语言提出(「从 MR 里总结规则」「检查一下我们的规则」「帮我写个 REVIEW.md」)时,告诉他用这个命令,不要在 cr 里代为执行。审查后用户说「以后这种别报了」这类单条规则,仍按 `after-report.md` 处理。
+沉淀规则、检查规则、整理 `REVIEW.md` 都由单独的命令做,只能显式调用:Claude Code 里 `/crosscheck:cr-rules`(拷贝安装时 `/cr-rules`),Codex 里 `$crosscheck:cr-rules`(拷贝安装时 `$cr-rules`),Cursor 里 `/cr-rules`;带上「检查」或「整理 REVIEW.md」选择要做的事。用户用自然语言提出(「从 MR 里总结规则」「检查一下我们的规则」「帮我写个 REVIEW.md」)时,告诉他用这个命令,不要在 cr 里代为执行。审查后用户说「以后这种别报了」这类单条规则,仍按 `after-report.md` 处理。
 
 ## 用自己的历史 bug 检验
 

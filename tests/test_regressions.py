@@ -158,6 +158,15 @@ class GuardRegressions(fixture.Base):
         self.hook(inp={'command': cmd}, command=cmd)
         self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
 
+    def test_usage_review_dir_comes_from_marker_not_command_text(self):
+        # 命令里写的是 $D 这样的变量时,review_dir 取 collect-diff 完成时记下的目录
+        self.start()
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response=str(self.rd))
+        cmd = 'D=%s; sh /example/save-review.sh $D' % self.rd
+        self.hook(inp={'command': cmd}, command=cmd)
+        self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
+
     def denied(self):
         return 'deny' in self.hook(inp={'command': 'git commit -m test'})
 

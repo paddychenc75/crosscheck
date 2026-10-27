@@ -15,6 +15,7 @@
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket、prd 等(见配置的 source.*),VALUE 是链接、
 #                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
+#   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):缺的必填需求来源记为 unasked,不输出 SOURCES_MISSING
 #   --tested TEXT 作者写的「怎么验证的」,只用于 MR 说明
 #   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
@@ -104,6 +105,7 @@ while [ $# -gt 0 ]; do
     --tested) [ $# -ge 2 ] || die "--tested 需要一个值"; tested_arg=$2; shift 2 ;;
     --verifier-model) [ $# -ge 2 ] || die "--verifier-model 需要一个值"; verifier_model=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
+    --non-interactive) CR_NONINTERACTIVE=1; export CR_NONINTERACTIVE; shift ;;
     --full) full=yes; shift ;;
     --with-tests) with_tests=yes; shift ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
