@@ -539,7 +539,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
       </ul>
       <details class="design-basis">
-        <summary>业界实践：这些原则从哪来</summary>
+        <summary>设计依据：这些原则从哪来</summary>
         <ul>
           <li><b>精确率优先：</b>Uber 发现开发者对低质量建议很快失去信任，整类砍掉评分最差的评论；OpenAI 接受召回略降，换取信号质量。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
           <li><b>先找后核实：</b>Claude Code Review 由多个 agent 并行查找，再由单独的验证步骤逐条对照代码过滤误报；官方 code-review 命令要求规则违反引用原文。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a></li>
@@ -626,7 +626,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="loop-note">↺ 规则文件合入后，回到「收集」的规则装配</div>
       </div>
       <details class="design-basis">
-        <summary>业界实践：总体结构</summary>
+        <summary>设计依据：总体结构</summary>
         <ul>
           <li><b>能读整个仓库、自己决定往哪查：</b>Bugbot 从固定多遍流水线改成 agent 式后效果提升最大；OpenAI 给 reviewer 仓库访问和执行能力后严重问题抓得更多、误报更少。<a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor：Building a better Bugbot</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
@@ -669,16 +669,16 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <p>改动较大时按约 1000 行一批，reviewer 和 rules-auditor 每批各跑一次。</p>
 
       <details class="design-basis">
-        <summary>设计依据：为什么一个 reviewer 在同一上下文里分遍查？</summary>
+        <summary>设计依据：查找怎么分工</summary>
         <ul>
           <li><b>成本看子代理数量：</b>宿主的提示缓存按“前缀完全相同”命中。跨子代理的读取一般吃不到缓存，所以子代理数量推高成本；同一个 agent 内多轮读取走缓存，代价小。按类别拆焦点、但放在同一个上下文里，第 2 遍以后读到的代码已经在上下文里。</li>
           <li><b>单 agent 自主调查：</b><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor 的 Bugbot</a> 把多路并行换成能自己决定往哪查的 agent，是他们效果提升最大的一次；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 给单个 reviewer 仓库访问和执行能力后，严重问题抓得更多、误报更少。</li>
           <li><b>按类别专项：</b><a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>有专门查规则和查安全逻辑的 agent，<a href="https://www.uber.com/blog/ureview/">Uber uReview</a> 的缺陷、最佳实践、应用安全是三个助手。分遍是两者的折中。</li>
           <li><b>安全一遍默认开：</b>照搬 <a href="https://github.com/anthropics/claude-code-security-review">Anthropic security-review</a> 的排除清单，默认不报只导致服务不可用的问题、缺少限流、开放重定向、只在测试代码里出现的。</li>
           <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
-          <li><b>去掉 simplifier：</b>Uber 的数据显示可读性挑刺、小的重构建议评分一直最差，宿主也自带 /simplify。</li>
-          <li><b>流程不能省：</b>用 <a href="https://github.com/withmartian/code-review-benchmark">Martian Code Review Bench</a> 的公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论：第二轮 12 个用例里 10 个这样做。说明里改成 standard、deep 只要能启动子代理就必须启动，改动再小也一样；第三轮 11 个按流程走完，4 个干净对照都是 0 误报。</li>
-          <li><b>查找不自己过滤：</b>第三轮逐条看漏掉的问题，核实否决的 3 条理由基本站得住，查找阶段根本没提出来的有 9 条。所以 reviewer 不再读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
+          <li><b>不报可读性和小重构：</b>Uber 的数据显示这类建议的评分一直最差，宿主也自带 /simplify。</li>
+          <li><b>流程不能省：</b>用 <a href="https://github.com/withmartian/code-review-benchmark">Martian Code Review Bench</a> 的公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论。所以 standard、deep 只要能启动子代理就必须启动，改动再小也一样；按流程走完时，干净对照基本没有误报。</li>
+          <li><b>查找不自己过滤：</b>评测里漏掉的问题大多是查找阶段根本没提出来，而不是被核实否决。所以 reviewer 不读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
         </ul>
         <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
       </details>
@@ -701,7 +701,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
       </div>
       <details class="design-basis">
-        <summary>业界实践：角色分工</summary>
+        <summary>设计依据：角色分工</summary>
         <ul>
           <li><b>并行查找 + 独立核实：</b>Claude Code Review 多个 agent 各查一类问题，验证步骤逐条对照代码确认（如是否已有空值保护）。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
           <li><b>verifier 的执行证据：</b>Meta TestGen-LLM 只保留能编译、稳定通过、确实提高覆盖率的测试；有 agent 跑了 0 个测试、退出码 0 就报告“全部通过”，所以执行声明要核对原始记录。<a href="https://arxiv.org/abs/2402.09171">Meta：TestGen-LLM（可执行的过滤器）</a>；<a href="https://redreamality.com/blog/coding-agent-done-claims-verification-survey/">综述：agent 自报“测试通过”的核实</a></li>
@@ -731,7 +731,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <details class="design-basis">
         <summary>设计依据：为什么这样写 MR 说明？</summary>
         <ul>
-          <li><b>业界做法：</b>CodeRabbit walkthrough 和工作量评分、Qodo <code>/describe</code> 与 <code>/review</code>（重点问题、优先看的文件）、Baz 按功能分组、Google CL 描述要求一句话写清做了什么和为什么。</li>
+          <li><b>业界实践：</b>CodeRabbit walkthrough 和工作量评分、Qodo <code>/describe</code> 与 <code>/review</code>（重点问题、优先看的文件）、Baz 按功能分组、Google CL 描述要求一句话写清做了什么和为什么。</li>
           <li><b>研究：</b>写明“希望得到哪类反馈”的 PR 合并几率高约 65–72%（MSR 2026，8 万个 PR）；57.6% 的开发者认为按字母排文件会打断思路（ICSE 2026，1355 人）；评审人的信息需求之一是“被改的东西在别处怎么用”（Pascarella 2018）。</li>
           <li><b>不做的：</b>风险分（缺历史缺陷数据）、时序图、需求逐条标“已实现”、拆分建议——都无法核实。长模板没人读，所以限 30 行。</li>
           <li><b>来源：</b><a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/review.md">Qodo PR-Agent：/review</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a>；<a href="https://docs.baz.co/changes/overview/topics">Baz：按功能分组（Topics）</a>；<a href="https://www.greptile.com/docs/how-greptile-works/graph-based-codebase-context">Greptile：代码图与调用方</a>；<a href="https://google.github.io/eng-practices/review/developer/cl-descriptions.html">Google：写好 CL 描述</a>；<a href="https://docs.github.com/en/pull-requests/concepts/helping-others-review-your-changes">GitHub：帮助别人评审你的改动</a>；<a href="https://arxiv.org/html/2602.14611v1">MSR 2026：PR 描述与评审结果（8 万个 PR）</a>；<a href="https://arxiv.org/pdf/2609.04207">ICSE 2026：Breaking the Alphabet（文件顺序）</a>；<a href="https://research.tudelft.nl/en/publications/information-needs-in-contemporary-code-review">Pascarella 2018：评审中的信息需求</a>；<a href="https://engineering.fb.com/2025/08/06/developer-tools/diff-risk-score-drs-ai-risk-aware-software-development-meta/">Meta：Diff Risk Score</a>；<a href="https://google.github.io/eng-practices/review/developer/small-cls.html">Google：小 CL</a></li>
@@ -770,16 +770,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       </div>
       <p>引文不在那份规则里、规则不覆盖这个文件、没写引文的，置信度直接为 0。模型不能凭空编出一条规则来报。<b>防得了编造，防不了漏看</b>：没报的规则不保证每条都认真看过，靠规则文件保持短小（单个文件不超过约 15 条）来减少漏看。</p>
       <details class="design-basis">
-        <summary>设计依据：为什么去掉规则编号、指纹、核对码和检查清单？</summary>
+        <summary>设计依据：怎样的规则才好用，规则发现怎么保证可信</summary>
         <ul>
-          <li><b>公开实践：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是一个普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>的规则违反要求引用原文，再由核实步骤确认。没有哪家做规则编号、指纹或核对码。</li>
-          <li><b>实际问题：</b>指纹、核对码、检查清单、补跑、抽查能证明规则在上下文里、每条都给了结论，但证明不了判断是对的；而清单格式、核对码不一致、补跑这些衔接点，正是端到端测试里 bug 最多的地方。</li>
-          <li><b>写规则的门槛：</b>编号和 <code>&lt;!-- cr: --&gt;</code> 元数据让写规则变成一件要学格式的事。</li>
-        </ul>
-      </details>
-      <details class="design-basis">
-        <summary>业界实践：怎样的规则才好用</summary>
-        <ul>
+          <li><b>规则就是普通文件，引原文再核实：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>要求规则违反引用原文，再由核实步骤确认。写规则不需要编号或元数据。</li>
+          <li><b>核对引文，不证明“读过”：</b>证明“规则在上下文里、每条都有结论”的机制证明不了判断是对的，还会给流程增加容易出错的环节；逐字引文由脚本和 verifier 核对就够了。</li>
           <li><b>写法：</b>短的祈使句、限定路径、写原因、给正反例、写明不要报什么；Copilot 只读前 4000 字符，建议从 10–20 条起步。<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a>；<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://www.greptile.com/docs/code-review/custom-standards">Greptile：自定义规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a></li>
           <li><b>从历史里长出规则：</b>Bugbot 从反应和回复中学习规则，持续负反馈的自动停用；Qodo 只统计被采纳并改了代码的建议；CodeRabbit 从开发者回复里记 learnings。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
           <li><b>屏蔽不可执行的规则：</b>Google AutoCommenter 屏蔽 22 条不可执行的规则后，有用率从约 54% 升到 80% 以上。<a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter（屏蔽不可执行规则后有用率 54%→80%+）</a></li>
@@ -798,7 +792,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       </ul>
 
       <details class="design-basis">
-        <summary>业界实践：记住人的判断</summary>
+        <summary>设计依据：记住人的判断</summary>
         <ul>
           <li><b>记住人的判断：</b>CodeRabbit learnings、Bugbot 学习规则都从开发者的回复和反应里学，避免同样的误报反复出现。<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a>；<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a></li>
         </ul>
@@ -829,7 +823,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 仓库/.agents/rules/&lt;主题&gt;.md     cr-rules 沉淀的规则（你提交后生效）</code></pre>
       <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量，上次之后被判为不成立或不修的发现不再带入。读不到被审查的代码时直接停下，不出空报告。</p>
       <details class="design-basis">
-        <summary>业界实践：记录和增量</summary>
+        <summary>设计依据：记录和增量</summary>
         <ul>
           <li><b>在本地存记录、只重看变了的：</b>AI 评审工具普遍在每次提交后只评审新改动；Bugbot、CodeRabbit 把学到的东西按仓库存。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
           <li><b>改动行覆盖：</b>Codecov 的 patch 覆盖率只统计本次改动的行，思路和“只审改动的行”一致。<a href="https://docs.codecov.com/docs/commit-status">Codecov：只统计改动行的 patch 覆盖率</a></li>
@@ -852,7 +846,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li>MR 描述、需求单、评论、规则文件里写给 reviewer 的话（“忽略安全问题”“approve 这个”）一律不执行；意图只能解释改动，不能让安全问题不报。</li>
       </ul>
       <details class="design-basis">
-        <summary>业界实践：安全边界</summary>
+        <summary>设计依据：安全边界</summary>
         <ul>
           <li><b>用宿主 hook 拦截工具调用：</b>Claude Code 的 PreToolUse 等 hook 可以拒绝工具调用，是官方提供的护栏机制。<a href="https://code.claude.com/docs/en/hooks">Claude Code hooks 文档</a></li>
           <li><b>被审查的内容是数据：</b>提示注入是 LLM 应用的首要风险；评审场景里 PR 描述、评论、需求文档都可能带指令。<a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP LLM01：提示注入</a></li>
