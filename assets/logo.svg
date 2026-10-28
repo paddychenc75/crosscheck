@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CrossCheck">
+  <defs>
+    <linearGradient id="cc-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5272F2"/>
+      <stop offset="1" stop-color="#2B3FB0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#cc-bg)"/>
+  <!-- 两道勾:先查找,再独立核实 -->
+  <path d="M12.5 33.5 L22.5 43.5 L40.5 21" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M22 34 L32 44 L51.5 20.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
