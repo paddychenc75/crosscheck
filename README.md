@@ -119,6 +119,7 @@ Codex 里是 `$crosscheck:cr ...`,Cursor 里是 `/cr ...`。不需要记任何�
 - 配置了 `tools.doc_publisher` 时自动把 `mr.html` 发布成网页,不再询问;之后随 CR 报告更新同一个页面,描述里多一行「完整版」链接。
 - 两种用法自己选:把 `mr.md` 的内容复制进 MR 描述,或者直接把网页链接贴进 MR。
 - 插件不提交 MR、不改 MR 描述,只给出 `glab mr create/update` 或 `gh pr create/edit` 命令,由你执行。
+- 结构和措辞在模板里:`skills/cr/templates/mr.md`(贴进描述的版本)和 `mr.html`(完整版网页)。影响面、阅读顺序、链接、CR 情况这些事实仍由脚本算好再填进去。团队的 MR 有自己的格式时,在自己的插件市场里改 `mr.md` 就能适配(章节名、顺序、措辞都可以调;占位符的写法见文件开头的注释),不用改脚本。
 
 ## 需求和意图
 
@@ -160,7 +161,7 @@ Codex 里是 `$crosscheck:cr ...`,Cursor 里是 `/cr ...`。不需要记任何�
 
 ### REVIEW.md 怎么写
 
-头部(`---` 之间)是审查设置,由脚本执行;正文是规则。模板见 `skills/cr/templates/REVIEW.md`。
+头部(`---` 之间)是审查设置,由脚本执行;正文是规则。模板见 `skills/cr-rules/templates/REVIEW.md`。
 
 ```markdown
 ---
@@ -309,17 +310,17 @@ skills/cr/
 ├── SKILL.md          编排流程
 ├── crosscheck.conf   插件级配置(团队统一)
 ├── roles/            reviewer / rules-auditor / verifier / analyst
-├── references/       发现结构、评分标准、误报清单、报告格式、报告之后、维护、常用说法
-├── templates/        REVIEW.md 模板
+├── references/       发现结构、评分标准、误报清单、报告的填写规则、报告之后、维护、常用说法
+├── templates/        report.md(CR 报告的骨架)、mr.md 和 mr.html(MR 说明)
 └── scripts/          审查、规则、记录、MR 说明、规则沉淀的脚本,以及共用的 crlib.py
-skills/cr-rules/      规则维护:沉淀、检查、整理 REVIEW.md(只能用命令调用),复用 skills/cr/scripts
+skills/cr-rules/      规则维护:沉淀、检查、整理 REVIEW.md(只能用命令调用),复用 skills/cr/scripts;自带 templates/(REVIEW.md、rule.md)
 hooks/                Claude Code、Codex、Cursor 各一份 hook 注册(只做 token 统计)
 tests/                python3 -m unittest discover -s tests
 ```
 
 脚本的入口都是 `.sh`,实现放在同名的 `.py` 模块里;每个模块只做一件事(例如收集上下文由 `intent.py`、`discussions.py`、`weakening.py`、`platform_api.py` 组成,公共函数在 `crlib.py`)。`skills/cr/` 自包含,不依赖宿主专属功能:支持子代理时各角色并行,不支持时由主 agent 依次执行。`hooks/` 只提供 token 统计,没有它审查照常运行。为什么这样设计见 [DESIGN.md](DESIGN.md)。
 
-想调整行为,直接改对应文件:阈值和评分在 `references/scoring-rubric.md`,不该报的在 `references/false-positives.md`,各角色的关注点在 `roles/`。测试里 `tests/bin/glab` 模拟 GitLab,`tests/bin-gh/gh` 模拟 GitHub。
+想调整行为,直接改对应文件:阈值和评分在 `references/scoring-rubric.md`,不该报的在 `references/false-positives.md`,各角色的关注点在 `roles/`,报告的章节顺序在 `templates/report.md`(填写规则在 `references/report-format.md`)。每个 skill 的模板放在它自己的 `templates/` 下:cr 的在 `skills/cr/templates/`,cr-rules 的在 `skills/cr-rules/templates/`。测试里 `tests/bin/glab` 模拟 GitLab,`tests/bin-gh/gh` 模拟 GitHub。
 
 ## 已知限制
 

@@ -484,7 +484,7 @@ MR 说明的基本信息要有需求单和需求文档。各公司的需求管�
 ### 25. 规则维护:从 MR 评论里挑,人来定
 
 - 规则来自团队真实的评审意见:`cr-rules` 只读拉取最近一个季度已合并 MR 的人工评论(去掉机器人和系统消息)和 crosscheck 的判断记录,`miner` 归纳,`mine-check.py` 按准入清单核对:证据必须是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、写成「必须/禁止」单句并有严重级别和「不要报」边界、不和已有规则重复。参考 Qodo 只统计被采纳并改了代码的建议、Google AutoCommenter 屏蔽不可执行规则后有用率从 54% 升到 80% 以上。
-- 规则格式参考各家官方建议(REVIEW.md、Bugbot、Copilot、Greptile、Qodo):一条一个 `##` 块,写规则、原因、严重级别、反例、正例、不要报,末尾 `<!-- 来源:!123 !145 -->`;单文件超过约 15 条或 4000 字符(Copilot 只读前 4000 字符)提示拆分。
+- 规则格式参考各家官方建议(REVIEW.md、Bugbot、Copilot、Greptile、Qodo):一条一个 `##` 块,写规则、原因、严重级别、反例、正例、不要报,末尾 `<!-- 来源:!123 !145 -->`(样例是 `skills/cr-rules/templates/rule.md`,测试核对它和 `rules-write.py` 写出来的一致);单文件超过约 15 条或 4000 字符(Copilot 只读前 4000 字符)提示拆分。
 - 一个命令管三件事:沉淀(下面几条)、检查现有规则、起草或整理根目录 `REVIEW.md`。起草和整理时按模板带上「出问题长什么样」一节(决策 13):按这块代码的类型写一两句,用项目里的事实填,拿不准就留空并提醒负责人补。它们都是维护规则,拆成多个命令反而难记;检查和整理原来在 cr 里由自然语言触发,一并收进这个命令。整理 `REVIEW.md` 时只用仓库里确实存在的路径填 `skip`,「不要报」从反复被判为不成立的判断记录里找候选。
 - 只能用命令调用:Claude Code、Cursor 用 frontmatter 的 `disable-model-invocation: true`,Codex 用 `agents/openai.yaml` 的 `allow_implicit_invocation: false`。只有 cr 可以用自然语言触发,其余功能都要显式调用,避免一句话误触发一次要拉取一个季度 MR 的任务。
 - 候选由人挑,写进 `.agents/rules/<主题>.md`,只改工作区。Claude Code、Cursor 写代码时不会自动读这个目录,需要时在 `AGENTS.md` / `CLAUDE.md` 里用 `@` 引入(问过用户才加)。
@@ -502,6 +502,15 @@ gh、glab 之外的代码托管平台(内部自建的,或者认不出是哪家�
 - **两段式,和需求来源一样(决策 23)。** 第一次运行只核对链接和仓库,输出 `NEED_CODE_HOST: <暂存目录>` 后结束;agent 写好文件再带 `--code-host-dir` 重新运行。非交互运行同样照做,不提问。
 - **配置了就优先。** 写了 `tools.code_host`,GitHub、GitLab 的链接也由它读,团队可以统一走自己的工具;只给编号时没有链接可交给工具,照旧走 gh / glab;不写时行为完全不变。
 - **只读靠约束。** 配置模板和 SKILL.md 都写明这个工具只用来读。插件看不出远端的 MR 有没有被改过:决策 9a 的状态核对只管本地仓库,这是已知限制。
+
+### 27. 产物的模板:每个 skill 自带自己用的,事实仍由脚本算
+
+- **谁用谁带。** `skills/cr/templates/` 放 cr 的产物:`report.md`(CR 报告的骨架)、`mr.md`、`mr.html`(MR 说明);`skills/cr-rules/templates/` 放 cr-rules 的:`REVIEW.md`、`rule.md`(一条规则的样例)。原来 `REVIEW.md` 放在 cr 下,却只有 cr-rules 用,拷贝安装或换位置时归属和使用者对不上;现在每个 SKILL.md 只引用自己目录下的模板。
+- **骨架和填写规则分开。** `templates/report.md` 定章节顺序和每节放什么,`references/report-format.md` 只留填写规则(何时省略某节、标签含义、依据怎么写)。想换版式只动模板,规则不会被顺手改掉。
+- **MR 说明的结构抽成模板。** 原来章节和措辞写死在 `mr_note.py` 里,团队想适配自己的 MR 格式只能改代码。现在 `mr.md`、`mr.html` 管结构、措辞和样式,团队在自己的插件市场里改一份就行;影响面、阅读顺序、链接、CR 情况等事实仍由脚本算好再填,模板里不做计算,也不做判断(决策 22 的「只有事实」不因此放松)。
+- **渲染器刻意很小。** 只用标准库,只有四种标记:占位符、有内容才保留的块、没有内容才保留的块、注释;不支持循环和表达式,列表和表格的行由脚本生成。不引入模板库:多一个依赖,换来的灵活性团队用不上。模板写错(名字不认识、块没闭合)直接报错,不静默留空,否则 MR 说明会悄悄少一段。超过 30 行时去掉哪几段仍由脚本按固定顺序定(决策 22),这是篇幅约束,不属于版式。
+- **重构不能改输出。** 把写死的结构改成模板时,先用旧脚本在一批场景(已合入、MR 信息没读到、作者点名重点、超过 30 行、有新提交等)上生成 `mr.md`、`mr.html`,存进 `tests/golden/mr_note/`,新脚本必须逐字一致;这个比对留作测试(`tests/test_mr_templates.py`),之后有意改模板或脚本,用 `UPDATE_GOLDEN=1` 重新生成并在 diff 里确认。
+- **哈希。** `templates/mr.md` 只服务 MR 说明,和 `mr_note.py` 一样不计入审查上下文的哈希,改它不会让增量审查退化成全量;`report.md` 影响报告,照常计入。
 
 ## review_dir 的内容
 
@@ -574,7 +583,8 @@ deep 允许 verifier 运行命令,但限定在项目已经定义的、只读和�
 | 新增审查维度 | 加一个 `roles/<name>.md`,在 `SKILL.md` 第 3 步的角色表和 `finding-schema.md` 的 `category` 里登记 |
 | 新增规则来源 | `project_rules.py` 的 `kind()` |
 | 团队共用的规则 | 各项目的 `REVIEW.md` / `AGENTS.md`(决策 13),不改插件 |
-| 报告的版式 | `references/report-format.md`;数据决定的行在 `report-lines.sh` |
+| 报告的版式 | 章节顺序在 `templates/report.md`,填写规则在 `references/report-format.md`;数据决定的行在 `report-lines.sh` |
+| MR 说明的结构和措辞 | `templates/mr.md`、`templates/mr.html`(决策 27);事实在 `mr_note.py` |
 | 报告之后的各种回复怎么处理 | `references/after-report.md` |
 | 模型 | 配置里的 `model.finder` / `model.verifier` |
 | 新增代码托管平台 | `collect-diff.sh` 加一个 `collect_<platform>` |

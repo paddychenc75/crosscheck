@@ -22,7 +22,7 @@ crosscheck 审查时对照的规则就是仓库里的 Markdown:根目录和子�
 
 ## 目录
 
-本 skill 复用 cr skill 的脚本和模板。`skill_dir` 是本文件所在的目录,`cr_dir` 是它旁边的 `cr` 目录(`<skill_dir>/../cr`):插件安装时两者在同一个 `skills/` 下;拷贝安装时要把 `cr` 和 `cr-rules` 两个目录都拷过去。`cr_dir/scripts/mine-mrs.sh` 不存在时,告诉用户需要同时安装 cr skill,然后停止。
+本 skill 复用 cr skill 的脚本,自己用的模板在 `<skill_dir>/templates/`(`REVIEW.md` 和 `rule.md`)。`skill_dir` 是本文件所在的目录,`cr_dir` 是它旁边的 `cr` 目录(`<skill_dir>/../cr`):插件安装时两者在同一个 `skills/` 下;拷贝安装时要把 `cr` 和 `cr-rules` 两个目录都拷过去。`cr_dir/scripts/mine-mrs.sh` 不存在时,告诉用户需要同时安装 cr skill,然后停止。
 
 ## 约束
 
@@ -73,7 +73,7 @@ python3 <cr_dir>/scripts/mine-check.py <work_dir> <work_dir>/result-*.json
 python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edit <编号>=<改过的措辞>]
 ```
 
-每条规则写成一个 `## 标题` 块:规则、原因、严重级别、反例 / 正例、不要报,末尾 `<!-- 来源:!123 !145 -->`;同一主题范围不同的另起文件。把写进去的内容给用户看;有 `WARN:`(一个文件超过约 15 条或 4000 字符)时转告,建议按目录或主题拆分。最后照 `NOTE:` 转告:crosscheck 审查时会读 `.agents/rules/`;Claude Code、Cursor 写代码时不会自动读这个目录。**问用户**要不要在 `AGENTS.md` 或 `CLAUDE.md` 里加 `@.agents/rules/<文件>` 引入;同意了才加。
+每条规则写成一个 `## 标题` 块,格式照 `<skill_dir>/templates/rule.md`(规则、原因、严重级别、反例 / 正例、不要报,末尾 `<!-- 来源:!123 !145 -->`);同一主题范围不同的另起文件。把写进去的内容给用户看;有 `WARN:`(一个文件超过约 15 条或 4000 字符)时转告,建议按目录或主题拆分。最后照 `NOTE:` 转告:crosscheck 审查时会读 `.agents/rules/`;Claude Code、Cursor 写代码时不会自动读这个目录。**问用户**要不要在 `AGENTS.md` 或 `CLAUDE.md` 里加 `@.agents/rules/<文件>` 引入;同意了才加。
 
 ## 检查
 
@@ -87,13 +87,13 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --pick <编号,编号> [--edi
 - **长度。** 单个文件超过约 15 条或 4000 字符时重要的容易被稀释(Copilot 这类工具只读前 4000 字符),建议按目录或主题拆到 `.agents/rules/`。
 - **误报情况。** 从 MR 评论沉淀的规则(末尾有 `<!-- 来源:… -->`)和其他规则,在记录目录下 `reviews/<项目>/` 的审查记录里(记录目录是环境变量 CROSSCHECK_HOME 指定的位置,默认 `~/.crosscheck`)看它有没有被引用过(`findings.json` 的 `rule_file`、`rule_quote`),以及在 `feedback.jsonl` 里被判为成立还是不成立。命中后长期被判不成立的,建议停用或补上「不要报」的边界。
 
-把结论按文件列给用户,每条写清建议怎么改。用户确认要改的,给出改动的 diff,同意后只改工作区。
+把结论按文件列给用户,每条写清建议怎么改。用户确认要改的,给出改动的 diff,同意后只改工作区;改写或新增规则时照 `<skill_dir>/templates/rule.md` 的格式。
 
 ## 整理 REVIEW.md
 
 ### 还没有根目录 REVIEW.md
 
-按 `<cr_dir>/templates/REVIEW.md` 起草一份,用项目里的事实填,不要编:
+按 `<skill_dir>/templates/REVIEW.md` 起草一份,用项目里的事实填,不要编:
 
 - `skip`:仓库里确实存在的生成代码、vendored 目录(用 `git ls-files` 找,比如 `**/generated/**`、`*.pb.go`)。lock 文件、测试、构建产物 crosscheck 本来就跳过,不用写。
 - 「每次都要检查」:先空着,或者只放用户这次说的一两条;提醒用户可以用沉淀从 MR 评论里找。

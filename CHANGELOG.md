@@ -13,6 +13,10 @@
 - 代码位置在提交推送后带上 GitLab / GitHub 行链接;给出 `glab mr create/update`、`gh pr create/edit` 命令,由开发者自己执行,插件不提交 MR。
 - 配置 `tools.doc_publisher` 后可生成网页版,同意一次后随 CR 报告更新同一个页面。
 
+**模板**
+
+- 每个 skill 自带自己用的模板:`skills/cr/templates/` 放 `report.md`(CR 报告的骨架)、`mr.md`、`mr.html`(MR 说明),`skills/cr-rules/templates/` 放 `REVIEW.md`(从 cr 挪过来)和 `rule.md`(一条规则的样例);`report-format.md` 只留填写规则。MR 说明的结构从 `mr_note.py` 抽成模板,团队可以在自己的插件市场里改 `skills/cr/templates/mr.md` 适配自己的 MR 格式;影响面、阅读顺序、链接、CR 情况等事实仍由脚本算好再填。输出和抽成模板之前逐字一致,`tests/test_mr_templates.py` 用存下来的样例核对(DESIGN.md 决策 27)。
+
 **需求来源**
 
 - 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等)、`tools.doc_publisher`(文档发布,发布 MR 说明网页),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`ticket`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。

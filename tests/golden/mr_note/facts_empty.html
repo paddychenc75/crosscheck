@@ -1,0 +1,22 @@
+<title>订单列表改为游标分页</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#fbfaf7;--fg:#1f2328;--muted:#5d6570;--line:#e3e0d8;--card:#ffffff;--accent:#2f5d8a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+ padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:980px;margin:0 auto;display:grid;gap:18px}
+h1{font-size:22px;margin:0;text-wrap:balance}h2{font-size:16px;margin:0 0 8px}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.muted,small{color:var(--muted)}a{color:var(--accent)}code{font:13px ui-monospace,Menlo,monospace}
+.t{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+</style>
+<main>
+<header><h1>订单列表改为游标分页</h1><p>订单列表改为游标分页 <small>作者</small></p>
+<p class=muted>MR 说明 · 最后更新 <NOW> · 基于提交 <code><SHA></code> · 只列事实和链接,不下结论</p></header>
+<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody><tr><td>需求单</td><td>https://tickets.acme.example.com/story/42 「订单游标分页」</td></tr><tr><td>需求文档</td><td>未提供(作者跳过)</td></tr><tr><td>分支</td><td>feature → main</td></tr><tr><td>规模</td><td>? 个文件 +?/−?</td></tr></tbody></table></div></section>
+<section><h2>测试</h2><p>怎么验证的:本地跑了 jest</p></section>
+<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck <VERSION> · standard · 基于提交 <code><SHA></code> · 已修复 0 条</p><p>没有未修复的发现。</p></section>
+</main>

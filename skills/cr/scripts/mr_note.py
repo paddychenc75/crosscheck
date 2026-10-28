@@ -14,6 +14,8 @@
 内容只有事实和链接,不下结论:基本信息和需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、
 可能相关的测试、CR 情况。来源:sources.json 和分支的来源记录、analysis-facts.json(脚本)、
 analysis.json(analyst,经 analysis_check.py 校验)、findings.json / final.json / 判断记录。
+
+结构和措辞在 ../templates/mr.md、mr.html(团队可以改它们适配自己的 MR 格式),本脚本只算事实、填进去;模板的写法见 render()。
 """
 import datetime
 import html
@@ -300,9 +302,8 @@ class Note:
 
     # ---------- 渲染 ----------
     def markdown(self):
-        blocks = []   # (名字, 行);超长时按 OPTIONAL 的顺序整块去掉
+        """按 templates/mr.md 填出 MR 说明(贴进 MR 描述的那份)。事实在这里算好,模板只管结构。"""
         one, by = self.summary()
-        head = ["**%s**" % one] if one else []
         info = ["%s:%s" % (lab, val) for lab, val in self.state() + self.sources()]
         sc = self.facts.get("scope") or {}
         size = "%s 个文件 +%s/−%s" % (sc.get("files", self.meta.get("files", "?")), sc.get("added", "?"), sc.get("deleted", "?"))
@@ -310,81 +311,60 @@ class Note:
         branch = "%s → %s" % (self.meta.get("source_branch") or "?", tb) if tb else ""
         eff = self.facts.get("effort") or {}
         info += [x for x in (branch, size, "审查量 %s/5" % eff["score"] if eff.get("score") else "") if x]
-        blocks.append(("info", head + [" · ".join(info)]))
+        ctx = {"summary": one, "basic": " · ".join(info)}
 
         focus, chosen = self.focus()
-        if focus:
-            b = ["### 请重点看" if chosen else "### 可能值得重点看(自动列出)"]
-            for i, x in enumerate(focus, 1):
-                path, line = split_where(x["where"])
-                b.append("%d. %s — %s" % (i, self.loc(path, line), x.get("ask", "")))
-            blocks.append(("focus", b))
+        ctx["focus_chosen"] = "1" if chosen else ""
+        ctx["focus"] = "\n".join("%d. %s — %s" % (i, self.loc(*split_where(x["where"])), x.get("ask", "")) for i, x in enumerate(focus, 1))
 
         groups = self.groups()
-        if groups:
-            b = ["### 阅读顺序"]
-            for i, g in enumerate(groups[:5], 1):
-                files = short(g["files"], 3, lambda f: "`%s`" % f)
-                b.append("%d. %s%s:%s" % (i, g["title"], "(%s)" % g["purpose"] if g.get("purpose") else "", files))
-            blocks.append(("read", b))
-            skip = self.skippable()
-            if skip:
-                blocks.append(("skip", ["可跳过:" + "、".join("%s %d 个" % (SKIP_NAME.get(k, k), len(v)) for k, v in skip.items())]))
+        ctx["read"] = "\n".join(
+            "%d. %s%s:%s" % (i, g["title"], "(%s)" % g["purpose"] if g.get("purpose") else "", short(g["files"], 3, lambda f: "`%s`" % f))
+            for i, g in enumerate(groups[:5], 1))
+        ctx["skip"] = "、".join("%s %d 个" % (SKIP_NAME.get(k, k), len(v)) for k, v in self.skippable().items())
 
         imp = [s for s in self.impact() if s["outside"] or s["change"] == "removed"]
-        if imp:
-            b = ["### 影响面", "> 只按名字在本仓库文本匹配、只看签名变化;签名不变的行为变化不在这里,由 CR 报告负责"]
-            for s in imp[:5]:
-                where = short(s["outside"], 2, lambda c: self.loc(c["file"], c.get("line")))
-                extra = "(同名歧义)" if s.get("ambiguous") else ""
-                b.append("- `%s` %s%s:本次之外 %d 处调用 %s" % (
-                    s["name"], "签名变化" if s["change"] == "signature_changed" else "被删除", extra, len(s["outside"]), where))
-            if len(imp) > 5:
-                b.append("- 另有 %d 个,见完整版" % (len(imp) - 5))
-            blocks.append(("impact", b))
+        lines = []
+        for s in imp[:5]:
+            where = short(s["outside"], 2, lambda c: self.loc(c["file"], c.get("line")))
+            extra = "(同名歧义)" if s.get("ambiguous") else ""
+            lines.append("- `%s` %s%s:本次之外 %d 处调用 %s" % (
+                s["name"], "签名变化" if s["change"] == "signature_changed" else "被删除", extra, len(s["outside"]), where))
+        if len(imp) > 5:
+            lines.append("- 另有 %d 个,见完整版" % (len(imp) - 5))
+        ctx["impact"] = "\n".join(lines)
 
         att = [a for a in self.facts.get("attention", []) if a.get("type") != "signature"]
-        if att:
-            b = ["### 需注意"] + ["- %s:%s" % (ATT_NAME.get(a.get("type"), a.get("type")), a.get("detail") or a.get("file")) for a in att[:4]]
-            if len(att) > 4:
-                b.append("- 另有 %d 处,见完整版" % (len(att) - 4))
-            blocks.append(("attention", b))
+        lines = ["- %s:%s" % (ATT_NAME.get(a.get("type"), a.get("type")), a.get("detail") or a.get("file")) for a in att[:4]]
+        if len(att) > 4:
+            lines.append("- 另有 %d 处,见完整版" % (len(att) - 4))
+        ctx["attention"] = "\n".join(lines)
 
         tests = self.tests()
         tested = (self.store.get("tested") or "").strip()
-        if tests or tested:
-            b = ["### 测试"]
-            if tested:
-                b.append("怎么验证的:%s" % tested)
-            if tests:
-                b.append("可能相关的测试文件(未执行):%s" % short(sorted(tests, key=lambda f: not tests[f]), 3,
-                                                          lambda f: "`%s`%s" % (f, "(本次改过)" if tests[f] else "")))
-            blocks.append(("tests", b))
+        ctx["testing"] = "1" if tests or tested else ""
+        ctx["tested"] = tested
+        ctx["related_tests"] = short(sorted(tests, key=lambda f: not tests[f]), 3,
+                                     lambda f: "`%s`%s" % (f, "(本次改过)" if tests[f] else "")) if tests else ""
 
-        cr = self.cr_lines()
-        page = self.store.get("page_url", "")
-        tail = ["基于提交 %s" % (self.sha[:8] or "?")] + (["[完整版](%s)" % page] if page else [])
-        cr += [" · ".join(tail)]
-        blocks.append(("cr", cr))
+        ctx.update(self.cr_facts())
+        ctx["version"] = version()
+        ctx["sha"] = self.sha[:8] or "?"
+        ctx["page_url"] = self.store.get("page_url", "")
 
-        def lines_of(bs):
-            out = []
-            for name, b in bs:
-                if out and name != "skip":
-                    out.append("")
-                out += b
-            return out
-        for drop in ("skip", "tests", "attention"):
-            if len(lines_of(blocks)) <= MAX_LINES:
+        template = read_template("mr.md")
+        text = render(template, ctx)
+        for drop in ("skip", "testing", "attention"):   # 超长时按这个顺序整块去掉
+            if sum(1 for line in text.splitlines() if line not in (BEGIN, END)) <= MAX_LINES:
                 break
-            blocks = [x for x in blocks if x[0] != drop]
-        return lines_of(blocks)
+            ctx[drop] = ""
+            text = render(template, ctx)
+        return text
 
-    def cr_lines(self, md=True):
+    def cr_facts(self):
+        """MR 说明里 CR 情况的几项:概况一行、展开的发现、审查之后的新提交数。"""
         fixed, standing = self.findings()
         depth = {"quick": "quick", "deep": "deep"}.get(self.meta.get("depth", ""), "standard")
-        head = "**CR 情况(作者本地运行)** · crosscheck %s · %s" % (version(), depth)
-        out = [head]
         major = self.major_of(standing)
         minor = [f for f in standing if f.get("severity") not in ("critical", "major")]
         parts = ["已修复 %d 条" % fixed]
@@ -394,32 +374,28 @@ class Note:
             parts.append("轻微 %d 条未展开" % len(minor))
         if not major and not minor:
             parts.append("没有未修复的发现")
-        out.append(";".join(parts) + (":" if major else ""))
+        lines = []
         for f in major[:MAJOR_SHOWN]:
             why = VERDICT.get(f.get("verdict"), "未表态")
             if f.get("reason"):
                 why += ":" + f["reason"]
             if f.get("raised_in_discussion"):
                 why += "(讨论中已有人提出,代码仍未改)"
-            out.append("- [%s] %s %s — %s" % (SEV.get(f.get("severity"), ""), self.loc(f.get("file", ""), f.get("line")), f.get("summary", ""), why))
+            lines.append("- [%s] %s %s — %s" % (SEV.get(f.get("severity"), ""), self.loc(f.get("file", ""), f.get("line")), f.get("summary", ""), why))
         if len(major) > MAJOR_SHOWN:
-            out.append("- 另有 %d 条,见完整版" % (len(major) - MAJOR_SHOWN))
+            lines.append("- 另有 %d 条,见完整版" % (len(major) - MAJOR_SHOWN))
         newer = self.reviewed_newer()
         if newer:
-            out.append("> 审查之后又有 %s 个提交,未经 crosscheck 审查" % newer)
             self.notes.append("审查之后分支上又有 %s 个提交,建议重新审查后再贴" % newer)
-        return out
+        return {"depth": depth, "cr_summary": ";".join(parts) + (":" if major else ""), "cr_findings": "\n".join(lines), "newer": newer}
 
     def html_page(self):
+        """按 templates/mr.html 填出完整版网页。表格的行(tr、td)在这里生成,表头和页面结构在模板里。"""
         e = html.escape
         one, by = self.summary()
-        sec = []
 
-        def table(head, rows):
-            if not rows:
-                return ""
-            return "<div class=t><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>" % (
-                "".join("<th>%s</th>" % e(h) for h in head), "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in rows))
+        def rows(data):
+            return "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in data)
 
         info = [(lab, e(val)) for lab, val in self.state() + self.sources()]
         sc = self.facts.get("scope") or {}
@@ -428,82 +404,71 @@ class Note:
         eff = self.facts.get("effort") or {}
         if eff.get("score"):
             info.append(("审查量", e("%s/5(%s)" % (eff["score"], eff.get("basis", "")))))
-        sec.append("<section><h2>基本信息</h2>%s</section>" % table(["项", "内容"], [[e(a), b] for a, b in info]))
+        ctx = {"info_rows": rows([[e(a), b] for a, b in info])}
 
         focus, chosen = self.focus()
-        if focus:
-            rows = []
-            for x in focus:
-                path, line = split_where(x["where"])
-                rows.append([self.loc(path, line, md=False), e(x.get("ask", ""))])
-            sec.append("<section><h2>%s</h2>%s</section>" % ("请重点看" if chosen else "可能值得重点看(自动列出)", table(["位置", "看什么"], rows)))
+        ctx["focus_chosen"] = "1" if chosen else ""
+        ctx["focus_rows"] = rows([[self.loc(*split_where(x["where"]), md=False), e(x.get("ask", ""))] for x in focus])
 
         groups = self.groups()
-        if groups:
-            rows = []
-            for i, g in enumerate(groups, 1):
-                spans = []
-                for h in g["hunks"]:
-                    hk = self.hunks.get(h, {})
-                    spans.append(self.loc(hk.get("file", ""), hk.get("start"), md=False) + (" <small>%s</small>" % e(hk.get("func", "")) if hk.get("func") else ""))
-                rows.append([str(i), e(g["title"]), e(g.get("purpose") or ""), "<br>".join(spans)])
-            skip = self.skippable()
-            extra = ""
-            if skip:
-                extra = "<p class=muted>可跳过:" + ";".join("%s:%s" % (SKIP_NAME.get(k, k), e("、".join(v))) for k, v in skip.items()) + "</p>"
-            sec.append("<section><h2>阅读顺序</h2>%s%s</section>" % (table(["#", "分组", "目的", "代码块"], rows), extra))
+        data = []
+        for i, g in enumerate(groups, 1):
+            spans = []
+            for h in g["hunks"]:
+                hk = self.hunks.get(h, {})
+                spans.append(self.loc(hk.get("file", ""), hk.get("start"), md=False) + (" <small>%s</small>" % e(hk.get("func", "")) if hk.get("func") else ""))
+            data.append([str(i), e(g["title"]), e(g.get("purpose") or ""), "<br>".join(spans)])
+        ctx["read_rows"] = rows(data)
+        ctx["skip"] = ";".join("%s:%s" % (SKIP_NAME.get(k, k), e("、".join(v))) for k, v in self.skippable().items())
 
         reqs = self.analysis.get("requirements") or []
-        if reqs:
-            rows = [[e(r["criterion"]), "<br>".join(self.loc(self.hunks[h]["file"], self.hunks[h].get("start"), md=False) for h in r["hunks"] if h in self.hunks)] for r in reqs]
-            sec.append("<section><h2>验收标准对应的改动</h2><p class=muted>只标出改动落在哪里,不判断是否做到。</p>%s</section>" % table(["验收标准", "改动位置"], rows))
+        ctx["req_rows"] = rows([[e(r["criterion"]), "<br>".join(self.loc(self.hunks[h]["file"], self.hunks[h].get("start"), md=False)
+                                                                for h in r["hunks"] if h in self.hunks)] for r in reqs])
 
         imp = self.impact()
-        if imp:
-            rows = []
-            for s in imp:
-                callers = "<br>".join(self.loc(c["file"], c.get("line"), md=False) + (" <small>(本次改过)</small>" if c.get("in_diff") else "") for c in s.get("callers", []))
-                if s.get("skipped") == "too_many_hits":
-                    callers = e("命中过多,只给数量")
-                elif s.get("skipped") == "common_name":
-                    callers = e("名字太常见,没有搜索")
-                note = ("同名歧义;" if s.get("ambiguous") else "") + ("另有 %d 处未列出" % (s["total"] - len(s.get("callers", []))) if s.get("callers_truncated") else "")
-                sig = e(s.get("old_sig") or "") + (" → " + e(s.get("new_sig") or "") if s.get("new_sig") else "")
-                rows.append(["<code>%s</code>" % e(s["name"]), e("签名变化" if s["change"] == "signature_changed" else "被删除"), sig, str(s["total"]), callers, e(note)])
-            limits = self.facts.get("limits") or []
-            sec.append("<section><h2>影响面</h2><p class=muted>%s。签名不变的行为变化不在这里,由 CR 报告负责;依赖注入、反射、跨服务调用、配置里的动态引用搜不到。%s</p>%s</section>" % (
-                e(self.facts.get("method") or "按名字在本仓库文本匹配,只看签名变化"), e(";".join(limits)),
-                table(["符号", "变化", "签名", "调用", "调用方", "说明"], rows)))
+        data = []
+        for s in imp:
+            callers = "<br>".join(self.loc(c["file"], c.get("line"), md=False) + (" <small>(本次改过)</small>" if c.get("in_diff") else "") for c in s.get("callers", []))
+            if s.get("skipped") == "too_many_hits":
+                callers = e("命中过多,只给数量")
+            elif s.get("skipped") == "common_name":
+                callers = e("名字太常见,没有搜索")
+            note = ("同名歧义;" if s.get("ambiguous") else "") + ("另有 %d 处未列出" % (s["total"] - len(s.get("callers", []))) if s.get("callers_truncated") else "")
+            sig = e(s.get("old_sig") or "") + (" → " + e(s.get("new_sig") or "") if s.get("new_sig") else "")
+            data.append(["<code>%s</code>" % e(s["name"]), e("签名变化" if s["change"] == "signature_changed" else "被删除"), sig, str(s["total"]), callers, e(note)])
+        ctx["impact_rows"] = rows(data)
+        ctx["impact_method"] = e(self.facts.get("method") or "按名字在本仓库文本匹配,只看签名变化")
+        ctx["impact_limits"] = e(";".join(self.facts.get("limits") or []))
 
-        att = self.facts.get("attention", [])
-        if att:
-            rows = [[e(ATT_NAME.get(a.get("type"), a.get("type", ""))), self.loc(a.get("file", ""), a.get("line"), md=False), e(a.get("detail", ""))] for a in att]
-            sec.append("<section><h2>需注意</h2>%s</section>" % table(["类型", "位置", "说明"], rows))
+        ctx["attention_rows"] = rows([[e(ATT_NAME.get(a.get("type"), a.get("type", ""))), self.loc(a.get("file", ""), a.get("line"), md=False),
+                                       e(a.get("detail", ""))] for a in self.facts.get("attention", [])])
 
         tests = self.tests()
         tested = (self.store.get("tested") or "").strip()
-        if tests or tested:
-            body = "<p>怎么验证的:%s</p>" % e(tested) if tested else ""
-            body += table(["可能相关的测试文件(未执行)", "本次改过"], [[self.loc(f, md=False), "是" if c else ""] for f, c in sorted(tests.items())])
-            sec.append("<section><h2>测试</h2>%s</section>" % body)
+        ctx["testing"] = "1" if tests or tested else ""
+        ctx["tested"] = e(tested)
+        ctx["test_rows"] = rows([[self.loc(f, md=False), "是" if c else ""] for f, c in sorted(tests.items())])
 
         fixed, standing = self.findings()
-        rows = []
+        data = []
         for f in standing:
             why = VERDICT.get(f.get("verdict"), "未表态") + (":" + f["reason"] if f.get("reason") else "")
             if f.get("raised_in_discussion"):
                 why += "(讨论中已有人提出,代码仍未改)"
-            rows.append([e(SEV.get(f.get("severity"), "")), e(CAT.get(f.get("category"), f.get("category", ""))),
+            data.append([e(SEV.get(f.get("severity"), "")), e(CAT.get(f.get("category"), f.get("category", ""))),
                          self.loc(f.get("file", ""), f.get("line"), md=False), e(f.get("summary", "")), e(why)])
-        newer = self.reviewed_newer()
-        sec.append("<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck %s · %s · 基于提交 <code>%s</code> · 已修复 %d 条%s</p>%s</section>" % (
-            e(version()), e(self.meta.get("depth", "standard")), e(self.sha[:8]), fixed,
-            e(";审查之后又有 %s 个提交,未经审查" % newer) if newer else "",
-            table(["严重程度", "维度", "位置", "问题", "作者的判断"], rows) or "<p>没有未修复的发现。</p>"))
+        ctx["cr_rows"] = rows(data)
+        ctx["fixed"] = str(fixed)
+        ctx["newer"] = e(self.reviewed_newer())
+        ctx["version"] = e(version())
+        ctx["depth"] = e(self.meta.get("depth", "standard"))
+        ctx["sha"] = e(self.sha[:8])
 
-        title = e(self.meta.get("title") or one or "MR 说明")
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        return PAGE % {"title": title, "one": e(one) if one else "", "by": e(by), "body": "\n".join(sec), "now": e(now), "sha": e(self.sha[:8])}
+        ctx["title"] = e(self.meta.get("title") or one or "MR 说明")
+        ctx["one"] = e(one) if one else ""
+        ctx["by"] = e(by)
+        ctx["now"] = e(now_text())
+        return render(read_template("mr.html"), ctx)
 
 
 def version():
@@ -515,27 +480,70 @@ def version():
     return ""
 
 
-PAGE = """<title>%(title)s</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-:root{--bg:#fbfaf7;--fg:#1f2328;--muted:#5d6570;--line:#e3e0d8;--card:#ffffff;--accent:#2f5d8a}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}
-body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
- padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-main{max-width:980px;margin:0 auto;display:grid;gap:18px}
-h1{font-size:22px;margin:0;text-wrap:balance}h2{font-size:16px;margin:0 0 8px}
-section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
-.muted,small{color:var(--muted)}a{color:var(--accent)}code{font:13px ui-monospace,Menlo,monospace}
-.t{overflow-x:auto}table{border-collapse:collapse;width:100%%;font-size:14px}
-th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
-</style>
-<main>
-<header><h1>%(title)s</h1><p>%(one)s <small>%(by)s</small></p>
-<p class=muted>MR 说明 · 最后更新 %(now)s · 基于提交 <code>%(sha)s</code> · 只列事实和链接,不下结论</p></header>
-%(body)s
-</main>
-"""
+def now_text():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+# ---------- 模板 ----------
+# 模板是普通文本,只有四种标记(名字由字母、数字、下划线组成):
+#   {{名字}}               换成同名的值
+#   {{#名字}}…{{/名字}}    值不为空才保留这一段;块里的 {{名字}} 就是这个块自己的值
+#   {{^名字}}…{{/名字}}    值为空才保留这一段
+#   {{! 说明 }}            注释,不输出(说明里不要有花括号)
+# 标记单独占一行时整行不输出,不留空行。同名的块不能嵌套。值原样放入,不再解析其中的标记;
+# 模板里写了脚本没有提供的名字,或者块没有闭合,都直接报错,不静默留空。
+TEMPLATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+TAG = re.compile(r"\{\{([#^/]?)\s*(\w+)\s*\}\}")
+TAG_LINE = re.compile(r"^[ \t]*(\{\{[#^/!][^{}\n]*\}\})[ \t]*\n", re.M)
+COMMENT = re.compile(r"\{\{![^{}\n]*\}\}")
+
+
+class TemplateError(Exception):
+    pass
+
+
+def read_template(name):
+    path = os.path.join(TEMPLATES, name)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError as err:
+        raise TemplateError("读不到模板 %s:%s" % (os.path.normpath(path), err.strerror))
+
+
+def render(template, values):
+    try:
+        # 单独占一行的标记连同换行一起去掉:注释整行不要,块标记只留标记本身
+        text = TAG_LINE.sub(lambda m: "" if m.group(1).startswith("{{!") else m.group(1), template)
+        return _render(COMMENT.sub("", text), values)
+    except TemplateError as err:
+        raise TemplateError("模板有误:%s" % err)
+
+
+def _render(text, values):
+    out, pos = [], 0
+    while True:
+        m = TAG.search(text, pos)
+        if not m:
+            out.append(text[pos:])
+            return "".join(out)
+        out.append(text[pos:m.start()])
+        kind, name = m.groups()
+        if name not in values:
+            raise TemplateError("{{%s}} 不是 MR 说明的内容" % name)
+        if kind == "":
+            out.append(str(values[name]))
+            pos = m.end()
+            continue
+        if kind == "/":
+            raise TemplateError("{{/%s}} 前面没有对应的开头" % name)
+        end = re.compile(r"\{\{/\s*%s\s*\}\}" % name).search(text, m.end())
+        if not end:
+            raise TemplateError("{{%s%s}} 没有对应的 {{/%s}}" % (kind, name, name))
+        inner = _render(text[m.end():end.start()], values)   # 不保留时也渲染一遍,模板里的错误才不会被藏起来
+        if bool(values[name]) == (kind == "#"):
+            out.append(inner)
+        pos = end.end()
 
 
 def main(argv):
@@ -546,10 +554,12 @@ def main(argv):
     if not os.path.isfile(os.path.join(d, "meta.txt")):
         sys.exit("mr_note: %s 不是审查目录" % d)
     note = Note(d)
-    text = "\n".join([BEGIN] + note.markdown() + [END]) + "\n"
+    try:
+        text, page = note.markdown(), note.html_page()
+    except TemplateError as err:
+        sys.exit("mr_note: %s" % err)
     with open(os.path.join(d, "mr.md"), "w", encoding="utf-8") as f:
         f.write(text)
-    page = note.html_page()
     hp = os.path.join(d, "mr.html")
     with open(hp, "w", encoding="utf-8") as f:
         f.write(page)

@@ -17,7 +17,7 @@ sys.dont_write_bytecode = True
 import crlib
 
 MR_NOTE_ONLY = re.compile(r'(^|/)(analysis_facts\.py|analysis_check\.py|mr_note\.py|mr-note\.sh|sources\.py'
-                          r'|mine[-_][^/]*|rules[-_]write[^/]*|roles/analyst\.md|references/mr-note\.md)$')
+                          r'|mine[-_][^/]*|rules[-_]write[^/]*|roles/analyst\.md|references/mr-note\.md|templates/mr\.md)$')
 RULE_FILES = re.compile(r'(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md)$'
                         r'|(^|/)(\.claude|\.cursor)/|^\.agents/rules/|^\.github/(instructions/|copilot-instructions\.md)')
 

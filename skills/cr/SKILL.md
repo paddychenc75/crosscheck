@@ -21,6 +21,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 - `scripts/` — 各步骤的脚本(POSIX sh,用 `sh` 运行;多数需要 python3)。`guard.sh` 是宿主的 hook(只统计 token),不需要你运行
 - `roles/` — 每个角色一份说明:`reviewer`(bug、安全、需求核对)、`rules-auditor`(对照项目规则)、`verifier`(独立核实)、`analyst`(为 MR 说明起草一句话和分组)
 - `references/` — `common.md`(角色共用)、`finding-schema.md`、`scoring-rubric.md`、`false-positives.md`,以及按需阅读的 `report-format.md`、`after-report.md`、`maintenance.md`、`usage.md`
+- `templates/` — 本 skill 产物的模板:`report.md`(CR 报告的骨架)、`mr.md` 和 `mr.html`(MR 说明,由 `mr_note.py` 填充)
 
 ## 用户怎么说
 
@@ -208,7 +209,7 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 sh <skill_dir>/scripts/report-lines.sh <review_dir>
 ```
 
-然后按 `references/report-format.md` 写报告(读一遍再写)。有 `MERGED:` 行时,原样写在报告最开头(`CHANGED` 的差异之后):这个 MR 已合入,改描述、改代码都影响不了这次合入。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,并在报告开头的概览之前用一两句话转告用户:缺了哪个回复或哪些核实结果、这次结论可能不全。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
+然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,原样写在报告最开头(`CHANGED` 的差异之后):这个 MR 已合入,改描述、改代码都影响不了这次合入。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,并在报告开头的概览之前用一两句话转告用户:缺了哪个回复或哪些核实结果、这次结论可能不全。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
 
 **保存记录和 MR 说明是流程的一部分**,不能跳过;只有用户明确说只测试、只报告或不保存记录时例外。
 

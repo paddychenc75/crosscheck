@@ -1,0 +1,26 @@
+<title>订单列表改为游标分页</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#fbfaf7;--fg:#1f2328;--muted:#5d6570;--line:#e3e0d8;--card:#ffffff;--accent:#2f5d8a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+ padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:980px;margin:0 auto;display:grid;gap:18px}
+h1{font-size:22px;margin:0;text-wrap:balance}h2{font-size:16px;margin:0 0 8px}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.muted,small{color:var(--muted)}a{color:var(--accent)}code{font:13px ui-monospace,Menlo,monospace}
+.t{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+</style>
+<main>
+<header><h1>订单列表改为游标分页</h1><p>订单列表改为游标分页 <small>作者</small></p>
+<p class=muted>MR 说明 · 最后更新 <NOW> · 基于提交 <code><SHA></code> · 只列事实和链接,不下结论</p></header>
+<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody><tr><td>需求单</td><td>https://tickets.acme.example.com/story/42 「订单游标分页」</td></tr><tr><td>需求文档</td><td>未提供(作者跳过)</td></tr><tr><td>分支</td><td>feature → main</td></tr><tr><td>规模</td><td>2 个文件 +5/−2</td></tr><tr><td>审查量</td><td>1/5(2 文件 +5/−2,2 个目录,1 处签名变化或删除)</td></tr></tbody></table></div></section>
+<section><h2>可能值得重点看(自动列出)</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody><tr><td>api/orders.ts:1</td><td>`listOrders` 签名变化,另有 2 处调用</td></tr></tbody></table></div></section>
+<section><h2>阅读顺序</h2><div class=t><table><thead><tr><th>#</th><th>分组</th><th>目的</th><th>代码块</th></tr></thead><tbody><tr><td>1</td><td>接口和类型</td><td></td><td>api/orders.ts:1 <small>listOrders</small></td></tr><tr><td>2</td><td>配置</td><td></td><td>config/app.yml:1</td></tr></tbody></table></div></section>
+<section><h2>影响面</h2><p class=muted>按名字在本仓库文本匹配(git grep -w),只看签名变化。签名不变的行为变化不在这里,由 CR 报告负责;依赖注入、反射、跨服务调用、配置里的动态引用搜不到。</p><div class=t><table><thead><tr><th>符号</th><th>变化</th><th>签名</th><th>调用</th><th>调用方</th><th>说明</th></tr></thead><tbody><tr><td><code>listOrders</code></td><td>签名变化</td><td>export function listOrders(page: number) → export function listOrders(opts: { cursor?: string })</td><td>2</td><td>report/daily.ts:1<br>report/daily.ts:2</td><td></td></tr></tbody></table></div></section>
+<section><h2>需注意</h2><div class=t><table><thead><tr><th>类型</th><th>位置</th><th>说明</th></tr></thead><tbody><tr><td>配置键</td><td>config/app.yml</td><td>新增配置文件 config/app.yml(1 个键)</td></tr><tr><td>接口签名变化</td><td>api/orders.ts:1</td><td>`listOrders` 签名变化</td></tr></tbody></table></div></section>
+<section><h2>测试</h2><p>怎么验证的:本地跑了 jest</p></section>
+<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck <VERSION> · standard · 基于提交 <code><SHA></code> · 已修复 0 条</p><div class=t><table><thead><tr><th>严重程度</th><th>维度</th><th>位置</th><th>问题</th><th>作者的判断</th></tr></thead><tbody><tr><td>重要</td><td>bug</td><td>api/orders.ts:1</td><td>旧参数没兼容</td><td>未表态</td></tr><tr><td>轻微</td><td>bug</td><td>api/orders.ts:2</td><td>命名</td><td>未表态</td></tr></tbody></table></div></section>
+</main>

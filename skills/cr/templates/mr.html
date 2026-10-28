@@ -1,0 +1,43 @@
+{{! MR 说明网页版(mr.html)的模板,由 scripts/mr_note.py 填充。事实都由脚本算好,模板只管页面结构、表头和样式。}}
+{{! 写法:名字外面套两层花括号是占位符;井号开头的块有内容才保留,脱字符开头的块没有内容才保留,块里的占位符就是这个块自己的内容;感叹号开头的整行是注释,不输出。}}
+{{! 占位符里的文字已经做过 HTML 转义;名字带 rows 的是表格的行(tr 和 td 由脚本生成),表头写在模板里。}}
+{{! 可用的名字:title、one、by、now、sha、info_rows、focus_chosen、focus_rows、read_rows、skip、req_rows、impact_method、impact_limits、impact_rows、attention_rows、testing、tested、test_rows、version、depth、fixed、newer、cr_rows。}}
+<title>{{title}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#fbfaf7;--fg:#1f2328;--muted:#5d6570;--line:#e3e0d8;--card:#ffffff;--accent:#2f5d8a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+ padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:980px;margin:0 auto;display:grid;gap:18px}
+h1{font-size:22px;margin:0;text-wrap:balance}h2{font-size:16px;margin:0 0 8px}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.muted,small{color:var(--muted)}a{color:var(--accent)}code{font:13px ui-monospace,Menlo,monospace}
+.t{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+</style>
+<main>
+<header><h1>{{title}}</h1><p>{{one}} <small>{{by}}</small></p>
+<p class=muted>MR 说明 · 最后更新 {{now}} · 基于提交 <code>{{sha}}</code> · 只列事实和链接,不下结论</p></header>
+<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>{{info_rows}}</tbody></table></div></section>
+{{#focus_rows}}
+<section><h2>{{#focus_chosen}}请重点看{{/focus_chosen}}{{^focus_chosen}}可能值得重点看(自动列出){{/focus_chosen}}</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody>{{focus_rows}}</tbody></table></div></section>
+{{/focus_rows}}
+{{#read_rows}}
+<section><h2>阅读顺序</h2><div class=t><table><thead><tr><th>#</th><th>分组</th><th>目的</th><th>代码块</th></tr></thead><tbody>{{read_rows}}</tbody></table></div>{{#skip}}<p class=muted>可跳过:{{skip}}</p>{{/skip}}</section>
+{{/read_rows}}
+{{#req_rows}}
+<section><h2>验收标准对应的改动</h2><p class=muted>只标出改动落在哪里,不判断是否做到。</p><div class=t><table><thead><tr><th>验收标准</th><th>改动位置</th></tr></thead><tbody>{{req_rows}}</tbody></table></div></section>
+{{/req_rows}}
+{{#impact_rows}}
+<section><h2>影响面</h2><p class=muted>{{impact_method}}。签名不变的行为变化不在这里,由 CR 报告负责;依赖注入、反射、跨服务调用、配置里的动态引用搜不到。{{impact_limits}}</p><div class=t><table><thead><tr><th>符号</th><th>变化</th><th>签名</th><th>调用</th><th>调用方</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div></section>
+{{/impact_rows}}
+{{#attention_rows}}
+<section><h2>需注意</h2><div class=t><table><thead><tr><th>类型</th><th>位置</th><th>说明</th></tr></thead><tbody>{{attention_rows}}</tbody></table></div></section>
+{{/attention_rows}}
+{{#testing}}
+<section><h2>测试</h2>{{#tested}}<p>怎么验证的:{{tested}}</p>{{/tested}}{{#test_rows}}<div class=t><table><thead><tr><th>可能相关的测试文件(未执行)</th><th>本次改过</th></tr></thead><tbody>{{test_rows}}</tbody></table></div>{{/test_rows}}</section>
+{{/testing}}
+<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck {{version}} · {{depth}} · 基于提交 <code>{{sha}}</code> · 已修复 {{fixed}} 条{{#newer}};审查之后又有 {{newer}} 个提交,未经审查{{/newer}}</p>{{#cr_rows}}<div class=t><table><thead><tr><th>严重程度</th><th>维度</th><th>位置</th><th>问题</th><th>作者的判断</th></tr></thead><tbody>{{cr_rows}}</tbody></table></div>{{/cr_rows}}{{^cr_rows}}<p>没有未修复的发现。</p>{{/cr_rows}}</section>
+</main>
