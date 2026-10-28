@@ -697,7 +697,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
           <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。严重程度按后果类型定（数据错误、崩溃或异常无人处理、现有调用方因违反约定出错、安全边界被破坏算严重），不因影响范围窄或尚未出现而降级。同一根因、同一改法的多处合并为一条，其余位置列在 <code>also_at</code>，逐处核对。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
         <div class="card"><h4><span class="num">4</span>analyst（MR 说明）</h4>
-          <p>和查找角色同时启动，只读需求材料和脚本整理的代码块清单，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
+          <p>和查找角色同时启动。代码分析由脚本 <code>analysis_facts.py</code> 先做好：改了哪些函数和接口、签名变化、本仓库里的调用方（影响面）、迁移和配置变化，按代码块编号。analyst 读这份分析、需要时看对应的 diff，再对照需求材料，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
           <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
       </div>
       <details class="design-basis">
