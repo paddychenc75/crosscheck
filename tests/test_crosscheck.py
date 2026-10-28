@@ -146,6 +146,61 @@ class TestPipeline(ProjectFixture):
         self.assertEqual(defects[0]["also_at"], [{"file": P, "line": 1}, {"file": L, "line": 2}], "第 9 行不在改动里,主位置重复的第 2 行也去掉")
         self.assertEqual(self.load(os.path.join(rd, "findings.json"))[0]["also_at"], defects[0]["also_at"])
 
+    def test_same_root_cause_reported_twice_is_merged_by_proximity_and_summary(self):
+        rd, _ = self.collect("feature")
+        P = "src/orders/paginate.ts"
+        cands = [
+            {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "分页向下取整会丢掉最后一页", "failure_scenario": "x"},
+            {"file": P, "line": 4, "category": "bug", "severity": "major", "summary": "分页向下取整会丢掉最后一页数据", "failure_scenario": "y"},
+        ]
+        scores = {c["summary"]: (90, [{"file": P, "lines": str(c["line"])}]) for c in cands}
+        final, _ = self.run_pipeline(rd, cands, scores)
+        defects = final["groups"]["defects"]
+        self.assertEqual(len(defects), 1, "相距 2 行、摘要高度相似的同一根因合并成一条")
+        self.assertEqual(defects[0]["also_at"], [{"file": P, "line": 4}], "被合并的那条位置并进 also_at")
+
+    def test_different_problems_near_each_other_are_not_merged(self):
+        rd, _ = self.collect("feature")
+        P = "src/orders/paginate.ts"
+        cands = [
+            {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "分页向下取整", "failure_scenario": "x"},
+            {"file": P, "line": 4, "category": "bug", "severity": "major", "summary": "登录接口没有校验令牌", "failure_scenario": "y"},
+        ]
+        scores = {c["summary"]: (90, [{"file": P, "lines": str(c["line"])}]) for c in cands}
+        final, _ = self.run_pipeline(rd, cands, scores)
+        self.assertEqual(sorted(x["summary"] for x in final["groups"]["defects"]), ["分页向下取整", "登录接口没有校验令牌"], "摘要不像就不合并")
+        self.assertNotIn("also_at", final["groups"]["defects"][0])
+
+    def test_pre_existing_goes_to_own_list_and_not_findings(self):
+        rd, _ = self.collect("feature")
+        P = "src/orders/paginate.ts"
+        cands = [
+            {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "原有的分页问题", "failure_scenario": "x"},
+            {"file": P, "line": 4, "category": "bug", "severity": "major", "summary": "本次引入的问题", "failure_scenario": "y"},
+            {"file": P, "line": 3, "category": "bug", "severity": "major", "summary": "低分的原有问题", "failure_scenario": "z"},
+        ]
+        with open(os.path.join(rd, "candidates.json"), "w", encoding="utf-8") as f:
+            json.dump(cands, f, ensure_ascii=False)
+        self.run_script("prepare-verify.sh", rd)
+        batch = [r for n in sorted(os.listdir(os.path.join(rd, "verify"))) if n.startswith("batch-")
+                 for r in self.load(os.path.join(rd, "verify", n))]
+        # 「原有问题」达到阈值的单列;同样标了原有但分数不够的,照旧被拒绝;没有这个字段的照旧
+        conf = {"原有的分页问题": 90, "本次引入的问题": 90, "低分的原有问题": 70}
+        rows = [dict(r, confidence=conf[r["summary"]], verdict="读过代码", evidence=[{"file": P, "lines": str(r["line"])}],
+                     pre_existing=r["summary"] != "本次引入的问题") for r in batch]
+        with open(os.path.join(rd, "verify", "result-1.json"), "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False)
+        self.run_script("aggregate.sh", rd)
+        final = self.load(os.path.join(rd, "final.json"))
+        self.assertEqual([x["summary"] for x in final["groups"]["defects"]], ["本次引入的问题"])
+        self.assertEqual(final["pre_existing"], [{"file": P, "line": 2, "summary": "原有的分页问题", "verdict": "读过代码", "severity": "major"}])
+        self.assertEqual((final["counts"]["passed"], final["counts"]["pre_existing"]), (1, 1), "原有问题不计入通过的发现")
+        self.assertEqual([x["summary"] for x in self.load(os.path.join(rd, "findings.json"))], ["本次引入的问题"])
+        self.assertEqual([x["summary"] for x in self.load(os.path.join(rd, "rejected.json"))], ["低分的原有问题"])
+        out = self.run_script("report-lines.sh", rd).stdout
+        self.assertIn("PREEXIST: %s:2\t原有的分页问题\t读过代码" % P, out)
+        self.assertEqual(out.count("PREEXIST:"), 1)
+
     def test_incremental_carries_and_resolves(self):
         rd, _ = self.collect("feature")
         P, L = "src/orders/paginate.ts", "src/auth/login.ts"

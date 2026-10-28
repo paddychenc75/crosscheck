@@ -20,11 +20,17 @@
 #   dir=<保存到的目录>
 #   cost=<这次审查的用时和消耗>     用时一定有;token 只在宿主的 hook 记到了用量时才有
 #   incomplete=<流程缺项>           报告里还没写到的流程缺项,用 ; 分隔;没有就不输出
+#   model_note=<模型与配置不一致>   配置的模型没有出现在会话记录里时给出;没有就不输出(已追加进报告)
 #
 # 查找角色数取自 finders/ 里的文件数,核实数取自 verify/result-*.json 的文件数,不用宿主自报。
 # --finders、--verifiers 是旧的自报参数,仍接受但忽略。候选和通过的条数没给时取自 final.json。
-# 用时、token 用量和上面的数字一起记进保存的 meta.txt。流程缺项记成 meta.txt 的 incomplete=。
-# 流程缺项 = completeness.txt 里的缺项,加上 standard/deep 下没看到子代理用量(多半是子代理没有真的运行)。
+# 用时、token 用量、实际模型和上面的数字一起记进保存的 meta.txt。流程缺项记成 meta.txt 的 incomplete=。
+# 流程缺项 = completeness.txt 里的缺项,加上 standard/deep 下没看到子代理用量(多半是子代理没有真的运行),
+# 以及 MR 说明没有生成。
+#
+# MR 说明(mr.md、mr.html)在保存时就写进记录目录;之后 mr-note.sh 传 DIR 或 review_dir 都落到这里。
+# review_dir 里的 record.txt 指向它保存到的记录目录。
+# 保存成功后删掉 store 里的 pending 标记(collect-diff.sh 开始审查时写下的「进行中」标记)。
 
 set -eu
 
@@ -74,8 +80,12 @@ fi
 
 # 给每条发现记下它指向的那一行代码,作为跨审查识别"同一个问题"的依据;
 # 增量审查时,判断上次的每条发现去哪了:代码改了、代码没变但这次没报、还是文件已不在改动里。
-python3 "$(cd "$(dirname "$0")" && pwd)/review_store.py" "$dir" "$dest" || true
+here=$(cd "$(dirname "$0")" && pwd)
+python3 "$here/review_store.py" "$dir" "$dest" || true
 
+# MR 说明直接写进记录目录(失败只记为流程缺项,见下面);review_dir 指向这次保存的记录,mr-note 传 review_dir 也找得到。
+python3 "$here/mr_note.py" "$dest" >/dev/null 2>&1 || true
+printf '%s\n' "$dest" > "$dir/record.txt"
 
 # 角色数和核实数从落盘的文件数出来:查找角色的回复在 finders/,核实的回复在 verify/result-*.json。
 run_finders=$(find "$dir/finders" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
@@ -92,7 +102,7 @@ num() { case "$1" in ""|*[!0-9]*) return 1 ;; esac; }
   if num "$run_verifiers"; then printf 'run_verifiers=%s\n' "$run_verifiers"; fi
   if num "$run_candidates"; then printf 'run_candidates=%s\n' "$run_candidates"; fi
   if num "$run_passed"; then printf 'run_passed=%s\n' "$run_passed"; fi
-  if [ -f "$dir/usage.txt" ]; then grep -E '^usage_[a-z_]+=[A-Za-z0-9_-]+$' "$dir/usage.txt" || true; fi
+  if [ -f "$dir/usage.txt" ]; then grep -E '^usage_[a-z_]+=[A-Za-z0-9_.,/-]+$' "$dir/usage.txt" || true; fi
 } >> "$dest/meta.txt"
 saved() { sed -n "s/^$1=//p" "$dest/meta.txt" | tail -n 1; }
 human() { awk -v n="$1" 'BEGIN { if (n >= 1000000) printf "%.1fM", n / 1000000; else if (n >= 1000) printf "%.0fK", n / 1000; else printf "%d", n }'; }
@@ -103,6 +113,7 @@ fi
 if num "$run_finders" && num "$run_verifiers"; then cost="${cost:+$cost · }查找 ${run_finders} 个角色、核实 ${run_verifiers} 个"; fi
 if num "$run_candidates" && num "$run_passed"; then cost="${cost:+$cost · }候选 ${run_candidates} 条、通过 ${run_passed} 条"; fi
 tok=$(saved usage_total_tokens)
+models=$(saved usage_models)
 if ! num "$tok"; then
   case "$(saved usage_status)" in
     no_start) why="hook 在运行,但审查开始时没拿到会话记录" ;;
@@ -114,9 +125,26 @@ if ! num "$tok"; then
 elif true; then
   case "$(saved usage_subagents)" in included) sub="含子代理" ;; none-seen) sub="没有发现子代理的用量" ;; *) sub="是否含子代理未知" ;; esac
   cost="${cost:+$cost · }token 约 $(human "$tok")(新输入 $(human "$(saved usage_input_tokens)")、缓存读取 $(human "$(saved usage_cache_read_tokens)")、输出 $(human "$(saved usage_output_tokens)");${sub})"
+  # 会话记录里实际出现的模型名(只读名字),和配置的模型对照,见下面
+  [ -z "$models" ] || cost="${cost:+$cost · }实际模型:$models"
+fi
+
+# 实际模型和配置不一致:配置的查找、核实模型没有出现在会话记录里(比如配置了更强的,记录里却只有更弱的)。
+# 名字不区分大小写,按子串对上(配置 sonnet 对 claude-sonnet-5-5)。配置为 host 或没有配置的不比。
+# 核实模型可能是另一家的,那时会话记录里本来就看不到它,这里会提示,由读的人判断。
+model_note=""
+if [ -n "$models" ]; then
+  lm=$(printf '%s' "$models" | tr 'A-Z' 'a-z')
+  for role in finder verifier; do
+    want=$(meta "${role}_model")
+    case "$want" in ""|host) continue ;; esac
+    lw=$(printf '%s' "$want" | tr 'A-Z' 'a-z')
+    case "$lm" in *"$lw"*) ;; *) model_note="${model_note:+$model_note；}配置的${role}模型 $want 没有出现在会话记录里(记录到的模型:$models)" ;; esac
+  done
 fi
 # 保存的报告里也补上这一行,这样打开文件就能看到,不用去翻 meta.txt。
 [ -z "$cost" ] || printf '\n消耗:%s\n' "$cost" >> "$dest/report.md"
+[ -z "$model_note" ] || printf '\n模型与配置不一致:%s\n' "$model_note" >> "$dest/report.md"
 
 # 流程缺项:completeness.txt 的缺项,加上 standard/deep 下没看到子代理用量。报告里已经写了的不重复;
 # 没写的补一行「流程不完整」,并在输出里给出 incomplete=,让宿主在展示的报告里也说明。
@@ -131,12 +159,14 @@ if [ -f "$dir/completeness.txt" ]; then
   done < "$dir/completeness.txt"
 fi
 case "$(saved depth)" in standard|deep) [ "$(saved usage_subagents)" = none-seen ] && add_issue "没有看到子代理用量" ;; esac
+[ -f "$dest/mr.md" ] && [ -f "$dest/mr.html" ] || add_issue "MR 说明没有生成(mr.md、mr.html)"
 if [ -n "$all_issues" ]; then
   printf 'incomplete=%s\n' "$all_issues" >> "$dest/meta.txt"
   [ -z "$missing" ] || printf '\n流程不完整:%s\n' "$missing" >> "$dest/report.md"
 fi
 
 printf '%s\n' "$stamp" > "$store/latest"
+rm -f "$store/pending"   # 进行中的标记到这里结束
 if [ "$(meta only)" = all ]; then printf '%s\n' "$stamp" > "$store/baseline"; fi
 report="$dest/report.md"
 link="file://$(printf '%s' "$report" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g')"
@@ -146,3 +176,4 @@ printf 'link=%s\n' "$link"
 printf 'dir=%s\n' "$dest"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
 [ -z "$missing" ] || printf 'incomplete=%s\n' "$missing"
+[ -z "$model_note" ] || printf 'model_note=%s\n' "$model_note"

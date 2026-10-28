@@ -21,7 +21,7 @@
    - 先查 `history.json`:同一个文件、同一个维度、说的是同一件事(看摘要和代码,不要只看行号)。有「不成立」或「不修」判断且 `same_code` 为真的,按 `scoring-rubric.md` 第 5 项办理:0 分,加上 `history_match`(那条判断的 id,没有 id 就写时间),`suppressed_by` 写 `history`,`verdict` 里写「已在 <时间> 被判为<判断>:<原因>」。代码已变或判断是成立的,照常核实;代码已变且仍然成立的,加上 `previously`:写之前的判断和原因,以及现在为什么又成立了。
    - 候选带有 `needs_check` 时,先确认这一环是否是所报结论的必要前提,再核对。必要前提被推翻则否决;缺失信息确实影响结论则按证据限制评分。已有代码和契约足够时,不把查找者额外要求的完整工程、外部入口或运行实证自动当成必需条件;也不能凭接口名称补出未知实现。
 2. 先尝试证明这条发现是错的,按 `scoring-rubric.md` 的封顶检查顺序过一遍。核实时尤其要注意:
-   - 比较 base 和 head 时用 `git show <base_sha>:<file>` 读 base 版本,在 `ruled_out` 中说明两版的路径、结果及导致差异的改动,不把别处的同类旧问题与本次场景混为一谈(封顶第 2 项)。
+   - 比较 base 和 head 时用 `git show <base_sha>:<file>` 读 base 版本,在 `ruled_out` 中说明两版的路径、结果及导致差异的改动,不把别处的同类旧问题与本次场景混为一谈。是否属于原有问题(`pre_existing`),按 `scoring-rubric.md` 封顶第 2 项办理。
    - `bug`、`security` 候选:这段代码真的会被执行吗,是本次改动引入或使其可达的吗?去搜调用方或导出边界确认(封顶第 3 项)。
    - 是否有守卫、校验、类型或调用方使场景不可达,是否已被项目的编译器、类型检查器或 linter 拒绝(封顶第 3、4 项)。打开调用方和上游代码去确认。
    - 是否被误报清单或覆盖这个文件的 `REVIEW.md` 「不要报」一节覆盖(封顶第 6 项)。覆盖时在 `suppressed_by` 里写明是哪一条。
@@ -32,7 +32,7 @@
 
 如果发现是真的,但它的 `line`、`severity`、`summary` 或 `failure_scenario` 有偏差,就修正该字段,而不是否决它。
 
-`severity` 按 `finding-schema.md` 的「严重程度」一节定级。核实时不因为影响范围窄、触发条件少见、或后果目前还没出现而降级;唯一的例外是 `scoring-rubric.md` 里的约定上限。只有核实后发现后果不属于所报的类型,才改成更低的级别,并在 `verdict` 里写明依据。
+`severity` 按 `finding-schema.md` 的「严重程度」一节定级。核实时不因为影响范围窄、触发条件少见、或后果目前还没出现、或措辞轻重、个人觉得不严重而降级;唯一的例外是 `scoring-rubric.md` 里的约定上限。只有核实后发现后果不属于所报的类型,才改成更低的级别,并在 `verdict` 里写明依据。
 
 候选带 `also_at` 时,逐处核对同一根因和同一改法在那一处确实成立:成立的保留,并在 `evidence` 里补一条 `note` 为「同一问题的其他位置」的依据;不成立的从 `also_at` 删掉,并在 `verdict` 里说明。`also_at` 的核对结果不影响主位置的分数。合并候选中的多个触发场景应分别核对:保留有证据的部分,在 `verdict` 说明被推翻或未确认的部分,只对最终保留的结论打分;不能因一个场景不成立而连带否决另一个已证实场景,也不能把未确认的后果写成已发生。
 
@@ -70,7 +70,7 @@ sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命
 
 ## 输出
 
-返回一个 JSON 数组,每条候选对应一项,顺序不变。每一项是该候选(含修正后的字段;`cid` 等原有字段原样保留;`needs_check` 去掉),再加上 `confidence`、`verdict`、`evidence`、`ruled_out`、`verification`,以及按需加上的 `history_match`、`previously`、`compat`、`suppressed_by`。这些字段的规则见 `finding-schema.md` 的「verifier 填写的字段」,分数规则见 `scoring-rubric.md`。
+返回一个 JSON 数组,每条候选对应一项,顺序不变。每一项是该候选(含修正后的字段;`cid` 等原有字段原样保留;`needs_check` 去掉),再加上 `confidence`、`verdict`、`evidence`、`ruled_out`、`verification`,以及按需加上的 `pre_existing`、`history_match`、`previously`、`compat`、`suppressed_by`。这些字段的规则见 `finding-schema.md` 的「verifier 填写的字段」,分数规则见 `scoring-rubric.md`。
 
 `verification` 读代码判断时写 `{"method": "inferred"}` 或省略;用 `run-check.sh` 跑过时写 `{"method": "executed", "runs": ["r1"], "outcome": "reproduced" | "refuted" | "inconclusive"}`。不要自己写 `repro`:报告里展示的命令和输出由脚本从运行记录里取。
 

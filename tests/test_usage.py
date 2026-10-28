@@ -77,3 +77,30 @@ class CodexUsage(fixture.Base):
         self.run_script("usage.sh", "finish", state, out)
         kv = self.kv(out)
         self.assertEqual((kv["usage_source"], kv["usage_total_tokens"], kv["usage_model_calls"]), ("claude", "122", "1"))
+
+    def test_actual_models_from_main_and_subagents(self):
+        main = os.path.join(self.tmp, "claude", "s.jsonl")
+        sub = os.path.join(self.tmp, "claude", "s", "subagents", "a.jsonl")
+        state, out = os.path.join(self.tmp, "state"), os.path.join(self.tmp, "usage.txt")
+        self.write(main, [{"type": "user"}])
+        self.run_script("usage.sh", "start", state, main)
+
+        def turn(mid, model, n):
+            return {"type": "assistant", "timestamp": NEW, "message": {"id": mid, "model": model, "usage": {"input_tokens": n, "output_tokens": 1}}}
+        self.write(main, [turn("m1", "claude-haiku-5-5", 10), turn("m2", "<synthetic>", 0)], mode="a")
+        self.write(sub, [turn("s1", "claude-sonnet-5-5", 20)])
+        self.run_script("usage.sh", "finish", state, out)
+        kv = self.kv(out)
+        # 只记模型名;<synthetic> 不是模型,不记
+        self.assertEqual(kv["usage_models"], "claude-haiku-5-5,claude-sonnet-5-5")
+        self.assertEqual(kv["usage_total_tokens"], str(10 + 20 + 3))   # 输入 30,输出 3 条各 1
+
+    def test_codex_model_comes_from_turn_context_before_start(self):
+        main = os.path.join(self.tmp, "codex", "sessions", "rollout-main.jsonl")
+        state, out = os.path.join(self.tmp, "state"), os.path.join(self.tmp, "usage.txt")
+        # 模型名在回合开始时写的,早于审查开始
+        self.write(main, [session_meta("A"), {"timestamp": OLD, "type": "turn_context", "payload": {"model": "gpt-5.1-codex"}}])
+        self.run_script("usage.sh", "start", state, main)
+        self.write(main, [codex_record("r1", 1000, 600, 50)], mode="a")
+        self.run_script("usage.sh", "finish", state, out)
+        self.assertEqual(self.kv(out)["usage_models"], "gpt-5.1-codex")

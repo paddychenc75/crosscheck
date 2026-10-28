@@ -1,5 +1,5 @@
 """usage.sh 的实现,用法和说明见 usage.sh。"""
-import datetime, glob, json, os, sys
+import datetime, glob, json, os, re, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -32,20 +32,22 @@ if mode == "start":
 
 
 def claude_usage(lines):
-    """按 message.id 去重(同一条回复会被分几次写入),每条取最后一次的数字。"""
-    by_id = {}
+    """按 message.id 去重(同一条回复会被分几次写入),每条取最后一次的数字。同时记下实际用到的模型名。"""
+    by_id, models = {}, set()
     for d in lines:
         m = d.get("message")
         u = m.get("usage") if isinstance(m, dict) else None
         if isinstance(u, dict):
             by_id[m.get("id") or id(d)] = u
+            if isinstance(m.get("model"), str):
+                models.add(m["model"])
     tot = {"input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
     for u in by_id.values():
         tot["input"] += int(u.get("input_tokens") or 0)
         tot["cache_read"] += int(u.get("cache_read_input_tokens") or 0)
         tot["cache_write"] += int(u.get("cache_creation_input_tokens") or 0)
         tot["output"] += int(u.get("output_tokens") or 0)
-    return tot, len(by_id)
+    return tot, len(by_id), models
 
 def load_lines(path, skip=0):
     out = []
@@ -97,6 +99,12 @@ def codex_usage(lines, started=""):
     return tot, len(by_id)
 
 
+def codex_models(lines):
+    """Codex 的模型名写在 turn_context 里(每个回合一条),不在用量记录里;只取名字。"""
+    return {d["payload"]["model"] for d in lines
+            if d.get("type") == "turn_context" and isinstance(d.get("payload"), dict) and isinstance(d["payload"].get("model"), str)}
+
+
 def codex_children(transcript, started_ts):
     """子代理各有自己的会话文件,session_meta 里记着父会话 id。只看同一个 sessions 目录下、审查开始后改过的文件。"""
     root, sid = transcript, first_meta(transcript)[0]
@@ -146,14 +154,17 @@ if mode == "finish":
         started_ts = 0
     if any(d.get("type") == "token_usage_record" for d in lines):
         tot, calls = codex_usage(lines)
+        # 模型名在回合开始时就写了,可能早于审查开始,所以读整个会话文件
+        models = codex_models(load_lines(transcript))
         sub_calls = 0
         for path in codex_children(transcript, started_ts):
             t2, c2 = codex_usage(load_lines(path), started)
             for k in tot: tot[k] += t2[k]
             sub_calls += c2
-        result = dict(tot, source="codex", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls)
+            models |= codex_models(load_lines(path))
+        result = dict(tot, source="codex", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls, models=models)
         lines = []
-    tot, calls = claude_usage(lines)
+    tot, calls, models = claude_usage(lines)
     sub_calls = 0
     subdir = transcript[:-len(".jsonl")] + "/subagents" if transcript.endswith(".jsonl") else ""
     if not result and subdir and os.path.isdir(subdir):
@@ -161,11 +172,12 @@ if mode == "finish":
             if os.path.getmtime(path) < started_ts:
                 continue
             sub = [d for d in load_lines(path) if str(d.get("timestamp", ""))[:19] >= started]
-            t2, c2 = claude_usage(sub)
+            t2, c2, m2 = claude_usage(sub)
             for k in tot: tot[k] += t2[k]
             sub_calls += c2
+            models |= m2
     if not result and calls + sub_calls:
-        result = dict(tot, source="claude", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls)
+        result = dict(tot, source="claude", subagents="included" if sub_calls else "none-seen", calls=calls + sub_calls, models=models)
     if not result:
         sys.exit(0)
     total = result["input"] + result["cache_read"] + result["cache_write"] + result["output"]
@@ -177,5 +189,9 @@ if mode == "finish":
     }
     if "reasoning" in result:
         data["usage_reasoning_tokens"] = result["reasoning"]
+    # 实际出现过的模型名(只取名字,不读内容);去掉不像模型名的(如 <synthetic>),最多 6 个
+    names = sorted(x for x in result.get("models", ()) if re.fullmatch(r"[A-Za-z0-9._/-]{1,80}", x))[:6]
+    if names:
+        data["usage_models"] = ",".join(names)
     write_kv(out, data)
     sys.exit(0)

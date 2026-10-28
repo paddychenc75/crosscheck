@@ -1,5 +1,5 @@
 """aggregate.sh 的实现,用法和说明见 aggregate.sh。"""
-import glob, json, os, re, sys
+import difflib, glob, json, os, re, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -209,7 +209,8 @@ def apply_runs(item, conf, reasons):
 def group_of(cat):
     return {"bug": "defects", "security": "defects", "intent": "intent", "rules": "rules"}.get(cat, "defects")
 
-passed, rejected, history = [], [], []
+passed, rejected, history, pre = [], [], [], []
+pre_ids = set()   # 原有问题的历史发现编号:既不带入也不算已解决
 skipped_by_settings = 0
 for c in cands:
     r = result_for(c)
@@ -266,6 +267,12 @@ for c in cands:
     if also: item["also_at"] = also
     else: item.pop("also_at", None)
     item["confidence"] = conf
+    # 缺陷真实存在,但对 base 版本同样存在、不是本次引入的:不进 findings,单列在 pre_existing 里
+    if conf >= THRESHOLD and item.get("pre_existing") is True:
+        pre.append({"file": f, "line": line, "summary": item.get("summary", ""), "verdict": item.get("verdict", ""),
+                    "severity": item.get("severity", "")})
+        pre_ids.add(item.get("id"))
+        continue
     if conf >= THRESHOLD:
         passed.append(item)
     else:
@@ -290,7 +297,7 @@ for p in prev:
     elif st in (None, "removed"):
         resolved.append(dict(p, resolved_reason="文件已不在改动里"))
     elif p.get("id") in resubmitted:
-        if p.get("id") not in reverified:
+        if p.get("id") not in reverified and p.get("id") not in pre_ids:
             resolved.append(dict(p, resolved_reason="重新核实后不再成立"))
     elif st == "unchanged":
         carried.append(dict(p, carried_unchanged=True))
@@ -329,7 +336,37 @@ def merge_rules(items):
         if o.get("also_lines"):
             o["summary"] = "%s(共 %d 处,其余在第 %s 行)" % (o.get("summary", ""), 1 + len(o["also_lines"]), "、".join(map(str, o["also_lines"])))
     return out
-new = merge_rules(new)
+
+# 同一根因被报成几条(模型对同一个函数里的同一个问题各报一次):位置有交集,或同一文件里相距 5 行以内,
+# 且摘要高度相似(0.85 以上)才合并。只差一个编号或一个变量名的两条(如「小问题1」「小问题2」)不合并。宁可漏合并也不误合并,规则发现不走这里。
+def locs_of(x):
+    also = x.get("also_at") if isinstance(x.get("also_at"), list) else []
+    return {(x.get("file", ""), to_int(x.get("line")))} | {(a["file"], to_int(a.get("line"))) for a in also if isinstance(a, dict) and a.get("file")}
+
+def same_root(a, b):
+    if "rules" in (a.get("category"), b.get("category")):
+        return False
+    la, lb = locs_of(a), locs_of(b)
+    near = bool(la & lb) or any(fa == fb and abs(xa - xb) <= 5 for fa, xa in la for fb, xb in lb)
+    if not near:
+        return False
+    sa, sb = crlib.norm(a.get("summary", "")), crlib.norm(b.get("summary", ""))
+    return difflib.SequenceMatcher(None, sa, sb).ratio() >= 0.85
+
+def merge_same_root(items):
+    """留下分高的一条,另一条的位置并进它的 also_at。"""
+    out = []
+    for x in sorted(items, key=lambda y: -to_int(y.get("confidence"))):
+        hit = next((o for o in out if same_root(o, x)), None)
+        if hit is None:
+            out.append(x)
+            continue
+        extra = [{"file": f, "line": l} for f, l in sorted(locs_of(x) - locs_of(hit))]
+        also = clean_also_at(list(hit.get("also_at") or []) + extra, hit.get("file", ""), to_int(hit.get("line")), check_ranges=False)
+        if also: hit["also_at"] = also
+        else: hit.pop("also_at", None)
+    return out
+new = merge_same_root(merge_rules(new))
 
 order = lambda x: (crlib.SEV_ORDER.get(x.get("severity"), 3), -to_int(x.get("confidence")), x.get("file", ""), to_int(x.get("line")))
 for x in new: x["status"] = "new"
@@ -392,7 +429,8 @@ def record(x):
 crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
-          "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings}
+          "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings,
+          "pre_existing": len(pre)}
 run_summary = {"total": len(glob.glob(os.path.join(runs_dir, "r*.json"))),
                "reproduced": len([x for x in passed if x.get("mark") == "已复现"
                                   and (x.get("verification") or {}).get("outcome") == "reproduced"]),
@@ -400,6 +438,7 @@ run_summary = {"total": len(glob.glob(os.path.join(runs_dir, "r*.json"))),
 final = {
     "scope": meta.get("review_scope", "full"), "depth": meta.get("depth", "standard"),
     "groups": {k: [x for x in shown[k]] for k in shown}, "resolved": resolved, "ignored_by_history": history,
+    "pre_existing": pre,
     "trimmed": trimmed, "limits": limits, "counts": counts, "runs": run_summary,
     "notes": crlib.load_json(os.path.join(d, "rules-notes.json"), []),
 }

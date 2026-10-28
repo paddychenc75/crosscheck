@@ -1,7 +1,8 @@
 """MR 说明:给 MR 评审人看的改动说明,开发者贴进 MR 描述;另有一份完整的网页版。
 
 用法: python3 mr_note.py DIR [--latest]
-  DIR       一次审查的记录目录(save-review.sh 输出的 dir=),或 collect-diff.sh 的输出目录
+  DIR       一次审查的记录目录(save-review.sh 输出的 dir=),或 collect-diff.sh 的输出目录;
+            后者已经保存过时,写进它保存后的记录目录(record.txt)
   --latest  DIR 只用来找到这个目标,实际用它最近一次的审查记录(表态、--fix 之后重新生成时用)
 
 写出 DIR/mr.md(贴进 MR 描述,30 行以内,包在 crosscheck:begin/end 标记里)和 DIR/mr.html(完整版),并输出:
@@ -56,6 +57,10 @@ def split_where(where):
 
 
 def resolve_dir(d, latest):
+    # 传入的是临时的审查目录(review_dir)而它已经保存过时,MR 说明写进保存后的记录目录(save-review.sh 写的 record.txt)
+    rec = (crlib.read_text(os.path.join(d, "record.txt")) or "").strip()
+    if rec and os.path.isfile(os.path.join(rec, "meta.txt")):
+        d = rec
     meta = crlib.read_kv(os.path.join(d, "meta.txt"))
     if latest and meta.get("store_dir"):
         try:

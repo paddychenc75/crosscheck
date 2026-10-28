@@ -128,4 +128,8 @@ except OSError:
 if gaps:
     print("INCOMPLETE: 流程不完整:" + "；".join(gaps))
 
+# 改动代码里的原有问题:真实存在,但 base 版本里同样存在、不是本次引入的(不计入发现,放在报告末尾单列)
+for p in final.get("pre_existing") or []:
+    print("PREEXIST: %s:%s\t%s\t%s" % (p.get("file", ""), p.get("line", ""), p.get("summary", ""), p.get("verdict", "")))
+
 print("FEEDBACK: 看完可以直接回复,例如「1 对,2 误报:上游已经重试」「3 先不改:下个版本再处理」,判断会被记下来,之后同样的问题不再重复报。")

@@ -604,6 +604,10 @@ if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_k
   repo_key="$repo_key-$(printf '%s' "$repo_id" | git hash-object --stdin | cut -c1-8)"
 fi
 store_dir="$reviews_dir/$repo_key/$target_key"
+# 上一次对这个目标开始的审查如果没有保存(末尾写下的 pending 标记还在),说明它提前结束了
+pending="$store_dir/pending"
+prev_pending=""
+[ -f "$pending" ] && prev_pending=$(sed -n 's/^started_at=//p' "$pending" | head -n 1)
 
 # 先读取完整目标的意图和规则,再决定能否使用增量缓存。
 [ -n "$verifier_model" ] || verifier_model=$(sh "$script_dir/config.sh" get model.verifier)
@@ -773,6 +777,15 @@ sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 
 
 # 意图、MR 上的人工讨论、测试削弱、风险分级。读不到的部分跳过,不影响审查。
 
+
+# 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(需求单、对比基准、改动过大)不写。
+if [ "$file_count" -gt 0 ] && [ -z "$base_hint" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
+   && ! printf '%s' "$context_out" | grep -q '^SOURCES_MISSING:'; then
+  mkdir -p "$store_dir" && printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
+fi
+if [ -n "$prev_pending" ]; then
+  printf 'NOTE: 上一次对这个目标的审查(开始于 %s)没有保存,很可能提前结束了,它的子代理结果可能没有核实或报告。这次照常重新审查。\n' "$prev_pending"
+fi
 
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"

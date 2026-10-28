@@ -371,7 +371,6 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>内容</td><td>独立核实过、80 分以上的问题，每条附依据</td><td>需求链接、改了什么、从哪看起、影响到谁、CR 情况</td></tr>
         <tr><td>解决的问题</td><td>报得准，作者愿意读完</td><td>改动大时评审人判断不了影响、缺需求背景</td></tr>
       </table></div>
-      <p class="muted">0.3.0（试验性）。规则就是仓库里的 Markdown；机制保持简单，在有真实使用数据之前不为“可能有用”加机制。关键设计旁的“设计依据”可展开查看。</p>
       <div class="toolbar">
         <button type="button" id="themeBtn">切换深浅色</button>
       </div>
@@ -592,7 +591,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；每批最多 3 条，严重问题单独核实；deep 下经 run-check.sh 复现。用强模型，能用另一家的模型核实更好</span></div>
           </div></div>
           <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
-            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、合并同一规则、排序、条数上限、编号</span></div>
+            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、合并同一规则和同一根因的重复发现、原有问题单列、排序、条数上限、编号</span></div>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -600,10 +599,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="layer">
           <div class="layer-head"><b>输出</b><span>CR 报告留在本地；MR 说明由开发者自己贴进 MR</span></div>
           <div class="subrow"><div class="label">CR 报告</div><div class="chips">
-            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，标已复现 / 读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
+            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，标已复现 / 读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">改动代码里的原有问题单列</span><span class="chip">消耗含实际模型，与配置不一致时提示</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
           </div></div>
           <div class="subrow"><div class="label">MR 说明</div><div class="chips">
-            <span class="chip">mr.md（30 行以内）</span><span class="chip">mr.html 完整版</span><span class="chip">网页版（配置了才有）</span><span class="chip">随 CR 报告更新</span>
+            <span class="chip">mr.md（30 行以内）</span><span class="chip">mr.html 完整版（保存记录时生成）</span><span class="chip">网页版（配置了才有）</span><span class="chip">随 CR 报告更新</span>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span>人的判断 · MR 人工评论</div>
@@ -646,8 +645,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>，同时 <code>analyst</code> 起草 MR 说明（并行）</td><td><code>candidates.json</code>；<code>analysis.json</code>（经 <code>analysis_check.py</code> 校验）</td></tr>
         <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
         <tr><td>5. 汇总</td><td><code>aggregate.sh</code></td><td><code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code></td></tr>
-        <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录</td></tr>
-        <tr><td>6b. MR 说明</td><td><code>mr-note.sh</code></td><td><code>mr.md</code>、<code>mr.html</code>；表态、修复、重新审查后重新生成</td></tr>
+        <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录；保存时同时写入 <code>mr.md</code>、<code>mr.html</code></td></tr>
+        <tr><td>6b. MR 说明</td><td><code>mr-note.sh</code></td><td>补充链接和网页版；表态、修复、重新审查后重新生成</td></tr>
         <tr><td>7. 修复（仅要求时）</td><td>主 agent</td><td>工作区改动，修好的记为成立</td></tr>
       </table></div>
 
@@ -668,6 +667,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       </table></div>
       <p>改动较大时按约 1000 行一批，reviewer 和 rules-auditor 每批各跑一次。</p>
 
+      <h3>流程是否走完</h3>
+      <ul>
+        <li><b>进行中标记：</b>真正开始审查时在记录目录写 <code>pending</code>，保存成功后删除；下次审查同一目标时标记还在，就提示上一次没有保存、很可能提前结束，然后照常重新审查。</li>
+        <li><b>非交互运行：</b>没有人在场时（<code>claude -p</code>、<code>codex exec</code>、CI）必须前台启动子代理，等每个子代理的最终 JSON 都回来再进入下一步，全部返回之前不写报告、不保存记录。</li>
+        <li><b>MR 说明随保存生成：</b><code>mr.md</code>、<code>mr.html</code> 缺任何一个，报告里写“流程不完整”。</li>
+        <li><b>实际用的模型：</b>消耗行列出会话记录里实际出现的模型名；配置的查找或核实模型没有出现在记录里时，报告多一行“模型与配置不一致”。</li>
+      </ul>
+
       <details class="design-basis">
         <summary>设计依据：查找怎么分工</summary>
         <ul>
@@ -678,6 +685,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
           <li><b>不报可读性和小重构：</b>Uber 的数据显示这类建议的评分一直最差，宿主也自带 /simplify。</li>
           <li><b>流程不能省：</b>用公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论。所以 standard、deep 只要能启动子代理就必须启动，改动再小也一样；按流程走完时，干净对照基本没有误报。</li>
+          <li><b>留标记、下次发现：</b>会话提前结束时进程已经不在了，没有谁能事后补写“失败”；开始时写下标记、保存后删除，下次就能发现上一次没走完。非交互运行没有人在场，后台启动的子代理会在会话结束时丢掉，所以必须前台启动。</li>
+          <li><b>实际模型从会话记录里读：</b>宿主不支持为子代理指定模型时会照常用宿主的模型，用户读报告时只看到自己配置了什么，所以由脚本读出实际模型，对不上就提示；只读模型名，不读对话内容。</li>
           <li><b>查找不自己过滤：</b>评测里漏掉的问题大多是查找阶段根本没提出来，而不是被核实否决。所以 reviewer 不读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
         </ul>
         <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
@@ -694,8 +703,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
           <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
         <div class="card"><h4><span class="num">3</span>verifier</h4>
-          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、base 就有、不可达、CI 会拦、命中误报清单。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
-          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。严重程度按后果类型定（数据错误、崩溃或异常无人处理、现有调用方因违反约定出错、安全边界被破坏算严重），不因影响范围窄或尚未出现而降级。同一根因、同一改法的多处合并为一条，其余位置列在 <code>also_at</code>，逐处核对。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
+          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、不可达、CI 会拦、命中误报清单。缺陷真实、但 base 里已以同样结果存在的，不打 0 分，标 <code>pre_existing</code>，过了 80 分门槛后单列在报告“改动代码里的原有问题”一节，不计入发现数、不进 MR 说明；被本次改动变得更容易触发或范围变大的，仍算本次引入。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
+          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。严重程度按后果类型定（数据错误、崩溃或未处理的异常——包括正常输入稳定返回 500、现有调用方因违反约定出错、安全边界被破坏算严重），不因影响范围窄、尚未出现、措辞轻重而降级，只在后果类型判断错时调整级别；定级标准附有几条虚构的对照例子。同一根因、同一改法的多处合并为一条，其余位置列在 <code>also_at</code>，逐处核对；汇总时脚本再合并位置有交集（或同文件相距 5 行内）且摘要相似度不低于 0.85 的重复发现，宁可漏合并也不误合并。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
         <div class="card"><h4><span class="num">4</span>analyst（MR 说明）</h4>
           <p>和查找角色同时启动。代码分析由脚本 <code>analysis_facts.py</code> 先做好：改了哪些函数和接口、签名变化、本仓库里的调用方（影响面）、迁移和配置变化，按代码块编号。analyst 读这份分析、需要时看对应的 diff，再对照需求材料，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
           <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
@@ -705,6 +714,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <ul>
           <li><b>并行查找 + 独立核实：</b>Claude Code Review 多个 agent 各查一类问题，验证步骤逐条对照代码确认（如是否已有空值保护）。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
           <li><b>verifier 的执行证据：</b>Meta TestGen-LLM 只保留能编译、稳定通过、确实提高覆盖率的测试；有 agent 跑了 0 个测试、退出码 0 就报告“全部通过”，所以执行声明要核对原始记录。<a href="https://arxiv.org/abs/2402.09171">Meta：TestGen-LLM（可执行的过滤器）</a>；<a href="https://redreamality.com/blog/coding-agent-done-claims-verification-survey/">综述：agent 自报“测试通过”的核实</a></li>
+          <li><b>原有问题单独标出：</b>Anthropic 内部的代码审查给发现加 Pre-existing 标签：问题真实，但不是这次改动引入的，不当作作者要修的缺陷，也不丢掉。我们同样把它们和本次引入的问题分开展示。<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a></li>
           <li><b>analyst 只写可核对的描述：</b>Qodo /describe、CodeRabbit walkthrough 生成改动说明；我们要求引用原文并由脚本核对。<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a>；<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a></li>
         </ul>
       </details>
@@ -718,7 +728,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>给谁看</td><td>开发者自己，照着修</td><td>MR 评审人</td></tr>
         <tr><td>内容</td><td>核实过的问题、修复建议、依据</td><td>需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况</td></tr>
         <tr><td>性质</td><td>结论，逐条独立核实</td><td>事实和链接，脚本生成或核对，不下结论</td></tr>
-        <tr><td>去处</td><td>留在本地</td><td>本地存 <code>mr.md</code>、<code>mr.html</code>；开发者复制进 MR 描述（30 行以内），或直接贴网页链接；配置了网页工具时自动发布，随 CR 报告更新</td></tr>
+        <tr><td>去处</td><td>留在本地</td><td>保存记录时直接写进记录目录的 <code>mr.md</code>、<code>mr.html</code>，缺了算流程不完整；开发者复制进 MR 描述（30 行以内），或直接贴网页链接；配置了网页工具时自动发布，随 CR 报告更新</td></tr>
       </table></div>
       <ul>
         <li><b>事实交给脚本：</b><code>analysis_facts.py</code> 提取改了哪些函数、接口、配置键和签名变化，用 <code>git grep</code> 找本仓库里的调用方，标出迁移、配置、环境变量、依赖变化和可跳过的文件。表头写明能力边界：依赖注入、反射、跨服务调用搜不到；签名不变的行为变化由 CR 报告负责。</li>
@@ -751,6 +761,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <ul>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
         <li><b>REVIEW.md 头部设置：</b><code>skip</code>、<code>limits</code>。正文里的严重程度定义和证据要求照常采用；任何规则文件都不能取消核实、降低 80 分门槛或授权写操作。</li>
+        <li><b>「出问题长什么样」：</b>模板里有一节，由这块代码的负责人写它失败时会变成什么样（文档写错事实、配置接错路由或开关、迁移不可回滚）。它帮助判断问题属于哪种后果类型，但不改变严重程度的定义，也不用来挑风格、命名上的小毛病；不写也能审查，<code>cr-rules</code> 起草或整理时会提醒补。</li>
         <li><b>「不要报」：</b><code>REVIEW.md</code> 里标题为「不要报」（或 <code>Do not report</code>）的一节写团队不想再被提醒的情况，只对它所在的目录生效，本身不算要检查的规则；规则发现引用它会作废。和 Claude Code Review、Cursor Bugbot 一样，要查什么和不要报什么写在同一个文件里。</li>
         <li><b>仓库里不需要专属目录：</b>插件只认一个可选的 <code>REVIEW.md</code>；这次改动的意图和计划在调用时提供，不放进仓库。</li>
         <li><b>为什么叫 REVIEW.md：</b>和 Claude Code Review 官方用的是同一个文件名，团队写一份两边都能用；可以放在各个子目录，规则就在代码旁边。</li>
@@ -758,7 +769,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       </ul>
 
       <h3>规则维护：cr-rules</h3>
-      <p>只能用命令调用（<code>/crosscheck:cr-rules</code>、Codex 的 <code>$cr-rules</code>），不由自然语言触发；只有 cr 可以自然语言触发。一个命令管三件事：不带参数是<b>沉淀</b>；带“检查”是逐条<b>检查</b>现有规则（能不能检查、有没有范围和不要报的边界、是否重复过长、是否长期误报）；带“整理 REVIEW.md”是<b>起草或整理</b>根目录的 REVIEW.md（路径只用仓库里确实存在的，「不要报」从反复被判不成立的记录里找）。沉淀的做法：从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里挑候选，脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。由人挑选，写进 <code>.agents/rules/&lt;主题&gt;.md</code>（每条一个块：规则、原因、严重级别、反例、正例、不要报、来源 MR），只改工作区；单文件超过约 15 条或 4000 字符提示拆分。审查时这个目录按 frontmatter 的 <code>paths</code> 生效。</p>
+      <p>只能用命令调用（<code>/crosscheck:cr-rules</code>、Codex 的 <code>$cr-rules</code>），不由自然语言触发；只有 cr 可以自然语言触发。一个命令管三件事：不带参数是<b>沉淀</b>；带“检查”是逐条<b>检查</b>现有规则（能不能检查、有没有范围和不要报的边界、是否重复过长、是否长期误报）；带“整理 REVIEW.md”是<b>起草或整理</b>根目录的 REVIEW.md（路径只用仓库里确实存在的，「出问题长什么样」按代码类型用项目里的事实填、拿不准就提醒负责人补，「不要报」从反复被判不成立的记录里找）。沉淀的做法：从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里挑候选，脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。由人挑选，写进 <code>.agents/rules/&lt;主题&gt;.md</code>（每条一个块：规则、原因、严重级别、反例、正例、不要报、来源 MR），只改工作区；单文件超过约 15 条或 4000 字符提示拆分。审查时这个目录按 frontmatter 的 <code>paths</code> 生效。</p>
 
       <h3>规则发现怎么保证可信</h3>
       <div class="lifecycle">
@@ -776,6 +787,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>核对引文，不证明“读过”：</b>证明“规则在上下文里、每条都有结论”的机制证明不了判断是对的，还会给流程增加容易出错的环节；逐字引文由脚本和 verifier 核对就够了。</li>
           <li><b>写法：</b>短的祈使句、限定路径、写原因、给正反例、写明不要报什么；Copilot 只读前 4000 字符，建议从 10–20 条起步。<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a>；<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://www.greptile.com/docs/code-review/custom-standards">Greptile：自定义规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a></li>
           <li><b>从历史里长出规则：</b>Bugbot 从反应和回复中学习规则，持续负反馈的自动停用；Qodo 只统计被采纳并改了代码的建议；CodeRabbit 从开发者回复里记 learnings。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
+          <li><b>写下失败的样子：</b>Anthropic 在 REVIEW.md 里写明这块代码“失败长什么样”（what failure looks like），让审查者按真正重要的后果判断，而不是挑小毛病。<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a></li>
           <li><b>屏蔽不可执行的规则：</b>Google AutoCommenter 屏蔽 22 条不可执行的规则后，有用率从约 54% 升到 80% 以上。<a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter（屏蔽不可执行规则后有用率 54%→80%+）</a></li>
           <li><b>每类规则单独检查：</b>Amp 把规则放在 .agents/checks 下，每个 check 单独执行，比写进 AGENTS.md 更可靠。<a href="https://ampcode.com/news/liberating-code-review">Amp：.agents/checks</a></li>
         </ul>
@@ -819,6 +831,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     ├── sources/&lt;分支&gt;.json  需求链接、跳过、请重点看、网页链接（90 天过期）
     └── &lt;目标&gt;/&lt;时间&gt;/       report.md、mr.md、findings.json、rejected.json、meta.txt …
         latest · baseline   最近一次 · 增量基准
+        pending             进行中标记，保存成功后删除
 
 仓库/.agents/rules/&lt;主题&gt;.md     cr-rules 沉淀的规则（你提交后生效）</code></pre>
       <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量，上次之后被判为不成立或不修的发现不再带入。读不到被审查的代码时直接停下，不出空报告。</p>

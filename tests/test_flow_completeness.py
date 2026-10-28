@@ -60,6 +60,44 @@ class FlowCompleteness(fixture.ProjectFixture):
         r = self.save()
         self.assertIn("incomplete=缺 finders/reviewer.json；没有看到子代理用量", r.stdout)
 
+    def test_unsaved_review_leaves_marker_and_next_run_says_so(self):
+        store = self.kv(os.path.join(self.rd, "meta.txt"))["store_dir"]
+        self.assertTrue(os.path.isfile(os.path.join(store, "pending")), "开始真正审查时留下进行中标记")
+        # 没有保存就结束(标记还在),下一次对同一目标审查时要说出来
+        _, out = self.collect("feature")
+        self.assertIn("上一次对这个目标的审查(开始于", out)
+        self.assertIn("没有保存", out)
+        self.finders("reviewer.json", "rules-auditor.json")
+        self.run_pipeline(self.rd, CAND, SCORE)
+        self.save()
+        self.assertFalse(os.path.exists(os.path.join(store, "pending")), "保存后标记清除")
+
+    def test_mr_note_lands_in_saved_record_even_when_given_review_dir(self):
+        self.finders("reviewer.json", "rules-auditor.json")
+        self.run_pipeline(self.rd, CAND, SCORE)
+        dest = self.save().stdout.split("dir=")[1].splitlines()[0]
+        self.assertTrue(os.path.isfile(os.path.join(dest, "mr.md")))
+        self.assertTrue(os.path.isfile(os.path.join(dest, "mr.html")))
+        # 传入临时的 review_dir 时,MR 说明仍然写进记录目录
+        out = self.run_py("mr_note.py", self.rd).stdout
+        self.assertIn("mr=%s" % os.path.join(dest, "mr.md"), out)
+        self.assertFalse(os.path.exists(os.path.join(self.rd, "mr.md")))
+
+    def test_configured_model_missing_from_session_is_noted(self):
+        self.finders("reviewer.json", "rules-auditor.json")
+        self.run_pipeline(self.rd, CAND, SCORE)
+        with open(os.path.join(self.rd, "meta.txt"), "a", encoding="utf-8") as f:
+            f.write("finder_model=claude-sonnet-5-5\n")
+        with open(os.path.join(self.rd, "usage.txt"), "w", encoding="utf-8") as f:
+            f.write("usage_total_tokens=100\nusage_subagents=included\nusage_models=claude-haiku-5-5\n")
+        r = self.save()
+        self.assertIn("model_note=配置的finder模型 claude-sonnet-5-5 没有出现在会话记录里", r.stdout)
+        dest = r.stdout.split("dir=")[1].splitlines()[0]
+        with open(os.path.join(dest, "report.md"), encoding="utf-8") as f:
+            report = f.read()
+        self.assertIn("实际模型:claude-haiku-5-5", report)
+        self.assertIn("模型与配置不一致:配置的finder模型 claude-sonnet-5-5", report)
+
     def test_candidates_without_verify_batch_are_reported(self):
         self.finders("reviewer.json", "rules-auditor.json")
         with open(os.path.join(self.rd, "candidates.json"), "w", encoding="utf-8") as f:
