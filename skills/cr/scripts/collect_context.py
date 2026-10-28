@@ -26,6 +26,7 @@ def main(review_dir):
 
     extra = {
         "sources_missing": ",".join(missing),
+        "sources_optional": ",".join(conf.get("optional", [])),
         "intent_sources": "、".join(dict.fromkeys(it.sources)) or "无",
         "intent_acceptance": len(it.acceptance),
         "discussions": len(found),
@@ -45,6 +46,9 @@ def main(review_dir):
     if missing:
         labels = [conf["kinds"][k]["label"] for k in missing]
         print("SOURCES_MISSING: %s 还没有提供(%s)。" % ("、".join(labels), ",".join(missing)))
+    if conf.get("optional"):
+        labels = [conf["kinds"][k]["label"] for k in conf["optional"]]
+        print("SOURCES_OPTIONAL: 可选的%s还没有提供(%s);可以跳过,不算缺,跳过后这个分支不再问。" % ("、".join(labels), ",".join(conf["optional"])))
 
 
 if __name__ == "__main__":

@@ -10,8 +10,8 @@
 #   sources.json      需求来源:每类(ticket、doc)的链接、状态、标题,以及缺了哪些(见 sources.py)
 #   discussions.json  MR / PR 上的人工评论(只读获取;作者只存哈希)
 #   weakening.txt     kind<TAB>file<TAB>说明 — 测试或检查被削弱的地方
-# 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、sources_missing。
-# 并输出 SOURCES_MISSING:(缺的需求来源)、NOTE: 等提示行。
+# 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、sources_missing、sources_optional。
+# 并输出 SOURCES_MISSING:(缺的必填需求来源)、SOURCES_OPTIONAL:(可选的需求资料,可跳过)、NOTE: 等提示行。
 # 读取需求单和讨论需要 glab 或 gh,读不到的部分跳过。
 
 set -eu

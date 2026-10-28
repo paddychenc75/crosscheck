@@ -6,6 +6,7 @@
   tools.doc_publisher = <说明>                文档发布工具:把 MR 说明发布成网页(见 mr_note.py)
   intent.required    = ticket, doc            每次都要收集(可跳过)的类别;不写时只有 ticket
 显示名固定为「需求单」「需求文档」;识别链接用的关键字取自说明里出现的网址的域名,没写网址就只能靠用户给的链接。
+不在 intent.required 里的类别是「可选资料」:每个分支也问一次(SOURCES_OPTIONAL),可以跳过、不算缺,跳过后记录会记住。
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
   {"ticket": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...},
@@ -132,14 +133,16 @@ def detect(text, conf):
     return found
 
 
-def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=None, issue=None):
-    """合并参数、记录、暂存的文档和自动识别,写 sources.json,返回 (缺的类别, 文档列表)。"""
+def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=None, issue=None, has_doc_files=False):
+    """合并参数、记录、暂存的文档和自动识别,写 sources.json,返回 (缺的必填类别, 文档列表, 配置)。
+    不是必填的类别(如默认的需求文档)也问一次,可以跳过,不算缺:放在 conf["optional"] 里,跳过后记录会记住。
+    用 --doc 给了本地文档的,需求文档算已经给了。"""
     conf = settings(cfg)
     path = store_path(meta)
     store = load_store(path)
     auto = detect(text, conf)
     docs = read_staged(stage_dir)
-    out, missing, changed = [], [], False
+    out, missing, optional, changed = [], [], [], False
     for k, c in conf["kinds"].items():
         entry = None
         if k in args:
@@ -155,6 +158,10 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
             entry = {"status": "given", "url": (issue or {}).get("url", ""), "title": (issue or {}).get("title", ""),
                      "source": "提交说明或描述里的需求编号"}
         kdocs = [x for x in docs if x["kind"] == k]
+        if entry is None and k == "doc" and has_doc_files:
+            entry = {"status": "given", "source": "本地文档"}
+        if entry is None and kdocs:
+            entry = {"status": "given", "url": kdocs[0]["url"], "source": "暂存文档"}
         if entry and entry.get("status") == "given" and kdocs and not entry.get("title"):
             entry["title"] = next((x["title"] for x in kdocs if x["title"]), "")
             if entry.get("title") and isinstance(store.get(k), dict) and store[k].get("url") == entry.get("url"):
@@ -165,13 +172,16 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
                 entry = {"status": "unasked", "source": "非交互运行"}   # 没人可问:不算缺,也不记进记录
             else:
                 missing.append(k)
+        elif entry is None and os.environ.get("CR_NONINTERACTIVE") != "1":
+            optional.append(k)
         out.append(dict(entry or {"status": "missing"}, kind=k, label=c["label"], tool=c["tool"],
                         required=k in conf["required"], docs=[x["file"] for x in kdocs],
                         read_error=next((x["error"] for x in kdocs if x["error"]), "")))
     if changed:
         save_store(path, store)
+    conf["optional"] = optional
     crlib.save_json(os.path.join(review_dir, "sources.json"),
-                    {"items": out, "missing": missing, "store": path, "page": conf["page"],
+                    {"items": out, "missing": missing, "optional": optional, "store": path, "page": conf["page"],
                      "tested": store.get("tested", ""), "focus": store.get("focus", []), "page_url": store.get("page_url", "")})
     return missing, docs, conf
 

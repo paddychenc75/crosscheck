@@ -221,14 +221,14 @@ class MrNote(Repo):
 
     def test_author_focus_page_url_and_unpushed_note(self):
         self.run_py("sources.py", "set", self.rd, "focus", json.dumps([{"where": "api/orders.ts:1", "ask": "兼容期够不够"}], ensure_ascii=False))
-        self.run_py("sources.py", "set", self.rd, "page_url", "https://pages.example.com/p/1")
+        self.run_py("sources.py", "set", self.rd, "page_url", "https://docs.example.com/p/1")
         bare = self.bare("shop")
         self.git(self.repo, "remote", "add", "origin", "https://github.com/acme/shop.git")
         self.git(self.repo, "config", "remote.origin.pushurl", bare)
         _, md = self.note()
         self.assertIn("### 请重点看", md)
         self.assertIn("兼容期够不够", md)
-        self.assertIn("[完整版](https://pages.example.com/p/1)", md)
+        self.assertIn("[完整版](https://docs.example.com/p/1)", md)
 
     def test_links_only_when_pushed(self):
         # repo_id 写进 meta 后,提交在远端存在才生成行链接

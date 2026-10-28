@@ -109,7 +109,7 @@ def scenarios():
     def pr_links_author_focus_and_page(c):
         c.meta.update(PR_META)
         c.store["focus"] = [{"where": "api/orders.ts:1", "ask": "兼容期够不够"}, {"where": "report/daily.ts:2", "ask": "调用方要不要一起改"}]
-        c.store["page_url"] = "https://pages.example.com/p/1"
+        c.store["page_url"] = "https://docs.example.com/p/1"
 
     @case
     def github_pr(c):
@@ -300,7 +300,7 @@ class MrTemplates(fixture.Base):
         self.assertIn("状态:已合入 main,描述已无法影响合入", md["merged"])
         self.assertIn("MR 信息:没有读到(tools.code_host:glab 未登录)", md["code_host_failed"])
         self.assertIn("### 请重点看", md["pr_links_author_focus_and_page"])
-        self.assertIn("[完整版](https://pages.example.com/p/1)", md["pr_links_author_focus_and_page"])
+        self.assertIn("[完整版](https://docs.example.com/p/1)", md["pr_links_author_focus_and_page"])
         self.assertIn("### 可能值得重点看(自动列出)", md["basic"])
         self.assertIn("> 审查之后又有 1 个提交,未经 crosscheck 审查", md["commits_after_review"])
         self.assertIn("已修复 1 条", md["discussed_verdicts_and_fixed"])

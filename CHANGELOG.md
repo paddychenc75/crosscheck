@@ -13,6 +13,10 @@
 - 代码位置在提交推送后带上 GitLab / GitHub 行链接;给出 `glab mr create/update`、`gh pr create/edit` 命令,由开发者自己执行,插件不提交 MR。
 - 配置 `tools.doc_publisher` 后可生成网页版,同意一次后随 CR 报告更新同一个页面。
 
+**设计页**
+
+- `CR-DESIGN.html` 的深浅色切换改为标题右上角的紧凑太阳/月亮图标按钮,移除独立占位行;保留主题记忆、悬停提示与键盘操作。
+
 **模板**
 
 - 每个 skill 自带自己用的模板:`skills/cr/templates/` 放 `report.md`(CR 报告的骨架)、`mr.md`、`mr.html`(MR 说明),`skills/cr-rules/templates/` 放 `REVIEW.md`(从 cr 挪过来)和 `rule.md`(一条规则的样例);`report-format.md` 只留填写规则。MR 说明的结构从 `mr_note.py` 抽成模板,团队可以在自己的插件市场里改 `skills/cr/templates/mr.md` 适配自己的 MR 格式;影响面、阅读顺序、链接、CR 情况等事实仍由脚本算好再填。输出和抽成模板之前逐字一致,`tests/test_mr_templates.py` 用存下来的样例核对(DESIGN.md 决策 27)。
@@ -27,6 +31,8 @@
 
 - 新增可选配置 `tools.code_host`:一句给 agent 的提示词,说明用哪个只读工具读 MR / PR。配置后链接形式的 MR / PR(GitHub、GitLab 的链接也一样)由它读取标题、描述、讨论、目标分支和源引用,写成固定格式的 `code-host.json`(两段式:`NEED_CODE_HOST` → `--code-host-dir`)。编号、仓库、平台、网址从链接解析,仓库要和 origin 对得上,分支名过 `git check-ref-format`,head 以只读 fetch 到的为准(和 agent 给的不一致就不用),基准由脚本算,不取 agent 的;讨论作者只存哈希、去掉机器人,标 `source=code_host`,其「已答复」「已解决」不让发现不报。核对不过或 `status=failed` 时退回 git 拉取,并在 NOTE、报告和 MR 说明里写明「MR 信息没有读到」。不写时照旧用 gh / glab(决策 26)。
 - 对比基准默认一律用 origin 上最新的目标分支:所有路径(当前分支、其他分支、git 回退、`tools.code_host`)先拉取再算 merge-base,拉取失败才用本地已有的并输出 NOTE;报告的 SCOPE 行写明基准来自远端最新、本地缓存、平台给出还是用户指定(决策 21)。
+- 审查前先问基准(DESIGN.md 决策 28):用户这次的话里没有基准、这个项目也没有记录时,审查开始前问一次,选项是远端最新的目标分支(推荐;已合入的 MR 写作「合入前的版本」)、其他分支、某个 commit。选前两项按项目记成规则(`reviews/<项目名>/project.json`,`base_rule.py`),每次审查重新解析成当时的最新值;commit 只对当次有效,不记。话里明确给的 `--base` / `--base-sha` 只对这一次生效、不改记录;说「换个基准」时 `--ask-base` 重新问并更新。非交互运行不问,用推荐项,`SCOPE` 行写「基准未确认」。新增 `--base-rule target|branch:<分支>`、`--ask-base`、提示行 `BASE_UNSET:`;原来的 `BASE_CHOICE:`(更近的 develop、release/* 等长期分支)并进 `BASE_UNSET:` 同一个问题,记录过基准的项目不再提示。
+- 基准、必填的需求来源、可选的需求资料(默认的需求文档:PRD、设计文档链接,新增提示行 `SOURCES_OPTIONAL:`)放在同一轮问完;可选的可以跳过、不算缺失,同一分支跳过后不再问;什么都不需要问时不打断用户。
 - 新增 `--base-sha <提交>`(「对比基准是 abc1234」):短哈希也行,必须是 head 的祖先,优先于任何自动计算,对本地分支、提交范围、PR/MR 都生效;它变了算作全量重审。
 - 已合入的 MR / PR 能正确审查:用 merge commit 合入时在目标分支的 first-parent 链上找到合入提交,用它的第一个父提交算基准(`crlib.pick_base`),squash / rebase 合入照常;找不到合入提交时输出 NOTE 并停止,不给出空 diff。报告开头写明「这个 MR 已合入」,MR 说明照常生成并提示描述已无法影响合入,`--fix` 不改代码。MR 的 diff 为空时一律输出 NOTE,不当成「0 条发现」。
 

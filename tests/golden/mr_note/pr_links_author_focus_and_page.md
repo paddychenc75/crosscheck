@@ -23,5 +23,5 @@
 **CR 情况(作者本地运行)** · crosscheck <VERSION> · standard
 已修复 0 条;未修复的严重和重要 1 条;轻微 1 条未展开:
 - [重要] [`api/orders.ts:1`](http://localhost:8080/eng/shop/-/blob/<SHA>/api/orders.ts#L1) 旧参数没兼容 — 未表态
-基于提交 <SHA> · [完整版](https://pages.example.com/p/1)
+基于提交 <SHA> · [完整版](https://docs.example.com/p/1)
 <!-- crosscheck:end -->

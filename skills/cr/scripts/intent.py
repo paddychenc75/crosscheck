@@ -122,7 +122,7 @@ def collect(api, meta, review_dir):
         it.add("文档 %s" % doc, crlib.clip(text, 4000), "文档 %s" % os.path.basename(doc))
         it.take_acceptance(doc, text)
 
-    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), user_intent, first_issue)
+    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), user_intent, first_issue, bool(docs))
     if user_intent:
         it.take_acceptance("你的补充", user_intent)
     if mode == "pr" and desc:
@@ -130,14 +130,15 @@ def collect(api, meta, review_dir):
     return it, (missing, conf)
 
 
-def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent, issue=None):
+def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent, issue=None, has_doc_files=False):
     """需求单、需求文档:参数、记录、自动识别的链接,以及 agent 用配置的工具读到的内容。"""
     args = {}
     for line in (crlib.read_text(os.path.join(review_dir, "source-args.txt")) or "").split("\n"):
         if "=" in line:
             k, v = line.split("=", 1)
             args[k.strip()] = srcmod.parse_arg(v)
-    missing, staged, conf = srcmod.resolve(meta, review_dir, text, args, meta.get("source_dir", ""), has_issue_ref=has_issue_ref, issue=issue)
+    missing, staged, conf = srcmod.resolve(meta, review_dir, text, args, meta.get("source_dir", ""), has_issue_ref=has_issue_ref, issue=issue,
+                                      has_doc_files=has_doc_files)
     for doc in staged:
         if not doc["text"]:
             continue

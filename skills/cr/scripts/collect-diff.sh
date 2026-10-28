@@ -5,14 +5,19 @@
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
 #                        [--intent TEXT] [--plan FILE] [--doc FILE]... [--verifier-model NAME]
 #                        [--source KIND=VALUE]... [--source-dir DIR] [--tested TEXT]
-#                        [--code-host-dir DIR] [--base-sha COMMIT]
+#                        [--code-host-dir DIR] [--base-sha COMMIT] [--base-rule RULE] [--ask-base]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
 #   --allow-large  改动较大时不再输出 LARGE 提示(用户已经确认要全部审查)
-#   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
+#   --base REF   当次指定的对比基准分支,优先于项目规则和 PR/MR 的目标分支,不改项目记录
 #   --base-sha COMMIT  用户直接给的对比基准提交(可以是短哈希),优先于任何自动计算;必须是被审查的 head 的祖先
 #                不指定时,对比基准一律以 origin 上最新的目标分支为准(先 fetch);拉取失败才用本地已有的,并输出 NOTE
+#   --base-rule RULE  把这个项目的对比基准规则记下来,之后每次审查都按它重新解析成当时的最新值:
+#                target(远端最新的目标分支:MR 的目标分支,没有 MR 时是默认分支)或 branch:<分支名>。记的是规则,不是某个提交
+#                (base_rule.py)。--base / --base-sha / A..B 只对当次生效,不改记录
+#                这个项目没有记录、这次也没有指定基准时,输出 BASE_UNSET 让编排者先问用户(非交互运行不问,用 target,记为「基准未确认」)
+#   --ask-base   忽略项目已有的记录,重新问一次(用户说「换个基准」);回答后用 --base-rule 更新记录
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
@@ -35,7 +40,7 @@
 #   target = A..B      该 commit 范围
 #   target = 路径      同"省略",但仅限该路径
 #   target = 分支/ref  该分支相对其与对比基准的 merge-base 的改动(不需要检出它)
-#   没传 --base 而存在比默认分支更近的长期分支(develop、release/* 等)时,输出 BASE_CHOICE 提示
+#   没有记录基准、也没传 --base 而存在比默认分支更近的长期分支(develop、release/* 等)时,并进 BASE_UNSET 提示一起问
 #   target = N 或 URL  第 N 号 pull request / merge request
 #
 # 写入 DIR(默认:新建的临时目录),并在最后一行打印其路径:
@@ -80,6 +85,8 @@ repo_arg=""
 base_override=""
 base_sha_arg=""
 base_desc=""
+base_rule_arg=""
+ask_base=no
 allow_large=no
 tried=""
 pr_source=""
@@ -128,8 +135,10 @@ while [ $# -gt 0 ]; do
       case "$2" in ""|*[!0-9a-fA-F]*) die "--base-sha 要写提交哈希(4 到 40 位十六进制),对比分支请用 --base: $2" ;; esac
       [ ${#2} -ge 4 ] && [ ${#2} -le 40 ] || die "--base-sha 要写提交哈希(4 到 40 位十六进制): $2"
       base_sha_arg=$2; shift 2 ;;
+    --base-rule) [ $# -ge 2 ] || die "--base-rule 需要一个值"; base_rule_arg=$2; shift 2 ;;
+    --ask-base) ask_base=yes; shift ;;
     --allow-large) allow_large=yes; shift ;;
-    -h|--help) sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,68p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -160,6 +169,41 @@ raw="$out/raw.patch"
 
 cd "$root"
 
+# 项目记录目录:项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;两者在同一仓库的各个 worktree 里
+# 都一样,所以它们共用一份记录。对比基准规则、判断记录、需求来源记录都放在这里。
+repo_id=$(python3 "$script_dir/crlib.py" repo-id)
+reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
+repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
+# 另一个同名的项目已经占用了这个目录时,加上哈希区分。
+if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_key/.repo")" != "$repo_id" ]; then
+  repo_key="$repo_key-$(printf '%s' "$repo_id" | git hash-object --stdin | cut -c1-8)"
+fi
+project_dir="$reviews_dir/$repo_key"
+
+# 对比基准是谁定的(base_state):
+#   explicit   这次明确给了(--base、--base-sha、A..B):只对这一次生效,不改记录
+#   rule       项目记录的规则,或这次用 --base-rule 新定的;每次重新解析成当时的最新值
+#   unset      都没有:交互运行先问用户(BASE_UNSET),非交互运行用 target 并标「基准未确认」
+base_state=unset
+base_rule=""          # target 或 branch
+base_rule_branch=""   # 规则是 branch 时的分支名
+if [ -n "$base_rule_arg" ]; then
+  parsed=$(python3 "$script_dir/base_rule.py" check "$base_rule_arg") || die "--base-rule 不合法"
+elif [ "$ask_base" = no ]; then
+  parsed=$(python3 "$script_dir/base_rule.py" get "$project_dir")
+else
+  parsed=""
+fi
+case "$parsed" in
+  target) base_rule=target ;;
+  branch:?*) base_rule=branch; base_rule_branch=${parsed#branch:} ;;
+esac
+[ -z "$base_rule" ] || base_state=rule
+if [ -n "$base_override" ] || [ -n "$base_sha_arg" ]; then base_state=explicit; fi
+case "$target" in *..*) base_state=explicit ;; esac
+# 当次明确指定了基准时,项目规则不参与解析(包括已经删除的分支)。
+[ "$base_state" != explicit ] || base_rule_branch=""
+
 mode=local
 number=""
 repo=""
@@ -180,7 +224,7 @@ default_branch_ref() {
   return 1
 }
 
-# 对比基准:--base 指定的分支,否则是默认分支;结果写进 base_ref。和 GitHub / GitLab 一样,
+# 对比基准:--base、项目规则、目标或默认分支;结果写进 base_ref。和 GitHub / GitLab 一样,
 # 以远端的最新状态为准:先从 origin 拉取这个分支(只更新 origin/ 下的远程跟踪分支,不动工作区和
 # 本地分支),本地、远端同名时用 origin/ 那个。拉取失败就用本地已有的,并在输出里提示。
 base_source=""
@@ -197,11 +241,15 @@ fetch_base() { # 分支名(不带 origin/)
   return 1
 }
 # 所有要按目标分支算基准的路径(当前分支、其他分支、git 回退、tools.code_host)都经这里,不各自 fetch。
-# $1 是 MR / PR 的目标分支(可选);--base 优先,其次 $1,再次默认分支。base_desc 记下基准来自哪一版,写进报告。
+# $1 是 MR / PR 的目标分支(可选);--base 优先,其次项目记录的 branch 规则,再用 $1 或默认分支。
+# target 规则跟随每次 MR 的目标分支。base_desc 记下基准来自哪一版,写进报告。
 resolve_base_ref() { # [目标分支]
   if [ -n "$base_override" ]; then
     base_source=user
     name=${base_override#origin/}
+  elif [ -n "$base_rule_branch" ]; then
+    base_source=rule
+    name=${base_rule_branch#origin/}
   elif [ -n "${1:-}" ]; then
     base_source=target
     name=${1#origin/}
@@ -218,10 +266,12 @@ resolve_base_ref() { # [目标分支]
       elif [ -n "$base_stale" ]; then base_desc="本地缓存 $r(没能拉取远端,可能不是最新)"
       else base_desc="远端最新 $r"; fi
       [ "$base_source" != user ] || base_desc="用户指定分支,$base_desc"
+      [ "$base_source" != rule ] || base_desc="项目记录的基准分支,$base_desc"
       return 0
     fi
   done
   [ "$base_source" = user ] && die "找不到 --base 指定的分支: $base_override"
+  [ "$base_source" = rule ] && die "找不到项目记录的对比基准分支 $name(本地和 origin 都没有,可能已经删除);请说「换个基准」重新选择"
   return 1
 }
 
@@ -245,8 +295,9 @@ user_base() { # head
 
 # 没指定 --base 时,看有没有比默认分支更近的长期分支(develop、release/* 这类):从它拉出来的
 # 分支如果按默认分支对比,会把别人已经合进去的提交也算进来。只提示,不替用户换基准。
+# 项目记录过基准、或这次明确给了基准时用户已经定过,不再提示;还没定时并进 BASE_UNSET 一起问。
 closer_base() { # 默认分支, 被审查的 commit
-  [ "$base_source" = default ] && [ -z "$base_sha_arg" ] || return 0
+  [ "$base_state" = unset ] && [ "$base_source" = default ] && [ -z "$base_sha_arg" ] || return 0
   tip=$(git rev-parse "$2^{commit}" 2>/dev/null) || return 0
   ahead=$(git rev-list --count "$1..$tip" 2>/dev/null) || return 0
   best=""; best_n=$ahead
@@ -597,6 +648,16 @@ case "$target" in
   *) detect_platform; "collect_$platform" ;;
 esac
 
+# gh / glab 默认用平台的 diff;用户选择其他分支时,按选中的最新分支重新计算,不能只记规则却仍审平台的 diff。
+if [ "$mode" = pr ] && [ -z "$base_sha_arg" ] && { [ -n "$base_override" ] || [ -n "$base_rule_branch" ]; } \
+   && [ "$base_source" != user ] && [ "$base_source" != rule ]; then
+  git cat-file -e "$head_sha^{commit}" 2>/dev/null || die "本地没有被审查的 head 提交,无法按选择的分支计算 diff;请先拉取它"
+  resolve_base_ref "$target_branch" || die "找不到选择的对比基准分支"
+  pick_base "$base_ref" "$head_sha"
+  : > "$raw"
+  $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+fi
+
 # --base-sha:gh、glab 和提交范围的基准是各自算的,这里统一换成用户指定的提交(其余路径已在 pick_base 里用上了)
 if [ -n "$base_sha_arg" ] && [ "$base_source" != sha ]; then
   [ -n "$head_sha" ] && git cat-file -e "$head_sha^{commit}" 2>/dev/null \
@@ -604,6 +665,21 @@ if [ -n "$base_sha_arg" ] && [ "$base_source" != sha ]; then
   user_base "$head_sha"
   : > "$raw"
   $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+fi
+
+# --base-rule:基准算出来了才记(分支找不到时 resolve_base_ref 已经停下)。记的是规则,不是这次算出的提交。
+if [ -n "$base_rule_arg" ]; then
+  python3 "$script_dir/base_rule.py" set "$project_dir" "$repo_id" "$base_rule_arg" || die "没能记下对比基准规则"
+fi
+# 还没有基准规则、这次也没指定:交互运行在输出末尾用 BASE_UNSET 请编排者先问用户;非交互运行没法问,
+# 用推荐项(远端最新的目标分支),并在对比基准里写明「基准未确认」。
+base_ask=""
+if [ "$base_state" = unset ]; then
+  if [ "${CR_NONINTERACTIVE:-}" = 1 ]; then
+    base_desc="${base_desc:+$base_desc,}基准未确认(项目没有记录,也没法询问,用了推荐项)"
+  else
+    base_ask=yes
+  fi
 fi
 
 # 范围/本地审查也尽力识别平台,以收集提交关联的需求;未知平台不阻止本地审查。
@@ -720,16 +796,8 @@ case "$mode" in
     ;;
 esac
 target_key=$(printf '%s' "$target_key" | sed 's/[^A-Za-z0-9._-]/_/g')
-# 记录按项目名存放。项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;
-# 两者在同一仓库的各个 worktree 里都一样,所以它们共用一份记录。
-repo_id=$(python3 "$script_dir/crlib.py" repo-id)
-reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
-repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
-# 另一个同名的项目已经占用了这个目录时,加上哈希区分。
-if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_key/.repo")" != "$repo_id" ]; then
-  repo_key="$repo_key-$(printf '%s' "$repo_id" | git hash-object --stdin | cut -c1-8)"
-fi
-store_dir="$reviews_dir/$repo_key/$target_key"
+# 记录按项目存放(project_dir,见上)。
+store_dir="$project_dir/$target_key"
 # 上一次对这个目标开始的审查如果没有保存(末尾写下的 pending 标记还在),说明它提前结束了
 pending="$store_dir/pending"
 prev_pending=""
@@ -756,7 +824,7 @@ printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
-grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|sources_optional|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
@@ -879,6 +947,7 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'code_host_reason=%s\n' "$code_host_fail"
   printf 'merged=%s\nmerge_commit=%s\n' "$merged" "$merge_commit"
   printf 'base_desc=%s\nbase_sha_arg=%s\n' "$base_desc" "$base_sha_arg"
+  printf 'base_state=%s\nbase_rule=%s\n' "$base_state" "${base_rule}${base_rule_branch:+:$base_rule_branch}"
   printf 'target_key=%s\n' "$target_key"
   printf 'store_dir=%s\n' "$store_dir"
   printf 'source_branch=%s\n' "$source_branch"
@@ -907,9 +976,9 @@ sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 
 # 意图、MR 上的人工讨论、测试削弱、风险分级。读不到的部分跳过,不影响审查。
 
 
-# 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(需求单、对比基准、改动过大)不写。
-if [ "$file_count" -gt 0 ] && [ -z "$base_hint" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
-   && ! printf '%s' "$context_out" | grep -q '^SOURCES_MISSING:'; then
+# 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
+if [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
+   && ! printf '%s' "$context_out" | grep -q '^SOURCES_\(MISSING\|OPTIONAL\):'; then
   mkdir -p "$store_dir" && printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
 fi
 if [ -n "$prev_pending" ]; then
@@ -922,10 +991,24 @@ if [ -n "$base_stale" ]; then
   printf 'NOTE: %s,按本地已有的 %s(%s)对比,目标分支可能不是最新。它可能落后于远端:如果当前分支已经合入或 rebase 了更新的 %s,别人的提交会被算进这次的改动\n' \
     "$base_stale" "$base_ref" "$(git log -1 --date=format:'%Y-%m-%d %H:%M' --format='最后一个提交在 %cd' "$base_ref" 2>/dev/null)" "${base_ref#origin/}"
 fi
-if [ -n "$base_hint" ]; then
-  set -- $base_hint
-  printf 'BASE_CHOICE: 对比基准按默认分支 %s 计算(领先 %s 个提交);%s 更近(领先 %s 个提交)。如果这个分支是从 %s 拉出来、要合回 %s 的,应加 --base %s 重新运行\n' \
-    "${target_branch#origin/}" "$3" "${1#origin/}" "$2" "${1#origin/}" "${1#origin/}" "${1#origin/}"
+if [ "$base_state" = unset ]; then
+  # 没有记录也没有指定基准。比默认分支更近的长期分支(develop、release/* 等)并进同一条提示。
+  if [ -n "$base_hint" ]; then
+    set -- $base_hint
+    closer_name=${1#origin/}
+    closer=" 分支 $closer_name 比默认分支更近(当前分支领先它 $2 个提交,领先默认分支 $3 个提交);如果这个分支是从 $closer_name 拉出来、要合回 $closer_name 的,应选「其他分支」。"
+  else
+    closer=""; closer_name=""
+  fi
+  if [ -n "$base_ask" ]; then
+    what="默认分支"; [ "$mode" != pr ] || what="这个 MR / PR 的目标分支"
+    lead="这个项目还没有记录对比基准"; [ "$ask_base" = no ] || lead="用户要求重新选择这个项目的对比基准"
+    done_before=""; [ "$merged" != yes ] || done_before=" 它已合入,推荐项对应的是合入前的版本。"
+    printf 'BASE_UNSET: %s。推荐「远端最新的目标分支」:这次是%s %s。%s%s\n' \
+      "$lead" "$what" "${target_branch#origin/}" "$done_before" "$closer"
+  else
+    printf 'NOTE: 这个项目没有记录对比基准,也没法询问,用了推荐项「远端最新的目标分支」(%s),报告里会写「基准未确认」。%s\n' "${target_branch#origin/}" "${closer:+$closer 要对比它请加 --base $closer_name 重新运行}"
+  fi
 fi
 [ -z "$code_host_notes" ] || printf '%s\n' "$code_host_notes" | sed 's/^/NOTE: /'
 if [ "$merged" = yes ]; then
