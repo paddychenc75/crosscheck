@@ -178,6 +178,14 @@ class GuardRegressions(fixture.Base):
         self.hook(inp={'command': cmd}, command=cmd)
         self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
 
+    def test_usage_recorded_when_command_is_grouped(self):
+        self.start()
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response=str(self.rd))
+        cmd = 'D=%s; { sh /example/save-review.sh $D --finders 2; } 2>&1 | grep -v noise' % self.rd
+        self.hook(inp={'command': cmd}, command=cmd)
+        self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
+
     def denied(self):
         return 'deny' in self.hook(inp={'command': 'git commit -m test'})
 

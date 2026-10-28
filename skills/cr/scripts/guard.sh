@@ -87,7 +87,8 @@ runs() {
   printf '%s\n' "$cmd" | awk -v name="$1" '
   function base(s) { gsub(/["\047]/, "", s); sub(/^.*\//, "", s); return s }
   function check(a, b,   k, w) {
-    while (a <= b && (t[a] == "" || t[a] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) a++
+    # 跳过变量赋值和 { 、then 这类只起分组作用的词:宿主常写成 { sh x.sh; } 2>&1 | grep -v ...
+    while (a <= b && (t[a] == "" || t[a] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || t[a] ~ /^(\{|\}|!|then|do|else|time)$/)) a++
     if (a > b) return
     for (k = a; k <= b; k++) if (t[k] == "--help" || t[k] == "-h") return
     w = base(t[a])
