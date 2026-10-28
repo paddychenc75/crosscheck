@@ -152,3 +152,17 @@ class RuleCompat(fixture.Base):
         self.assertIn("generated files", root["suppress"])
         self.assertNotIn("generated files", root["text"])
         self.assertNotIn(".cursor/BUGBOT.md", {b["file"] for b in blocks})
+
+
+class SeverityDefinitions(fixture.Base):
+    """严重程度和降级规则只在文档里,没有可执行的行为;这里只防止关键定义被以后的改动悄悄删掉。"""
+    def test_critical_types_and_no_downgrade_for_scope(self):
+        cr = os.path.dirname(fixture.SCRIPTS)
+        schema = Path(cr, "references", "finding-schema.md").read_text(encoding="utf-8")
+        section = schema[schema.index("## 严重程度"):schema.index("## verifier 填写的字段")]
+        for phrase in ("数据丢失", "fire-and-forget", "现有调用方已经会因此崩溃", "安全边界被破坏", "影响范围窄"):
+            self.assertIn(phrase, section)
+        verifier = Path(cr, "roles", "verifier.md").read_text(encoding="utf-8")
+        self.assertIn("不因为影响范围窄", verifier)
+        rubric = Path(cr, "references", "scoring-rubric.md").read_text(encoding="utf-8")
+        self.assertIn("后果还没在现有调用方里出现", rubric)

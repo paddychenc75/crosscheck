@@ -135,6 +135,17 @@ class TestPipeline(ProjectFixture):
         self.assertEqual(len(final["groups"]["rules"]), 1)
         self.assertEqual(final["groups"]["rules"][0]["also_lines"], [2])
 
+    def test_same_root_cause_is_one_finding_with_also_at(self):
+        rd, _ = self.collect("feature")
+        P, L = "src/orders/paginate.ts", "src/auth/login.ts"
+        also = [{"file": P, "line": 1}, {"file": L, "line": 2}, {"file": P, "line": 9}, {"file": P, "line": 2}]
+        cands = [{"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "同一写法的缺陷", "failure_scenario": "x", "also_at": also}]
+        final, _ = self.run_pipeline(rd, cands, {"同一写法的缺陷": (90, [{"file": P, "lines": "2"}])})
+        defects = final["groups"]["defects"]
+        self.assertEqual([x["summary"] for x in defects], ["同一写法的缺陷"])
+        self.assertEqual(defects[0]["also_at"], [{"file": P, "line": 1}, {"file": L, "line": 2}], "第 9 行不在改动里,主位置重复的第 2 行也去掉")
+        self.assertEqual(self.load(os.path.join(rd, "findings.json"))[0]["also_at"], defects[0]["also_at"])
+
     def test_incremental_carries_and_resolves(self):
         rd, _ = self.collect("feature")
         P, L = "src/orders/paginate.ts", "src/auth/login.ts"
@@ -260,6 +271,13 @@ class TestGitLab(Base):
         r = self.run_script("collect-diff.sh", "https://company.com/gitlab/eng/shop/-/merge_requests/12", cwd=self.repo)
         meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
         self.assertEqual((meta["repo"], meta["gitlab_host"], meta["number"]), ("eng/shop", "https://company.com/gitlab", "12"))
+
+    def test_url_given_by_user_wins_over_platform_url(self):
+        # 平台返回的网址(这里的 web_url 指向另一个地址,像是项目改名后的样子)不能覆盖用户给的网址
+        self.config("gitlab_hosts=company.com/gitlab\n")
+        r = self.run_script("collect-diff.sh", "https://company.com/gitlab/eng/shop/-/merge_requests/12", cwd=self.repo)
+        meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
+        self.assertEqual(meta["url"], "https://company.com/gitlab/eng/shop/-/merge_requests/12")
 
     def test_port_in_url_and_remote(self):
         self.git(self.repo, "remote", "set-url", "origin", "http://code.example.com:8929/eng/shop.git")

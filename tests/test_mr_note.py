@@ -317,6 +317,19 @@ class GitHubContext(fixture.Base):
         self.assertEqual(sorted(x["body"] for x in disc), ["整体可以", "这里要判空"])
         self.assertTrue(all(x["platform"] == "github" for x in disc))
 
+    def test_renamed_repo_keeps_the_url_the_user_gave(self):
+        # 仓库改名后平台返回新地址;输入是网址时,meta 的 url 要和用户给的一致,链接才不会指向新名字
+        repo = self.make_repo("gh", {"a.ts": "a\n"})
+        base = self.git(repo, "rev-parse", "HEAD")
+        self.git(repo, "switch", "-qc", "f")
+        head = self.commit(repo, {"a.ts": "b\n"}, "改")
+        Path(self.ghmock, "diff.patch").write_text(self.git(repo, "diff", base, head) + "\n", encoding="utf-8")
+        Path(self.ghmock, "pr_title_url_baseRefOid_headRefOid_headRefName_baseRefName.txt").write_text(
+            "\t".join(["改 a", "https://github.com/acme/new-name/pull/5", base, head, "f", "main"]) + "\n", encoding="utf-8")
+        r = self.run_script("collect-diff.sh", "https://github.com/acme/old-name/pull/5", "--platform", "github", cwd=repo)
+        meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
+        self.assertEqual((meta["repo"], meta["url"]), ("acme/old-name", "https://github.com/acme/old-name/pull/5"))
+
 
 class PluginConfig(Repo):
     def test_plugin_config_is_default_and_user_config_overrides(self):

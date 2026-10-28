@@ -382,6 +382,8 @@ collect_github() {
   tab=$(printf '\t')
   title=$(printf '%s' "$info" | cut -d "$tab" -f1)
   url=$(printf '%s' "$info" | cut -d "$tab" -f2)
+  # 仓库改名或转移后平台返回的是新地址;输入是网址时,链接以用户给的地址为准(repo 也是从它来的)
+  case "$target" in http*://*/pull/*) url=${target%%/pull/*}/pull/$number ;; esac
   base_sha=$(printf '%s' "$info" | cut -d "$tab" -f3)
   head_sha=$(printf '%s' "$info" | cut -d "$tab" -f4)
   source_branch=$(printf '%s' "$info" | cut -d "$tab" -f5)
@@ -439,6 +441,8 @@ collect_gitlab() {
   fi
   title=$(json_get "$out/mr.json" .title)
   url=$(json_get "$out/mr.json" .web_url)
+  # 同上:项目改名后 web_url 是新地址;输入是网址时以用户给的为准
+  case "$target" in http*://*/merge_requests/*) url=${target%%/merge_requests/*}/merge_requests/$number ;; esac
   base_sha=$(json_get "$out/mr.json" .diff_refs.base_sha)
   head_sha=$(json_get "$out/mr.json" .diff_refs.head_sha)
   target_branch=$(json_get "$out/mr.json" .target_branch)

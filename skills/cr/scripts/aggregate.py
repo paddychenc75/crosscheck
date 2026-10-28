@@ -132,6 +132,20 @@ def to_int(v, default=0):
     except (TypeError, ValueError):
         return default
 
+def clean_also_at(items, f, line, check_ranges=True):
+    """同一根因的其他位置:去掉格式不对的、和主位置重复的,以及不在改动行上的(未变文件的历史发现不查改动行)。"""
+    out = []
+    for a in items if isinstance(items, list) else []:
+        if not isinstance(a, dict) or not a.get("file"):
+            continue
+        af, al = str(a["file"]), to_int(a.get("line"))
+        if al < 1 or (af, al) == (f, line) or {"file": af, "line": al} in out:
+            continue
+        if check_ranges and not crlib.in_ranges(ranges, af, al):
+            continue
+        out.append({"file": af, "line": al})
+    return out
+
 def check_evidence(item):
     ev = item.get("evidence")
     if not isinstance(ev, list) or not ev:
@@ -245,8 +259,12 @@ for c in cands:
     conf = apply_runs(item, conf, reasons)
     line = to_int(item.get("line"))
     # 没变的文件不在这次的 diff 里,重新核实的历史发现不按改动行判断
-    if not (c.get("from_prev") and status.get(f) in ("unchanged", "dependent")) and not crlib.in_ranges(ranges, f, line):
+    unchanged = bool(c.get("from_prev") and status.get(f) in ("unchanged", "dependent"))
+    if not unchanged and not crlib.in_ranges(ranges, f, line):
         conf = 0; reasons.append("不在改动的行上")
+    also = clean_also_at(item.get("also_at"), f, line, check_ranges=not unchanged)
+    if also: item["also_at"] = also
+    else: item.pop("also_at", None)
     item["confidence"] = conf
     if conf >= THRESHOLD:
         passed.append(item)
