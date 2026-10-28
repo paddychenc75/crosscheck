@@ -513,7 +513,9 @@ function is_test(p) {
 }
 function reason(p) {
   if (binary) return "binary"
-  if (p ~ /\.log(\.[0-9]+)?$/ || p ~ /(^|\/)logs?\// || p ~ /(^|\/)nohup\.out$/) return "log"
+  if (p ~ /\.log(\.[0-9]+)?$/ || p ~ /(^|\/)nohup\.out$/) return "log"
+  # log/、logs/ 常常是代码包(如 Go 的 pkg/log),只跳过里面不是源代码的文件
+  if (p ~ /(^|\/)logs?\// && p !~ /\.(go|py|rb|java|kt|kts|scala|groovy|[cm]?[jt]sx?|vue|svelte|c|h|cc|cpp|hpp|rs|swift|cs|php|dart|exs?|sh|sql|proto)$/) return "log"
   if (with_tests != "yes" && is_test(p)) return "test"
   if (p ~ /(^|\/)(coverage|htmlcov|\.nyc_output|\.idea|\.vscode)\// || p ~ /(^|\/)\.DS_Store$/) return "artifact"
   if (p ~ /\.(lcov|prof|pprof|heapsnapshot|dump|dmp|bak|tmp|temp|swp|orig|rej|pyc|class)$/) return "artifact"

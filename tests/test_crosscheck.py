@@ -23,6 +23,8 @@ class TestCollect(ProjectFixture):
         skipped = Path(os.path.join(rd, "skipped.txt")).read_text(encoding="utf-8")
         self.assertIn("src/gen/x.ts\treview-skip", skipped)
         self.assertIn("tests/page.test.ts\ttest", skipped)
+        self.assertIn("logs/today.txt\tlog", skipped)
+        self.assertNotIn("src/log/logger.ts", skipped, "log/ 目录里的源代码要审查")
         blocks = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}
         self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", "CLAUDE.md"})
         self.assertEqual(blocks["src/orders/REVIEW.md"]["applies_files"], ["src/orders/paginate.ts"])

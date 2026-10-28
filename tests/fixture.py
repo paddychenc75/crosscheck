@@ -186,6 +186,8 @@ class ProjectFixture(Base):
             "tests/page.test.ts": 'test.skip("a", () => {})\n',
             ".gitlab-ci.yml": "stages: [test]\nunit:\n  script: npm test\n",
             "db/migrations/001.sql": "ALTER TABLE x ADD y int;\n",
+            "src/log/logger.ts": "export const level = 1\n",
+            "logs/today.txt": "started\n",
             "REVIEW.md": REVIEW_MD.replace("limits: { minor: 2 }", "limits: { minor: 9 }") + "- 分支里新加的规则。原因:测试。\n",
         }, "feat: 修复分页 Closes #12")
         self.git(self.repo, "switch", "-q", "main")
