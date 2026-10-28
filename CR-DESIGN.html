@@ -584,7 +584,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="demo-head">
         <div>
           <h2 id="demo-title">流程演示</h2>
-          <p class="muted">两条流程：开发者审查一次改动并得到 MR 说明，项目负责人用命令从 MR 评论里沉淀规则。上面看内部怎么分工，下面看你在终端里实际看到什么，两块按步骤同步。文件名、分数和结果都是演示数据；默认自动播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
+          <p class="muted">两条流程：开发者审查一次改动并得到 MR 说明，项目负责人用命令从 MR 评论里沉淀规则。上面看内部怎么分工，下面看你在终端里实际看到什么，两块按步骤同步。文件名、分数和结果都是演示数据；默认自动循环播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
         </div>
         <div class="demo-ctrl">
           <button type="button" id="dPrev" aria-label="上一步">‹ 上一步</button>
@@ -2003,7 +2003,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     tl.run(clock);
     if (mode === 'playing' && clock >= dur) {
       if (cur < tracks[t].scenes.length - 1) show(cur + 1, true);
-      else { mode = 'ended'; setBtn(); }
+      else show(0, true);   // 播完从第一步重新开始,循环播放
     }
     paintSegs();
     if (mode === 'playing' || clock < tl.end) { last = now; raf = requestAnimationFrame(tick); }
