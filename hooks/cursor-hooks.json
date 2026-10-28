@@ -11,17 +11,6 @@
         "command": "sh ./skills/cr/scripts/guard.sh"
       }
     ],
-    "preToolUse": [
-      {
-        "command": "sh ./skills/cr/scripts/guard.sh",
-        "matcher": "Write|Delete"
-      }
-    ],
-    "beforeReadFile": [
-      {
-        "command": "sh ./skills/cr/scripts/guard.sh"
-      }
-    ],
     "beforeSubmitPrompt": [
       {
         "command": "sh ./skills/cr/scripts/guard.sh"

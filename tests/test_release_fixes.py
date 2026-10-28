@@ -92,16 +92,14 @@ class PipelineFixes(fixture.ProjectFixture):
             self.assertNotIn(k, sent)
         self.assertEqual((sent["id"], sent["from_prev"]), ("1-1", True))
 
-    def test_quick_report_does_not_claim_rules_and_notes_missing_guard(self):
+    def test_quick_report_does_not_claim_rules(self):
         rd, _ = self.collect("feature", "--depth", "quick")
         self.run_pipeline(rd, [], {})
         out = self.run_script("report-lines.sh", rd).stdout
         self.assertIn("quick 不对照项目规则", out)
         checked = next(l for l in out.splitlines() if l.startswith("CHECKED:"))
         self.assertNotIn("项目规则", checked)
-        self.assertIn("GUARD:", out)
-        Path(rd, ".guard-active").write_text("")
-        self.assertNotIn("GUARD:", self.run_script("report-lines.sh", rd).stdout)
+        self.assertNotIn("GUARD:", out)
 
 
 class JudgedAfterReview(fixture.ProjectFixture):

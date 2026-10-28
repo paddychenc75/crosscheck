@@ -1,14 +1,15 @@
 #!/bin/sh
 # save-review.sh — 把一次审查的报告和发现存入审查记录,供以后查看和做增量审查。
 #
-# 用法: save-review.sh DIR [--finders N] [--verifiers N] [--candidates N] [--passed N]
+# 用法: save-review.sh DIR [--candidates N] [--passed N]
 #
 #   DIR  collect-diff.sh 的输出目录,其中需要已经写好:
 #          report.md      给用户看的报告
 #          findings.json  本次审查结束时仍然成立的全部发现(aggregate.sh 写出,含从上次带过来的)
 #        另外会一并保存(有就存):final.json、rejected.json(没通过核实的候选)、intent.md、weakening.txt、
 #        settings.json、rules-index.json、rules-meta.txt、rules-notes.json,以及 MR 说明用的
-#        sources.json、analysis-facts.json、analyst.json、analysis.json
+#        sources.json、analysis-facts.json、analyst.json、analysis.json、completeness.txt,
+#        还有 finders/ 和 verify/ 下的回复原件
 #
 # 写入 ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
 #   latest    最近一次审查
@@ -18,9 +19,12 @@
 #   link=<报告的 file:// 链接>
 #   dir=<保存到的目录>
 #   cost=<这次审查的用时和消耗>     用时一定有;token 只在宿主的 hook 记到了用量时才有
+#   incomplete=<流程缺项>           报告里还没写到的流程缺项,用 ; 分隔;没有就不输出
 #
-# --finders 等四个数字是这次审查启动的查找角色数、verifier 数、候选条数、通过核实的条数,
-# 和用时、token 用量一起记进保存的 meta.txt,供 stats.sh 统计成本。候选和通过的条数没给时取自 final.json。
+# 查找角色数取自 finders/ 里的文件数,核实数取自 verify/result-*.json 的文件数,不用宿主自报。
+# --finders、--verifiers 是旧的自报参数,仍接受但忽略。候选和通过的条数没给时取自 final.json。
+# 用时、token 用量和上面的数字一起记进保存的 meta.txt。流程缺项记成 meta.txt 的 incomplete=。
+# 流程缺项 = completeness.txt 里的缺项,加上 standard/deep 下没看到子代理用量(多半是子代理没有真的运行)。
 
 set -eu
 
@@ -31,11 +35,10 @@ case "${1:-}" in
   "") die "需要指定 collect-diff.sh 的输出目录" ;;
 esac
 dir=$1; shift
-run_finders=""; run_verifiers=""; run_candidates=""; run_passed=""
+run_candidates=""; run_passed=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --finders) run_finders=${2:-}; shift 2 ;;
-    --verifiers) run_verifiers=${2:-}; shift 2 ;;
+    --finders|--verifiers) shift 2 ;;   # 旧的宿主自报参数,已不使用,只为兼容保留
     --candidates) run_candidates=${2:-}; shift 2 ;;
     --passed) run_passed=${2:-}; shift 2 ;;
     *) die "未知参数: $1" ;;
@@ -57,8 +60,11 @@ repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
-for f in context-hash.txt final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json; do
+for f in context-hash.txt final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json completeness.txt; do
   [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
+done
+for sub in finders verify; do
+  [ -d "$dir/$sub" ] && cp -R "$dir/$sub" "$dest/"
 done
 if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ]; then
   counts=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])).get("counts",{}); print(c.get("candidates",""), c.get("passed",""))' "$dir/final.json" 2>/dev/null || true)
@@ -70,6 +76,10 @@ fi
 # 增量审查时,判断上次的每条发现去哪了:代码改了、代码没变但这次没报、还是文件已不在改动里。
 python3 "$(cd "$(dirname "$0")" && pwd)/review_store.py" "$dir" "$dest" || true
 
+
+# 角色数和核实数从落盘的文件数出来:查找角色的回复在 finders/,核实的回复在 verify/result-*.json。
+run_finders=$(find "$dir/finders" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+run_verifiers=$(find "$dir/verify" -maxdepth 1 -name 'result-*.json' 2>/dev/null | wc -l | tr -d ' ')
 
 # 这次审查的成本:用时、启动的角色数、候选数,以及 hook 记到的 token 用量(如果有)。
 started_epoch=$(meta started_epoch)
@@ -107,6 +117,25 @@ elif true; then
 fi
 # 保存的报告里也补上这一行,这样打开文件就能看到,不用去翻 meta.txt。
 [ -z "$cost" ] || printf '\n消耗:%s\n' "$cost" >> "$dest/report.md"
+
+# 流程缺项:completeness.txt 的缺项,加上 standard/deep 下没看到子代理用量。报告里已经写了的不重复;
+# 没写的补一行「流程不完整」,并在输出里给出 incomplete=,让宿主在展示的报告里也说明。
+all_issues=""; missing=""
+add_issue() {
+  all_issues="${all_issues:+${all_issues}；}$1"
+  grep -qF "$1" "$dest/report.md" || missing="${missing:+${missing}；}$1"
+}
+if [ -f "$dir/completeness.txt" ]; then
+  while IFS= read -r line; do
+    case "$line" in INCOMPLETE:*) add_issue "${line#INCOMPLETE: }" ;; esac
+  done < "$dir/completeness.txt"
+fi
+case "$(saved depth)" in standard|deep) [ "$(saved usage_subagents)" = none-seen ] && add_issue "没有看到子代理用量" ;; esac
+if [ -n "$all_issues" ]; then
+  printf 'incomplete=%s\n' "$all_issues" >> "$dest/meta.txt"
+  [ -z "$missing" ] || printf '\n流程不完整:%s\n' "$missing" >> "$dest/report.md"
+fi
+
 printf '%s\n' "$stamp" > "$store/latest"
 if [ "$(meta only)" = all ]; then printf '%s\n' "$stamp" > "$store/baseline"; fi
 report="$dest/report.md"
@@ -116,3 +145,4 @@ printf 'report=%s\n' "$report"
 printf 'link=%s\n' "$link"
 printf 'dir=%s\n' "$dest"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
+[ -z "$missing" ] || printf 'incomplete=%s\n' "$missing"

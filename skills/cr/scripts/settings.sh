@@ -9,7 +9,7 @@
 #
 # REVIEW.md 头部支持的设置:
 #   skip:       ["src/gen/**"]                   不审查的路径
-#   limits:     { defects: 10, rules: 5, minor: 3 }   条数上限(defects/intent/rules/simplify/critical/major/minor)
+#   limits:     { defects: 10, rules: 5, minor: 3 }   条数上限(defects/intent/rules/critical/major/minor)
 
 set -eu
 

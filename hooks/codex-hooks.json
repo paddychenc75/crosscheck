@@ -1,9 +1,9 @@
 {
-  "description": "Codex:cr 审查进行期间,拦截会改变仓库状态的命令、对仓库文件的编辑,以及可能暴露凭证的命令",
+  "description": "Codex:cr 审查开始和结束时记录状态,用于统计这次审查的 token 用量",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|apply_patch",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",

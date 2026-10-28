@@ -117,8 +117,15 @@ if tr:
     NAMES2 = {"defects": "缺陷", "intent": "需求核对", "rules": "规范"}
     print("TRIMMED: 因条数上限没有展示:" + "、".join("%s %d 条" % (NAMES2.get(k, k), v) for k, v in tr.items()) + "(仍记在记录里,下次会继续跟踪)")
 
-# hook 在 collect-diff.sh 执行完时会在 review_dir 里留下标记;没有标记说明这次审查没有受到只读拦截。
-if not os.path.exists(os.path.join(d, ".guard-active")):
-    print("GUARD: 只读拦截:没有检测到(没有以插件方式安装,或在 Codex 里还没有用 /hooks 信任 hook);这次审查只靠说明约束,结束时会核对仓库状态")
+# 流程不完整:查找角色的回复或核实结果没有落盘(completeness.py 写出)。报告照出,但要说清缺了什么
+gaps = []
+try:
+    for l in open(os.path.join(d, "completeness.txt"), encoding="utf-8"):
+        if l.startswith("INCOMPLETE: "):
+            gaps.append(l.rstrip("\n").split(": ", 1)[1])
+except OSError:
+    pass
+if gaps:
+    print("INCOMPLETE: 流程不完整:" + "；".join(gaps))
 
 print("FEEDBACK: 看完可以直接回复,例如「1 对,2 误报:上游已经重试」「3 先不改:下个版本再处理」,判断会被记下来,之后同样的问题不再重复报。")

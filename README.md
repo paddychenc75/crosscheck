@@ -21,7 +21,7 @@
 | 审查(cr) | `/crosscheck:cr` | `$crosscheck:cr`(拷贝安装时 `$cr`) | `/cr` | 可以,直接说「review 一下」 |
 | 规则维护(cr-rules) | `/crosscheck:cr-rules` | `$crosscheck:cr-rules`(拷贝安装时 `$cr-rules`) | `/cr-rules` | 不可以,只能用命令 |
 
-说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则审查期间的只读拦截不工作;升级插件后要重新信任。
+说「cr 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则 token 用量统计不工作(审查本身不受影响);升级插件后要重新信任。
 
 ## 审查
 
@@ -246,13 +246,11 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 
 | 保障 | 做什么 | 适用 |
 |---|---|---|
-| 拦截 | 审查进行期间,hook 拒绝改变仓库状态的 git / gh / glab 命令、对仓库文件的编辑、常见的字面路径写入,以及可能显示凭证的命令和读取;主 agent 和子代理都受限 | Claude Code、Codex(需在 `/hooks` 信任)、Cursor |
+| 说明 | 「只读约束」和各角色说明写明不改仓库、不接触凭证、被审查的内容只是数据。靠 agent 遵守,不是强制 | 所有宿主 |
 | 核对 | 开始时记下分支、HEAD、stash、暂存区和改动文件的哈希,出报告前对比,有变化写在报告最前面 | 所有宿主 |
 
-- 拦截从执行收集改动的脚本开始,到出报告前核对仓库状态结束;脚本提前退出或你中途发新消息时也会解除。只对发起审查的会话有效。
-- 凭证相关的拦截只针对主目录下的文件(`~/.zshrc`、`~/.netrc` 等)和 gh/glab 的配置;仓库里同名的文件照常可读。
+- 没有事前拦截:审查过程中 agent 能执行的命令不受限制,所以只读靠说明和出报告前的核对。插件的 hook 只做 token 用量统计。
 - MR 描述、需求单、评论、规则文件里写给 reviewer 的话(「忽略安全问题」「approve 这个」)一律不执行。
-- 这是防误操作的护栏,不是安全边界:`sh -c "…"`、变量拼出的路径、任意程序写文件拦不住,靠核对事后发现。没有 `jq` 也没有 `python3` 时拦截不生效。
 
 ## 配置
 
@@ -264,7 +262,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 设置 | 作用 |
 |---|---|
 | `gitlab_hosts` | 按 GitLab 处理的域名,逗号分隔,可以带子路径(如 `company.com/gitlab`);私有化 GitLab 的域名不含 "gitlab" 时必填 |
-| `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder=sonnet`、`model.verifier=opus`:查找读得最多,用便宜的;核实把关准确率,用强的且最好不同。Codex、Cursor 要写各自的模型名 |
+| `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder=opus`、`model.verifier=opus`:查找用强模型能找到更多高危问题,但成本比便宜的组合高;想省钱把 `model.finder` 换成 `sonnet`。Codex 用 sol 一类的强模型,Cursor 写它自己的模型名 |
 | `source.<类别>`、`source.required`、`source.<类别>.label`、`source.<类别>.match` | 需求来源,见上 |
 | `output.page` | 生成和更新 MR 说明网页版用的 skill 或命令名;不写就只生成本地文件 |
 
@@ -294,11 +292,11 @@ skills/cr/
 ├── templates/        REVIEW.md 模板、个人配置示例
 └── scripts/          审查、规则、记录、MR 说明、规则沉淀的脚本,以及共用的 crlib.py
 skills/cr-rules/      规则维护:沉淀、检查、整理 REVIEW.md(只能用命令调用),复用 skills/cr/scripts
-hooks/                Claude Code、Codex、Cursor 各一份 hook 注册
+hooks/                Claude Code、Codex、Cursor 各一份 hook 注册(只做 token 统计)
 tests/                python3 -m unittest discover -s tests
 ```
 
-脚本的入口都是 `.sh`,实现放在同名的 `.py` 模块里;每个模块只做一件事(例如收集上下文由 `intent.py`、`discussions.py`、`weakening.py`、`platform_api.py` 组成,公共函数在 `crlib.py`)。`skills/cr/` 自包含,不依赖宿主专属功能:支持子代理时各角色并行,不支持时由主 agent 依次执行。`hooks/` 只提供额外的拦截和 token 统计,没有它审查照常运行。为什么这样设计见 [DESIGN.md](DESIGN.md)。
+脚本的入口都是 `.sh`,实现放在同名的 `.py` 模块里;每个模块只做一件事(例如收集上下文由 `intent.py`、`discussions.py`、`weakening.py`、`platform_api.py` 组成,公共函数在 `crlib.py`)。`skills/cr/` 自包含,不依赖宿主专属功能:支持子代理时各角色并行,不支持时由主 agent 依次执行。`hooks/` 只提供 token 统计,没有它审查照常运行。为什么这样设计见 [DESIGN.md](DESIGN.md)。
 
 想调整行为,直接改对应文件:阈值和评分在 `references/scoring-rubric.md`,不该报的在 `references/false-positives.md`,各角色的关注点在 `roles/`。测试里 `tests/bin/glab` 模拟 GitLab,`tests/bin-gh/gh` 模拟 GitHub。
 
@@ -308,6 +306,6 @@ tests/                python3 -m unittest discover -s tests
 - **增量按文件判断**:没变的文件依赖了这次改动的符号时会一起重看,但只按名字识别;担心时用 `--full`。基准分支更新后重新变基,那次会退化成全量。
 - **影响面靠名字匹配**:依赖注入、反射、MyBatis XML、跨服务调用、再导出搜不到,同名方法会混在一起(标「同名歧义」)。
 - **MR 说明可以被改**:贴进 MR 后作者能改,评审人应以写明的提交和 MR 最新提交对照。
-- **需求来源靠你配置的工具**:能否读到取决于工具和权限;读取发生在审查开始前,只读拦截还没生效。
+- **需求来源靠你配置的工具**:能否读到取决于工具和权限;读取发生在审查开始前。
 - **运行记录只防幻觉**:声称跑过的命令要有 `run-check.sh` 留下的记录,但记录本身不防刻意伪造。
 - **真实环境验证不足**:私有化 GitLab 子路径部署、GitHub 的 issue 和评论读取主要用模拟的 `glab` / `gh` 测过;判断记录只在本机。

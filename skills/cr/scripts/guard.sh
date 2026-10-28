@@ -1,56 +1,43 @@
 #!/bin/sh
-# guard.sh — 宿主的 hook:cr 审查进行期间,拦截会改变仓库状态的操作。
+# guard.sh — 宿主的 hook:记录 cr 审查的开始和结束,用来统计这次审查消耗的 token。
 #
 # 同一个脚本适配三个宿主,从 stdin 读取 hook 的 JSON,按字段判断是谁在调用:
-#   Claude Code   hooks/hooks.json         PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit
-#   Codex         hooks/codex-hooks.json   PreToolUse、PostToolUse、UserPromptSubmit
-#   Cursor        hooks/cursor-hooks.json  beforeShellExecution、afterShellExecution、preToolUse、
-#                                          beforeReadFile、beforeSubmitPrompt
-# 只用各家文档里写明的事件、工具名和字段。
+#   Claude Code   hooks/hooks.json          PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit
+#   Codex         hooks/codex-hooks.json    PreToolUse、PostToolUse、UserPromptSubmit
+#   Cursor        hooks/cursor-hooks.json   beforeShellExecution、afterShellExecution、beforeSubmitPrompt
 #
-#   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),为当前会话记下"审查进行中"
-#   结束  collect-diff.sh 报错或没有可审查的内容、成功执行 check-state.sh 或 save-review.sh、
-#         用户发来新消息,或超过 CR_GUARD_TTL 秒(默认 3600)
-#   期间  拒绝改变仓库状态的 git / gh / glab 命令,以及对仓库内文件的编辑;
-#         拒绝可能把凭证显示出来的命令和读取(打印环境变量、查看 rc 文件和凭证文件等)
-#   另外  Claude Code、Codex 下,在审查开始和保存时调用 usage.sh 统计这次审查消耗的 token;Cursor 不统计
+#   开始  真正执行 collect-diff.sh 时(查看、搜索、语法检查它不算),记下会话的"审查进行中"标记,并开始统计用量
+#   结束  collect-diff.sh 失败或没有可审查的内容、save-review.sh 保存成功、用户发来新消息时清除标记
+#   用量  保存前调用 usage.sh 把这次审查的 token 写进报告目录;Cursor 没有用量,报告里写明
 #
-# 这是防止误操作的护栏,不是安全边界:它按空白切分命令来识别子命令,
-# 包在 sh -c "..." 里的命令识别不到。没有 jq 和 python3 时不做任何拦截。
+# 这个脚本不拒绝任何命令。只读要求靠说明文字,审查结束后由 check-state.sh 核对仓库状态。
+# 没有 python3 时读不到 hook 的字段,什么都不做。
 
 set -u
 
 input=$(cat)
 
-get() { # jq 风格的路径,如 .tool_input.command 或 .workspace_roots[0]
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null
-  elif command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$input" | python3 -c '
+get() { # 取 JSON 里的字段,路径写法如 .tool_input.command 或 .workspace_roots[0]
+  printf '%s' "$input" | python3 -c '
 import json, re, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-for k in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\[\d+\]", sys.argv[1]):
-    if k.startswith("["):
-        i = int(k[1:-1])
-        d = d[i] if isinstance(d, list) and i < len(d) else None
+d = json.load(sys.stdin)
+for k in re.findall(r"\w+|\[\d+\]", sys.argv[1]):
+    if isinstance(d, dict):
+        d = d.get(k)
+    elif isinstance(d, list) and k.startswith("[") and int(k[1:-1]) < len(d):
+        d = d[int(k[1:-1])]
     else:
-        d = d.get(k) if isinstance(d, dict) else None
+        d = None
 print("" if d is None else d)' "$1" 2>/dev/null
-  else
-    return 1
-  fi
 }
 
 event=$(get .hook_event_name) || exit 0
 case "$event" in
-  beforeShellExecution|afterShellExecution|beforeReadFile|beforeSubmitPrompt|preToolUse) host=cursor ;;
-  *) if [ -n "$(get .cursor_version)" ]; then host=cursor; else host=claude; fi ;;
+  beforeShellExecution|afterShellExecution|beforeSubmitPrompt) host=cursor ;;
+  *) if [ -n "$(get .cursor_version)" ]; then host=cursor; else host=claude; fi ;; # Codex 的输入格式与 Claude Code 相同
 esac
 
-# Cursor 要求权限类 hook 输出合法的 JSON;Claude Code 和 Codex 放行时不输出。
+# Cursor 要求权限类 hook 输出合法的 JSON;Claude Code 和 Codex 什么都不输出。
 allow() {
   if [ "$host" = cursor ]; then
     if [ "$event" = beforeSubmitPrompt ]; then printf '{"continue":true}\n'; else printf '{"permission":"allow"}\n'; fi
@@ -64,40 +51,31 @@ sid=$(printf '%s' "$sid" | tr -cd 'A-Za-z0-9_-')
 [ -n "$sid" ] || allow
 dir="${TMPDIR:-/tmp}/cr-guard"
 marker="$dir/$sid"
-
 script_dir=$(cd "$(dirname "$0")" && pwd)
 
-case "$event" in
-  UserPromptSubmit|beforeSubmitPrompt) rm -f "$marker"; allow ;;
-esac
+case "$event" in UserPromptSubmit|beforeSubmitPrompt) rm -f "$marker"; allow ;; esac
 
 tool=$(get .tool_name)
 case "$event" in beforeShellExecution|afterShellExecution) tool=Shell ;; esac
-[ "$event" = beforeReadFile ] && tool=Read
-case "$tool" in
-  Bash|Shell) kind=shell   # Claude Code、Codex 的 shell 都叫 Bash;Cursor 的 shell 事件按 Shell 处理
-    cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command) ;;
-  apply_patch) kind=patch; cmd=$(get .tool_input.command) ;;
-  *) kind=file; cmd="" ;;
-esac
+case "$tool" in Bash|Shell) ;; *) allow ;; esac
+cmd=$(get .tool_input.command); [ -n "$cmd" ] || cmd=$(get .command)
+[ -n "$cmd" ] || allow
 
-# 命令里是否真的执行了名为 $1 的脚本。cat、grep、编辑器、sh -n 这类只是提到它的不算,
-# 这样开发或排查这个插件时不会被当成开始了一次审查。
+# 命令里是否真的执行了名为 $1 的脚本。只是提到它(cat、grep、编辑器)、只做语法检查(sh -n)或带 --help 不算。
 runs() {
   printf '%s\n' "$cmd" | awk -v name="$1" '
   function base(s) { gsub(/["\047]/, "", s); sub(/^.*\//, "", s); return s }
-  function check(a, b,   k, w) {
-    # 跳过变量赋值和 { 、then 这类只起分组作用的词:宿主常写成 { sh x.sh; } 2>&1 | grep -v ...
-    while (a <= b && (t[a] == "" || t[a] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || t[a] ~ /^(\{|\}|!|then|do|else|time)$/)) a++
+  function check(a, b,   k, w) { # 第 a 到 b 个词是一条简单命令;跳过变量赋值和只起分组作用的词
+    while (a <= b && (t[a] == "" || t[a] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || t[a] ~ /^(\{|\}|!|then|do|else)$/)) a++
     if (a > b) return
     for (k = a; k <= b; k++) if (t[k] == "--help" || t[k] == "-h") return
     w = base(t[a])
-    if (w == name) { found = 1; return }
-    if (w !~ /^(sh|bash|zsh|dash|ksh)$/) return
-    for (k = a + 1; k <= b; k++) {
-      if (t[k] ~ /^-/) { if (t[k] ~ /^-[A-Za-z]*[nc]/) return; continue }
-      if (base(t[k]) == name) { found = 1; return }
-    }
+    if (w == name) found = 1
+    else if (w ~ /^(sh|bash|zsh|dash|ksh)$/)
+      for (k = a + 1; k <= b && !found; k++) {
+        if (t[k] ~ /^-[A-Za-z]*[nc]/) break
+        if (t[k] !~ /^-/) { if (base(t[k]) == name) found = 1; break }
+      }
   }
   {
     gsub(/[;|&()`]/, " ; ")
@@ -109,15 +87,15 @@ runs() {
   END { exit found ? 0 : 1 }'
 }
 
-# 命令执行之后:collect-diff.sh 失败了,或者说没有可审查的内容,就不存在进行中的审查,立刻解除。
+# 命令执行之后:collect-diff.sh 失败或没有可审查的内容就清除标记;成功则记下报告目录。
 case "$event" in
   PostToolUse|PostToolUseFailure|afterShellExecution)
-    result=$(get .tool_response.stdout); [ -n "$result" ] || result=$(get .output)
-    [ -n "$result" ] || result=$(get .tool_response); [ -n "$result" ] || result=$(get .error)
-    # 只有 Claude Code 有单独的失败事件;Codex 和 Cursor 的输入里没有退出码,靠脚本自己的报错前缀识别。
-    failed=no
-    [ "$event" = PostToolUseFailure ] && failed=yes
-    if [ "$kind" = shell ] && [ -f "$marker" ]; then
+    for key in .tool_response.stdout .output .tool_response .error; do
+      result=$(get "$key"); [ -n "$result" ] && break
+    done
+    # 只有 Claude Code 有单独的失败事件;Codex 和 Cursor 靠脚本自己的报错前缀识别失败。
+    failed=no; [ "$event" = PostToolUseFailure ] && failed=yes
+    if [ -f "$marker" ]; then
       if runs collect-diff.sh; then
         case "$failed:$result" in
           yes:*|*"EMPTY: "*|*"UNCHANGED: "*|*"collect-diff: "*) rm -f "$marker" "$dir/$sid.review" ;;
@@ -125,215 +103,41 @@ case "$event" in
             rd=$(printf '%s\n' "$result" | awk 'NF { last = $0 } END { print last }' | sed 's/^[" ]*//; s/[" ]*$//')
             if [ -n "$rd" ] && [ -f "$rd/meta.txt" ]; then
               printf '%s\n' "$rd" > "$dir/$sid.review"
-              : > "$rd/.guard-active" 2>/dev/null || true
             fi ;;
         esac
-      elif [ "$failed" = no ]; then
-        # 只有真正执行完结束脚本才解除;阅读、提及、--help 和失败均不解除。
-        if runs check-state.sh && printf '%s\n' "$result" | grep -q '^OK: '; then
-          # 只解除只读阶段;出报告的流程是先 check-state.sh 后 save-review.sh,
-          # review 目录和用量起点要留到保存完成,否则保存时统计不到 token。
-          rm -f "$marker"
-        elif runs save-review.sh && printf '%s\n' "$result" | grep -q '^report='; then
-          rm -f "$marker" "$dir/$sid.review"
-        fi
+      elif [ "$failed" = no ] && runs save-review.sh && printf '%s\n' "$result" | grep -q '^report='; then
+        rm -f "$marker" "$dir/$sid.review"
       fi
     fi
     exit 0 ;;
 esac
 
-if [ "$kind" = shell ]; then
-  case "$cmd" in
-    *save-review.sh*)
-      if runs save-review.sh; then
-        # 保存之前把这次审查的 token 用量写进 review_dir,由 save-review.sh 一并存下。
-        # 优先用 collect-diff.sh 执行完时记下的目录;命令里常写成 $D 这样的变量,按文字解析会拿到字面量。
-        review_dir=$(cat "$dir/$sid.review" 2>/dev/null)
-        if [ -z "$review_dir" ]; then
-          review_dir=$(printf '%s\n' "$cmd" | awk '{
-            n = split($0, t, /[ \t]+/)
-            for (i = 1; i < n; i++) { w = t[i]; gsub(/["\047]/, "", w); if (w ~ /(^|\/)save-review\.sh$/) { d = t[i + 1]; gsub(/["\047]/, "", d); print d; exit } }
-          }')
-        fi
-        if [ -n "$review_dir" ] && [ -f "$review_dir/meta.txt" ]; then
-          sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
-          # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"。
-          if [ ! -s "$review_dir/usage.txt" ]; then
-            if [ "$host" = cursor ]; then reason=unsupported
-            elif [ -f "$dir/$sid.usage" ]; then reason=no_records; else reason=no_start; fi
-            printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
-          fi
-        fi
-        rm -f "$dir/$sid.usage"
-      fi
-      ;;
-  esac
-  if runs collect-diff.sh; then
-    mkdir -p "$dir" && date +%s > "$marker"
-    rm -f "$dir/$sid.review"
-    transcript=$(get .transcript_path)
-    rm -f "$dir/$sid.usage"
-    [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true
+# 保存之前统计这次审查的 token。review_dir 优先取 collect-diff 执行完时记下的目录;
+# 命令里常写成 $D 这样的变量,按文字解析会拿到字面量,所以只在没有记录时才解析命令文字。
+if runs save-review.sh; then
+  review_dir=$(cat "$dir/$sid.review" 2>/dev/null)
+  [ -n "$review_dir" ] || review_dir=$(printf '%s\n' "$cmd" | awk '{
+    gsub(/["\047]/, "")
+    for (i = 1; i < NF; i++) if ($i ~ /(^|\/)save-review\.sh$/) { print $(i + 1); exit }
+  }')
+  if [ -n "$review_dir" ] && [ -f "$review_dir/meta.txt" ]; then
+    sh "$script_dir/usage.sh" finish "$dir/$sid.usage" "$review_dir/usage.txt" >/dev/null 2>&1 || true
+    # 统计不到时写明原因,让报告能区分"hook 没运行"和"hook 运行了但读不到用量"
+    if [ ! -s "$review_dir/usage.txt" ]; then
+      if [ "$host" = cursor ]; then reason=unsupported
+      elif [ -f "$dir/$sid.usage" ]; then reason=no_records
+      else reason=no_start; fi
+      printf 'usage_status=%s\n' "$reason" > "$review_dir/usage.txt" 2>/dev/null || true
+    fi
   fi
+  rm -f "$dir/$sid.usage"
 fi
 
-[ -f "$marker" ] || allow
-started=$(cat "$marker" 2>/dev/null || echo 0)
-case "$started" in ""|*[!0-9]*) started=0 ;; esac
-if [ $(($(date +%s) - started)) -gt "${CR_GUARD_TTL:-3600}" ]; then
-  rm -f "$marker"
-  allow
+if runs collect-diff.sh; then
+  mkdir -p "$dir" && : > "$marker"
+  rm -f "$dir/$sid.review" "$dir/$sid.usage"
+  transcript=$(get .transcript_path)
+  [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true
 fi
 
-deny() {
-  case "$1" in
-    "!"*) msg="cr 审查进行中,已拦截: ${1#!}。这类操作可能把凭证显示出来。登录状态和远程地址由脚本自己判断:看 collect-diff.sh 输出的 NOTE 和 meta.txt 里的 repo_id,不要自己去查环境变量、shell 配置或凭证文件。" ;;
-    *) msg="cr 审查进行中(只读),已拦截: $1。读其他版本的代码请用 git show / git diff / git log。如果审查已经结束,先运行 sh $script_dir/check-state.sh <review_dir> 结束只读阶段。" ;;
-  esac
-  esc=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\t' '  ')
-  if [ "$host" = cursor ]; then
-    printf '{"permission":"deny","user_message":"%s","agent_message":"%s"}\n' "$esc" "$esc"
-  else
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
-  fi
-  exit 0
-}
-
-cwd=$(get .cwd)
-[ -n "$cwd" ] || cwd=$(get '.workspace_roots[0]')
-in_repo() { # 路径是否在当前仓库内;相对路径按 cwd 解析
-  [ -n "$cwd" ] || return 1
-  root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 1
-  case "$1" in
-    /*) p=$1 ;;
-    *) p="$cwd/$1" ;;
-  esac
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os, sys
-root, path = map(os.path.realpath, sys.argv[1:])
-sys.exit(0 if path == root or path.startswith(root + os.sep) else 1)' "$root" "$p"
-    return $?
-  fi
-  case "$p" in "$root"/*) return 0 ;; esac
-  return 1
-}
-
-# 只认用户主目录下的 shell 配置和凭证文件,以及 gh/glab 自己的配置。
-# 仓库里同名的文件(比如 dotfiles 仓库里的 .zshrc、项目里的 .env.example)是正常的审查对象,不拦。
-# 主目录下的 shell 配置和凭证文件名(去掉开头的点),secret_file 和下面 awk 里的 secret() 共用这一份。
-SECRET_NAMES="zshrc zshenv zprofile zlogin bashrc bash_profile bash_login profile netrc git-credentials"
-secret_file() {
-  case "$1" in
-    */glab-cli/config.yml|*/glab-cli/hosts.yml|*/gh/config.yml|*/gh/hosts.yml) return 0 ;;
-  esac
-  case "${1%/*}" in "${HOME:-/nonexistent}"|"~") ;; *) return 1 ;; esac
-  name=${1##*/}
-  case " $SECRET_NAMES " in *" ${name#.} "*) [ "$name" != "${name#.}" ] ;; *) return 1 ;; esac
-}
-
-if [ "$kind" = file ]; then
-  case "$tool" in
-    Read)
-      path=$(get .tool_input.file_path); [ -n "$path" ] || path=$(get .tool_input.path); [ -n "$path" ] || path=$(get .file_path)
-      [ -n "$path" ] && secret_file "$path" && deny "!读取 ${path##*/}"
-      allow ;;
-  esac
-  case "$tool" in
-    Edit|Write|NotebookEdit|Delete) ;;
-    *) allow ;;
-  esac
-  for key in .tool_input.file_path .tool_input.notebook_path .tool_input.path .tool_input.target_file; do
-    path=$(get "$key")
-    [ -n "$path" ] && break
-  done
-  [ -n "$path" ] && in_repo "$path" && deny "编辑仓库内的文件 $path"
-  allow
-fi
-
-if [ "$kind" = patch ]; then
-  printf '%s\n' "$cmd" | sed -nE 's/^\*\*\* (Add|Update|Delete) File: //p' > "$dir/$sid.paths" 2>/dev/null || allow
-  while IFS= read -r path; do
-    if in_repo "$path"; then rm -f "$dir/$sid.paths"; deny "编辑仓库内的文件 $path"; fi
-  done < "$dir/$sid.paths"
-  rm -f "$dir/$sid.paths"
-  allow
-fi
-
-if command -v python3 >/dev/null 2>&1; then
-  write_path=$(printf '%s\n' "$cmd" | python3 "$script_dir/guard-paths.py" "$cwd")
-  [ -n "$write_path" ] && deny "shell 写入仓库文件 $write_path"
-fi
-
-hit=$(printf '%s\n' "$cmd" | awk -v home="${HOME:-/nonexistent}" -v names="$SECRET_NAMES" '
-BEGIN { names_re = names; gsub(/ /, "|", names_re); gsub(/\./, "\\.", names_re) }
-function bad(s) { print s; found = 1; exit }
-function secret(full,   np, pre, i2, rest) { # 主目录下的 shell 配置和凭证文件,或 gh/glab 的配置
-  gsub(/["\047]/, "", full)
-  if (full ~ /\/(glab-cli|gh)\/(config|hosts)\.yml$/) return 1
-  pre[1] = "~/"; pre[2] = "$HOME/"; pre[3] = "${HOME}/"; pre[4] = home "/"
-  for (i2 = 1; i2 <= 4; i2++)
-    if (index(full, pre[i2]) == 1) {
-      rest = substr(full, length(pre[i2]) + 1)
-      if (rest ~ ("^\\.(" names_re ")$")) return 1
-    }
-  return 0
-}
-function api(tool, k,   m, w, gq, mut) {
-  m = ""; w = 0; gq = 0; mut = 0
-  for (; k <= n && t[k] != ";"; k++) {
-    if (t[k] == "graphql") gq = 1
-    if (t[k] ~ /mutation/) mut = 1
-    if (t[k] == "--method" || t[k] == "-X") m = toupper(t[k + 1])
-    else if (t[k] ~ /^--method=/) m = toupper(substr(t[k], 10))
-    else if (t[k] ~ /^(-f|-F|--field|--raw-field|--input)$/) w = 1
-  }
-  if (gq && !mut) return   # GraphQL 的查询也是 POST 加字段,不含 mutation 时只是读取
-  if ((m != "" && m != "GET") || (m == "" && w)) bad(tool " api 写请求")
-}
-{
-  gsub(/[;|&()`]/, " ; ")
-  n = split($0, t, /[ \t]+/)
-  for (i = 1; i <= n; i++) {
-    w = t[i]; sub(/^.*\//, "", w)
-    if (secret(t[i])) { q = t[i]; gsub(/["\047]/, "", q); sub(/^.*\//, "", q); bad("!访问 " q) }
-    if (w == "git") {
-      j = i + 1
-      while (j <= n && t[j] ~ /^-/) {
-        if (t[j] == "-C" || t[j] == "-c" || t[j] == "--git-dir" || t[j] == "--work-tree" || t[j] == "--namespace") j++
-        j++
-      }
-      s = t[j]; a = t[j + 1]
-      if (s ~ /^(checkout|switch|restore|reset|clean|add|rm|mv|commit|merge|rebase|cherry-pick|revert|pull|push|apply|am)$/) bad("git " s)
-      if (s == "stash" && a !~ /^(list|show)$/) bad("git stash")
-      if (s == "remote" && a ~ /^(-v|--verbose|get-url|show)$/) bad("!git remote " a)
-      if (s == "config")
-        for (k = j + 1; k <= n && t[k] != ";"; k++)
-          if (t[k] ~ /(remote\..*url|credential|^-l$|^--list$|--get-regexp)/) bad("!git config " t[k])
-      if (s == "credential" || s == "credential-osxkeychain") bad("!git " s)
-      if (s == "worktree" && a ~ /^(add|remove|move|prune)$/) bad("git worktree " a)
-      if (s == "branch")
-        for (k = j + 1; k <= n && t[k] != ";"; k++)
-          if (t[k] ~ /^(-d|-D|-m|-M|-f|--delete|--move|--force)$/) bad("git branch " t[k])
-    } else if (w == "printenv" || (w == "env" && (i == n || t[i + 1] == ";" || t[i + 1] == "")) || (w == "export" && t[i + 1] == "-p")) {
-      bad("!" w "(打印环境变量)")
-    } else if (w == "echo" || w == "printf") {
-      for (k = i + 1; k <= n && t[k] != ";"; k++)
-        if (t[k] ~ /\$\{?[A-Za-z_]*(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY)/) bad("!输出凭证类环境变量")
-    } else if (w == "gh") {
-      s = t[i + 1]; a = t[i + 2]
-      if (s == "auth" && a == "token") bad("!gh auth token")
-      if (s == "auth" && a == "status") for (k = i + 3; k <= n && t[k] != ";"; k++) if (t[k] ~ /^(-t|--show-token)$/) bad("!gh auth status " t[k])
-      if (s == "pr" && a ~ /^(checkout|merge|close|reopen|review|comment|edit|create|ready)$/) bad("gh pr " a)
-      if (s == "api") api("gh", i + 2)
-    } else if (w == "glab") {
-      s = t[i + 1]; a = t[i + 2]
-      if (s == "auth" && a == "status") for (k = i + 3; k <= n && t[k] != ";"; k++) if (t[k] ~ /^(-t|--show-token)$/) bad("!glab auth status " t[k])
-      if (s == "config" && a == "get" && t[i + 3] ~ /token/) bad("!glab config get token")
-      if (s == "mr" && a ~ /^(checkout|merge|approve|revoke|close|reopen|note|update|create|rebase|delete)$/) bad("glab mr " a)
-      if (s == "api") api("glab", i + 2)
-    }
-  }
-}
-')
-[ -n "$hit" ] && deny "$hit"
 allow

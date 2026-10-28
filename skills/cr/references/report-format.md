@@ -12,7 +12,7 @@
 | `RULES:`、`RULES_NOTE:` | 末尾说明行,`RULES_NOTE` 每条一行 |
 | `TRIMMED:` | 末尾说明行 |
 | `SKIPPED:`、`CHECKED:` | 末尾说明行 |
-| `GUARD:` | 末尾说明行,`CHECKED` 之后 |
+| `INCOMPLETE:` | 末尾说明行,`CHECKED` 之后、`消耗:` 之前;只在有输出时写。整行原样放入,「流程不完整:」是内容的一部分,例如 `流程不完整:缺 finders/reviewer.json` |
 | `MARK:` | 不单独成行:`<编号><TAB><标记>`,标记写进该条发现的标题 |
 | `DISCUSSED:` | 不单独成行:`<编号><TAB>讨论中已有人提出,代码仍未改`,写在该条发现的问题描述下面 |
 | `FEEDBACK:` | 报告最后,`记录:` 一行之前 |
@@ -56,7 +56,7 @@
 <TRIMMED>
 <SKIPPED>
 <CHECKED>
-<GUARD>
+<INCOMPLETE>
 消耗:<save-review 的 cost>
 <FEEDBACK>
 记录:[<报告路径>](<file:// 链接>)

@@ -146,11 +146,15 @@ class GuardRegressions(fixture.Base):
         cmd = 'sh /example/collect-diff.sh target'
         self.hook('beforeShellExecution' if cursor else 'PreToolUse', tool, {'command': cmd}, command=cmd)
 
-    def test_codex_failed_collect_releases_without_exit_code(self):
+    def marker(self):
+        return Path(self.env['TMPDIR'], 'cr-guard', 'session')
+
+    def test_failed_collect_releases_without_exit_code(self):
         self.start()
+        self.assertTrue(self.marker().exists())
         cmd = 'sh /example/collect-diff.sh target'
         self.hook('PostToolUse', inp={'command': cmd}, tool_response='collect-diff: 找不到默认分支')
-        self.assertFalse(self.denied())
+        self.assertFalse(self.marker().exists())
 
     def test_usage_reason_is_recorded_when_hook_ran(self):
         self.start()
@@ -186,39 +190,25 @@ class GuardRegressions(fixture.Base):
         self.hook(inp={'command': cmd}, command=cmd)
         self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
 
-    def denied(self):
-        return 'deny' in self.hook(inp={'command': 'git commit -m test'})
-
-    def test_only_successful_executed_end_script_releases(self):
-        for command in ['cat /example/check-state.sh', 'cat /example/save-review.sh',
-                        'sh /example/check-state.sh --help', 'sh /example/check-state.sh /missing']:
-            with self.subTest(command=command):
-                self.start()
-                self.hook(inp={'command': command})
-                self.assertTrue(self.denied())
-                self.hook('PostToolUseFailure', inp={'command': command}, error='exit 1')
-                self.assertTrue(self.denied())
-        command = 'sh /example/check-state.sh /review'
-        self.start(); self.hook(inp={'command': command})
-        self.assertTrue(self.denied())
-        self.hook('PostToolUse', inp={'command': command}, tool_response={'stdout': 'OK: unchanged'})
-        self.assertFalse(self.denied())
-
-    def test_common_tool_shapes_and_literal_shell_writes(self):
+    def test_saved_report_releases_review(self):
         self.start()
-        for tool, inp in [('apply_patch', {'command':'*** Begin Patch\n*** Update File: a.ts\n*** End Patch'}),
-                          ('Bash', {'command':'echo changed > a.ts'}),
-                          ('Bash', {'command':'printf changed | tee a.ts'}),
-                          ('Bash', {'command':'touch a.ts'})]:
-            with self.subTest(tool=tool, inp=inp):
-                self.assertIn('deny', self.hook(tool=tool, inp=inp))
-        for cmd in ['git diff', 'cat a.ts', 'echo text > '+str(self.rd/'result'), 'printf text']:
-            self.assertNotIn('deny', self.hook(inp={'command':cmd}))
-        self.assertEqual(Path(self.repo, 'a.ts').read_text(), 'original\n')
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response=str(self.rd))
+        self.assertTrue(self.marker().exists())
+        cmd = 'sh /example/save-review.sh %s' % self.rd
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response={'stdout': 'report=/r/index.html'})
+        self.assertFalse(self.marker().exists())
+        self.assertFalse(Path(self.env['TMPDIR'], 'cr-guard', 'session.review').exists())
+
+    def test_new_prompt_releases_review(self):
+        self.start()
+        self.hook('UserPromptSubmit', prompt='hi')
+        self.assertFalse(self.marker().exists())
 
     def test_cursor_failure_and_claude_failure_release(self):
         for event in ['afterShellExecution', 'PostToolUseFailure']:
-            self.start(cursor=event=='afterShellExecution')
-            cmd='sh /example/collect-diff.sh target'
-            self.hook(event, inp={'command':cmd}, command=cmd, output='collect-diff: git 无法对 x 做 diff', error='exit 1')
-            self.assertFalse(self.denied())
+            with self.subTest(event=event):
+                self.start(cursor=event=='afterShellExecution')
+                cmd='sh /example/collect-diff.sh target'
+                self.hook(event, inp={'command':cmd}, command=cmd, output='collect-diff: git 无法对 x 做 diff', error='exit 1')
+                self.assertFalse(self.marker().exists())

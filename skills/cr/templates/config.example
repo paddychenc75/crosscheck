@@ -4,11 +4,11 @@
 # 私有化 GitLab:域名里不含 gitlab 时写在这里,多个用逗号分隔;部署在子路径下时写全,如 company.com/gitlab
 gitlab_hosts=code.company.com
 
-# 可选:模型。核实最好用和查找不同的模型,两者的盲区不同。
+# 可选:模型。查找和核实都用强模型;能用另一家的模型核实更好,两家的盲区不同。
 # 写当前宿主认识的模型名:下面是 Claude Code 的写法;Codex、Cursor 要写各自的模型名。
 # 宿主不支持给子代理指定模型(例如 Cursor 部分计费方案下子代理固定用默认模型)时,照常用宿主的模型运行,报告里会说明。
-# 推荐(Claude Code):查找读得最多,用便宜的;核实把关准确率,用强的且最好不同。
-# model.finder=sonnet
+# 推荐(Claude Code):查找也用强模型,强模型在查找阶段能找到更多高危问题;成本比便宜的组合高,想省钱就把 finder 换成 sonnet。
+# model.finder=opus
 # model.verifier=opus
 
 # 可选:需求来源和 MR 说明网页版。团队统一的设置建议写在插件里的 crosscheck.conf,这里写个人覆盖。

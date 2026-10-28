@@ -17,7 +17,7 @@
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
 #   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):缺的必填需求来源记为 unasked,不输出 SOURCES_MISSING
 #   --tested TEXT 作者写的「怎么验证的」,只用于 MR 说明
-#   --only LIST  bug、security、rules、simplify 中的若干项;默认是前三项,simplify 要用户明确要求
+#   --only LIST  bug、security、rules 中的若干项;默认三项都查
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
 #
 # 平台:--platform > 环境变量 CR_PLATFORM > 配置的 gitlab_hosts > 域名含 github.com / gitlab >

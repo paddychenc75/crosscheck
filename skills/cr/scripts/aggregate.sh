@@ -20,6 +20,7 @@
 #      还可以按 critical/major/minor 限制缺陷和需求核对的条数),超出的不展示但仍写进 findings.json。
 #   7. 给展示的发现编号(no),给新发现分配 id 和 since。
 # 写出:
+#   completeness.txt  流程是否完整(completeness.py 写):缺了哪些查找角色的回复或核实结果;只提示,不阻止汇总
 #   final.json     报告要用的全部内容:groups(defects/intent/rules,每条带 no 和 status:new|carried)、
 #                  resolved、ignored_by_history、trimmed、counts、notes
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量
@@ -30,4 +31,7 @@ set -eu
 
 command -v python3 >/dev/null 2>&1 || { echo "aggregate: 需要 python3" >&2; exit 2; }
 [ -f "${1:-}/meta.txt" ] || { echo "aggregate: 需要 collect-diff.sh 的输出目录" >&2; exit 2; }
-exec python3 "$(cd "$(dirname "$0")" && pwd)/aggregate.py" "$1"
+here=$(cd "$(dirname "$0")" && pwd)
+# 先查流程是否完整(只写 completeness.txt,即使下面的汇总因核实缺失而停下也会写),不阻止汇总
+python3 "$here/completeness.py" "$1" || echo "aggregate: 流程完整性检查失败,不影响汇总" >&2
+exec python3 "$here/aggregate.py" "$1"
