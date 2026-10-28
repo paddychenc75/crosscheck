@@ -183,6 +183,7 @@ class MrNote(Repo):
         for word in ("已实现", "已覆盖", "无风险"):
             self.assertNotIn(word, md)
         self.assertIn("page=acme-kit:page-publisher", out)
+        self.assertIn("md_link=file://", out)
         self.assertIn("glab mr create --target-branch main", out)
         html = Path(self.rd, "mr.html").read_text(encoding="utf-8")
         self.assertIn("<title>", html)

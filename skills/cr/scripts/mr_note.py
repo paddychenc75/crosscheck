@@ -5,7 +5,7 @@
   --latest  DIR 只用来找到这个目标,实际用它最近一次的审查记录(表态、--fix 之后重新生成时用)
 
 写出 DIR/mr.md(贴进 MR 描述,30 行以内,包在 crosscheck:begin/end 标记里)和 DIR/mr.html(完整版),并输出:
-  mr=<mr.md 的路径>  html=<mr.html 的路径>  link=<mr.html 的 file:// 链接>
+  mr=<mr.md 的路径>  md_link=<mr.md 的 file:// 链接>  html=<mr.html 的路径>  link=<mr.html 的 file:// 链接>
   page=<配置的 output.page 工具,没配置为空>  page_url=<之前生成过的网页链接>
   update=<把描述更新到 MR 的命令,由作者自己执行>
   NOTE: …  需要转告作者的话(没推送、审查后又有提交、一句话由 AI 起草等)
@@ -542,9 +542,12 @@ def main(argv):
     else:
         update = ('glab mr update %s --description "$(cat %s)"' % (meta["number"], mp)) if meta.get("number") else \
                  'glab mr create --target-branch %s --description "$(cat %s)"' % (meta.get("target_branch") or "<目标分支>", mp)
+    def url(p):
+        return "file://" + p.replace("%", "%25").replace(" ", "%20").replace("#", "%23")
     print("mr=%s" % mp)
+    print("md_link=%s" % url(mp))
     print("html=%s" % hp)
-    print("link=file://%s" % hp.replace("%", "%25").replace(" ", "%20").replace("#", "%23"))
+    print("link=%s" % url(hp))
     print("page=%s" % note.conf.get("page", ""))
     print("page_url=%s" % note.store.get("page_url", ""))
     print("update=%s" % update)

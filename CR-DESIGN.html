@@ -535,7 +535,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li>不审查改动之外的存量代码；不报风格、命名、可读性、日志措辞和影响很小的性能优化（除非项目写成了规则）。</li>
         <li>不往 PR/MR 发评论，不 approve、request changes、merge；不提交 MR、不改 MR 描述，MR 说明由开发者自己贴。</li>
         <li>默认不改文件，只有用户明确要求时才修复，且只改工作区、不提交。</li>
-        <li>不往 GitLab / GitHub 写任何东西。审查后的写操作只有两种：你确认后把规则改到工作区里的规则文件；你同意后用配置的工具生成或更新 MR 说明的网页版。</li>
+        <li>不往 GitLab / GitHub 写任何东西。审查后的写操作只有两种：你确认后把规则改到工作区里的规则文件；配置了网页工具时生成或更新 MR 说明的网页版。</li>
         <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
       </ul>
       <details class="design-basis">
@@ -718,14 +718,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>给谁看</td><td>开发者自己，照着修</td><td>MR 评审人</td></tr>
         <tr><td>内容</td><td>核实过的问题、修复建议、依据</td><td>需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况</td></tr>
         <tr><td>性质</td><td>结论，逐条独立核实</td><td>事实和链接，脚本生成或核对，不下结论</td></tr>
-        <tr><td>去处</td><td>留在本地</td><td>开发者贴进 MR 描述（30 行以内）；可生成网页版，随 CR 报告更新</td></tr>
+        <tr><td>去处</td><td>留在本地</td><td>本地存 <code>mr.md</code>、<code>mr.html</code>；开发者复制进 MR 描述（30 行以内），或直接贴网页链接；配置了网页工具时自动发布，随 CR 报告更新</td></tr>
       </table></div>
       <ul>
         <li><b>事实交给脚本：</b><code>analysis_facts.py</code> 提取改了哪些函数、接口、配置键和签名变化，用 <code>git grep</code> 找本仓库里的调用方，标出迁移、配置、环境变量、依赖变化和可跳过的文件。表头写明能力边界：依赖注入、反射、跨服务调用搜不到；签名不变的行为变化由 CR 报告负责。</li>
         <li><b>请重点看由作者点名：</b>最多 3 处，每处写想要什么反馈；没点名时列出脚本挑的候选并标“自动列出”。</li>
         <li><b>CR 情况如实列出：</b>严重和重要的未修复问题附作者的判断，没表态的标“未表态”；写明基于哪个提交，之后又有提交时标出。</li>
         <li><b>需求来源：</b>配置按用途写工具名（<code>source.ticket</code>、<code>source.prd</code> 等，值是读取用的 skill 或命令名；可以写在随插件分发的 <code>crosscheck.conf</code> 里，个人配置逐项覆盖），缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），同一分支记住；agent 用配置的工具读取内容作为意图材料。MR 说明里只放链接和标题。</li>
-        <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用 <code>output.page</code> 配置的工具，第一次需要同意。</li>
+        <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用 <code>output.page</code> 配置的工具，写进配置就自动发布，不再逐次询问。</li>
         <li><b>衡量：</b>先不做自动收集；用一段时间后直接问评审人有没有帮他找到重点，重发问卷看“难以判断影响”的比例是否下降。</li>
       </ul>
       <details class="design-basis">
