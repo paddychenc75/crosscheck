@@ -83,6 +83,76 @@ class ReviewIntegrityTests(fixture.Base):
         for file in ['verify/result-1.json','final.json','findings.json']:
             self.assertFalse((rd/file).exists())
 
+    def test_finder_mapping_restores_omitted_candidate_and_preserves_merge_scenarios(self):
+        _, rd, c = self.setup_review()
+        (rd/'meta.txt').write_text((rd/'meta.txt').read_text().replace('review_scope=incremental', 'review_scope=full'))
+        raw = [dict(c, summary='first', failure_scenario='input A fails', needs_check='guard A'),
+               dict(c, summary='second', failure_scenario='input B fails', needs_check='guard B')]
+        for row in raw:
+            row.pop('from_prev'); row.pop('id'); row.pop('cid')
+        (rd/'finders').mkdir()
+        original = json.dumps({'candidates': raw, 'coverage': {'limited': False, 'budget_reached': False}})
+        (rd/'finders/reviewer.json').write_text(original)
+        merged = dict(raw[0], source_refs=['finders/reviewer.json#0', 'finders/reviewer.json#1'], merge_reason='same branch and local fix')
+        (rd/'candidates.json').write_text(json.dumps([merged]))
+        self.run_script('prepare-verify.sh', str(rd))
+        sent = self.load(rd/'candidates.json')
+        self.assertEqual(len(sent), 1)
+        self.assertIn('input B fails', sent[0]['failure_scenario'])
+        self.assertIn('guard B', sent[0]['needs_check'])
+        batch = self.load(rd/'verify/batch-1.json')[0]
+        self.assertNotIn('source_refs', batch)
+        self.assertNotIn('merge_reason', batch)
+        self.assertEqual((rd/'finders/reviewer.json').read_text(), original)
+        (rd/'verify/result-1.json').write_text(json.dumps([self.result(batch, 95)]))
+        self.run_script('aggregate.sh', str(rd))
+        finding = self.load(rd/'findings.json')[0]
+        self.assertEqual(finding['source_refs'], merged['source_refs'])
+        self.assertEqual(finding['candidate_ids'], ['c1'])
+        (rd/'candidates.json').write_text(json.dumps([raw[0]]))
+        self.run_script('prepare-verify.sh', str(rd))
+        sent = self.load(rd/'candidates.json')
+        self.assertEqual(len(sent), 2, '已交的遗漏候选必须补回')
+        self.assertEqual({ref for row in sent for ref in row['source_refs']}, {'finders/reviewer.json#0', 'finders/reviewer.json#1'})
+
+    def test_exact_duplicates_retain_both_candidate_ids(self):
+        _, rd, c = self.setup_review()
+        (rd/'meta.txt').write_text((rd/'meta.txt').read_text().replace('review_scope=incremental', 'review_scope=full'))
+        c = {k: v for k, v in c.items() if k not in ('from_prev', 'id', 'cid')}
+        (rd/'candidates.json').write_text(json.dumps([c, c]))
+        self.run_script('prepare-verify.sh', str(rd))
+        sent = self.load(rd/'verify/batch-1.json')
+        (rd/'verify/result-1.json').write_text(json.dumps([self.result(x, 95) for x in sent]))
+        self.run_script('aggregate.sh', str(rd))
+        findings = self.load(rd/'findings.json')
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]['candidate_ids'], ['c1', 'c2'])
+
+    def test_wontfix_preserves_fact_score_and_requires_current_context(self):
+        _, rd, c = self.setup_review()
+        (rd/'history.json').write_text(json.dumps([dict(c, verdict='wontfix', reason='defer', same_code=True)]))
+        result = dict(self.result(c, 95), history_match=c['id'], history_context='调用输入和历史前提仍相同')
+        (rd/'verify/result-1.json').write_text(json.dumps([result]))
+        self.run_script('aggregate.sh', str(rd))
+        final = self.load(rd/'final.json')
+        ignored = final['ignored_by_history'][0]
+        self.assertEqual((ignored['confidence'], ignored['verdict'], ignored['suppression_reason']), (95, 'checked', 'defer'))
+        self.assertEqual(final['resolved'], [])
+        lines = self.run_script('report-lines.sh', str(rd)).stdout
+        self.assertIn('抑制重复提醒 1 条', lines)
+        self.run_py('mr_note.py', str(rd))
+        for name in ('mr.md', 'mr.html'):
+            self.assertIn('按历史判断抑制 1 条(不计为已修复)', (rd/name).read_text())
+        result.pop('history_context')
+        (rd/'verify/result-1.json').write_text(json.dumps([result]))
+        self.run_script('aggregate.sh', str(rd))
+        self.assertEqual(len(self.load(rd/'findings.json')), 1, '局部代码未变不足以抑制当前结论')
+        result['history_context'] = '当前发现重新成立'
+        (rd/'history.json').write_text(json.dumps([dict(c, verdict='invalid', reason='old guard', same_code=True)]))
+        (rd/'verify/result-1.json').write_text(json.dumps([result]))
+        self.run_script('aggregate.sh', str(rd))
+        self.assertEqual(len(self.load(rd/'findings.json')), 1, '历史 invalid 不得盖过当前确认事实')
+
     def test_hidden_directory_rules_do_not_escape_collection(self):
         local = ['.github/workflows/AGENTS.md', '.claude/helpers/CLAUDE.md', '.cursor/sub/AGENTS.md', '.github/sub/REVIEW.md', '.claude/rules/nested/REVIEW.md']
         files = {'src/a.py':'x\n', '.claude/CLAUDE.md':'global claude\n', '.github/copilot-instructions.md':'global copilot\n'}

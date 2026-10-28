@@ -26,7 +26,7 @@
 
 <details><summary>已按历史判断忽略(<n>)</summary>
 
-- `path:line` — <摘要>(<时间>判为<不成立/不修>:<原因>)
+- `path:line` — <摘要>(历史处理:<history_decision>,原因:<suppression_reason>;当前事实:<verdict>,置信度 <confidence>;前提复核:<history_context>)
 </details>
 
 ### 改动代码里的原有问题(<n>)
@@ -42,7 +42,7 @@
 <FEEDBACK>
 记录:[<报告路径>](<file:// 链接>)
 
-<!-- 每条发现。标题里的三项依次是严重程度、维度、MARK 给出的标记(已复现 / 读代码推断)。 -->
+<!-- 每条发现。标题里的三项依次是严重程度、维度、MARK 给出的标记(已复现 / 已执行·结果未定(读代码判断) / 读代码推断)。 -->
 ### 1. [重要 · bug · 读代码推断] <摘要>
 
 **位置**:`path/to/file.ts:42`

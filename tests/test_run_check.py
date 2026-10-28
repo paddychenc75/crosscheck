@@ -61,7 +61,8 @@ class RunVerification(fixture.ProjectFixture):
         return final, (shown[0] if shown else None), (rejected[0] if rejected else None)
 
     def executed(self, rid, outcome="reproduced"):
-        return {"method": "executed", "runs": [rid], "outcome": outcome}
+        return {"method": "executed", "runs": [rid], "outcome": outcome,
+                "observation": "按候选输入执行目标路径,输出与预期比较"}
 
     def test_recorded_repro_is_marked_with_real_log(self):
         rid = self.repro("print('boom'); raise SystemExit(1)")
@@ -70,6 +71,11 @@ class RunVerification(fixture.ProjectFixture):
         self.assertEqual(shown["repro"]["exit"], 1)
         self.assertIn("boom", shown["repro"]["tail"])
         self.assertEqual((final["runs"]["total"], final["runs"]["reproduced"]), (1, 1))
+        Path(self.rd, 'report.md').write_text('report')
+        dest = self.run_script('save-review.sh', self.rd).stdout.split('dir=')[1].splitlines()[0]
+        saved = self.load(Path(dest, 'runs', rid + '.json'))
+        self.assertEqual(saved['id'], rid)
+        self.assertIn('boom', Path(dest, 'runs', saved['log']).read_text())
 
     def assert_failed_claim(self, verification, extra=None, why=""):
         final, shown, rejected = self.pipeline(100, verification, extra)
@@ -99,6 +105,36 @@ class RunVerification(fixture.ProjectFixture):
         checked = next(l for l in out.splitlines() if l.startswith("CHECKED:"))
         self.assertIn("运行 2 次 · 复现成功 1", checked)
         self.assertIn("MARK: 1\t已复现", out)
+
+    def test_refuted_cannot_be_confirmed_even_with_high_score(self):
+        rid = self.repro("print('candidate output is correct')")
+        final, shown, rejected = self.pipeline(100, self.executed(rid, "refuted"))
+        self.assertIsNone(shown)
+        self.assertEqual((rejected["confidence"], rejected["mark"]), (0, "运行反证"))
+        self.assertEqual(rejected["repro"]["run"], rid)
+        self.assertEqual(final["runs"]["reproduced"], 0)
+
+    def test_inconclusive_retains_execution_but_passes_on_code_evidence(self):
+        rid = self.repro("raise ImportError('missing dependency')")
+        final, shown, _ = self.pipeline(95, self.executed(rid, "inconclusive"))
+        self.assertEqual(shown["confidence"], 95)
+        self.assertEqual(shown["mark"], "已执行·结果未定(读代码判断)")
+        self.assertEqual(shown["repro"]["exit"], 1)
+        self.assertEqual(final["runs"]["reproduced"], 0)
+
+    def test_exit_code_and_record_alone_do_not_prove_reproduction(self):
+        rid = self.repro()
+        _, shown, _ = self.pipeline(95, {"method": "executed", "runs": [rid]})
+        self.assertNotEqual(shown["mark"], "已复现")
+        _, shown, rejected = self.pipeline(100, {"method": "executed", "runs": [rid], "outcome": "reproduced"})
+        self.assertIsNone(shown)
+        self.assertEqual(rejected["confidence"], 75)
+        self.assertIn("实际观察", rejected["reject_reason"])
+
+    def test_zero_exit_can_record_observed_wrong_result(self):
+        rid = self.repro("print('expected 2, observed 1')")
+        _, shown, _ = self.pipeline(95, self.executed(rid))
+        self.assertEqual((shown["mark"], shown["repro"]["exit"]), ("已复现", 0))
 
     def test_batches_hold_three_and_critical_alone(self):
         cands = [{"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "m%d" % i, "failure_scenario": "x"} for i in range(4)]

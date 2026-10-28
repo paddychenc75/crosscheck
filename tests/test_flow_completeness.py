@@ -22,7 +22,7 @@ class FlowCompleteness(fixture.ProjectFixture):
         os.makedirs(os.path.join(self.rd, "finders"), exist_ok=True)
         for n in names:
             with open(os.path.join(self.rd, "finders", n), "w", encoding="utf-8") as f:
-                f.write("[]")
+                json.dump({"candidates": [], "coverage": {"budget_reached": False, "limited": False}} if n.startswith("reviewer") else [], f)
 
     def completeness(self):
         with open(os.path.join(self.rd, "completeness.txt"), encoding="utf-8") as f:
@@ -101,6 +101,29 @@ class FlowCompleteness(fixture.ProjectFixture):
             report = f.read()
         self.assertIn("实际模型:claude-haiku-5-5", report)
         self.assertIn("模型与配置不一致:配置的finder模型 claude-sonnet-5-5", report)
+
+    def test_budget_limit_propagates_to_report_saved_record_and_mr(self):
+        self.finders("reviewer.json", "rules-auditor.json")
+        with open(os.path.join(self.rd, "finders/reviewer.json"), "w") as f:
+            json.dump({"candidates": CAND, "coverage": {"budget_reached": True, "limited": True,
+                      "reason": "remaining paths not inspected"}}, f)
+        final, _ = self.run_pipeline(self.rd, CAND, SCORE)
+        self.assertEqual(final['trimmed'], {}, '查找预算与展示裁剪分别记录')
+        lines = self.run_script('report-lines.sh', self.rd).stdout
+        self.assertIn('达到候选预算,覆盖可能受限', lines)
+        dest = self.save().stdout.split('dir=')[1].splitlines()[0]
+        for name in ('mr.md', 'mr.html', 'report.md', 'completeness.txt'):
+            with open(os.path.join(dest, name)) as f:
+                self.assertIn('达到候选预算,覆盖可能受限', f.read(), name)
+        self.assertTrue(os.path.isfile(os.path.join(dest, 'candidates.json')))
+        self.assertTrue(os.path.isfile(os.path.join(dest, 'finders/reviewer.json')))
+
+    def test_legacy_array_does_not_claim_complete_coverage(self):
+        self.finders('reviewer.json', 'rules-auditor.json')
+        with open(os.path.join(self.rd, 'finders/reviewer.json'), 'w') as f:
+            json.dump([], f)
+        self.run_pipeline(self.rd, [], {})
+        self.assertIn('未声明覆盖限制', '\n'.join(self.completeness()))
 
     def test_candidates_without_verify_batch_are_reported(self):
         self.finders("reviewer.json", "rules-auditor.json")

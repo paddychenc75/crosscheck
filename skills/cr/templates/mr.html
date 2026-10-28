@@ -1,7 +1,7 @@
 {{! MR 说明网页版(mr.html)的模板,由 scripts/mr_note.py 填充。事实都由脚本算好,模板只管页面结构、表头和样式。}}
 {{! 写法:名字外面套两层花括号是占位符;井号开头的块有内容才保留,脱字符开头的块没有内容才保留,块里的占位符就是这个块自己的内容;感叹号开头的整行是注释,不输出。}}
 {{! 占位符里的文字已经做过 HTML 转义;名字带 rows 的是表格的行(tr 和 td 由脚本生成),表头写在模板里。}}
-{{! 可用的名字:title、one、by、now、sha、info_rows、focus_chosen、focus_rows、read_rows、skip、req_rows、impact_method、impact_limits、impact_rows、attention_rows、testing、tested、test_rows、version、depth、fixed、newer、cr_rows。}}
+{{! 可用的名字:title、one、by、now、sha、info_rows、focus_chosen、focus_rows、read_rows、skip、req_rows、impact_method、impact_limits、impact_rows、attention_rows、testing、tested、test_rows、version、depth、fixed、coverage_note、newer、cr_rows。}}
 <title>{{title}}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -39,5 +39,5 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 {{#testing}}
 <section><h2>测试</h2>{{#tested}}<p>怎么验证的:{{tested}}</p>{{/tested}}{{#test_rows}}<div class=t><table><thead><tr><th>可能相关的测试文件(未执行)</th><th>本次改过</th></tr></thead><tbody>{{test_rows}}</tbody></table></div>{{/test_rows}}</section>
 {{/testing}}
-<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck {{version}} · {{depth}} · 基于提交 <code>{{sha}}</code> · 已修复 {{fixed}} 条{{#newer}};审查之后又有 {{newer}} 个提交,未经审查{{/newer}}</p>{{#cr_rows}}<div class=t><table><thead><tr><th>严重程度</th><th>维度</th><th>位置</th><th>问题</th><th>作者的判断</th></tr></thead><tbody>{{cr_rows}}</tbody></table></div>{{/cr_rows}}{{^cr_rows}}<p>没有未修复的发现。</p>{{/cr_rows}}</section>
+<section><h2>CR 情况(作者本地运行)</h2><p>crosscheck {{version}} · {{depth}} · 基于提交 <code>{{sha}}</code> · 已修复 {{fixed}} 条{{#coverage_note}} · {{coverage_note}}{{/coverage_note}}{{#newer}};审查之后又有 {{newer}} 个提交,未经审查{{/newer}}</p>{{#cr_rows}}<div class=t><table><thead><tr><th>严重程度</th><th>维度</th><th>位置</th><th>问题</th><th>作者的判断</th></tr></thead><tbody>{{cr_rows}}</tbody></table></div>{{/cr_rows}}{{^cr_rows}}<p>没有未修复的发现。</p>{{/cr_rows}}</section>
 </main>

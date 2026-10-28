@@ -128,6 +128,12 @@ li { margin: 3px 0; }
 .role b { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--accent); margin-bottom: 2px; }
 .role span { color: var(--text); }
 .role-note { font-size: 12.5px; color: var(--muted); }
+.parallel-work { display: grid; gap: 8px; min-width: 0; }
+.work-set { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+.work-set.note { border-style: dashed; background: var(--surface-2); }
+.work-title { margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.work-set .roles { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.task.note { border-style: dashed; background: var(--surface-2); }
 .loop-note { margin-top: 10px; font-size: 12.5px; color: var(--muted); text-align: center; border: 1px dashed var(--border); border-radius: 8px; padding: 6px; }
 
 /* 表格 */
@@ -207,12 +213,18 @@ td.nowrap { white-space: nowrap; }
 .links .pt { fill: var(--accent); }
 .links .pth { fill: var(--accent); opacity: .22; }
 .pipe-in.has-under { padding-bottom: 26px; }
-/* 角色分组:查找角色并行且互相独立,核实单独一个上下文 */
+/* 同阶段并行任务:候选查找与 MR 说明分组,核实单独一个上下文 */
 .pgrp { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 22px 10px 10px; border-radius: 12px; border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent); background: color-mix(in srgb, var(--surface) 70%, transparent); transition: border-color .3s, background-color .3s, box-shadow .3s; }
 .pgrp.verify { border-style: solid; align-items: center; margin: 0 14px; padding: 46px 12px 10px; }
 .pgrp-l { position: absolute; left: 10px; top: 4px; font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; letter-spacing: .02em; }
 .pgrp.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); box-shadow: 0 10px 28px -18px color-mix(in srgb, var(--accent) 90%, transparent); }
-.pgrp.on .pgrp-l { color: var(--accent); }
+.pgrp.on > .pgrp-l { color: var(--accent); }
+.ptask { display: flex; flex-direction: column; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ptask-l { font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.ptask-l b { color: var(--text); font-weight: 600; }
+.ptask.note { border-style: dashed; background: var(--surface-2); }
+.ptask.on { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.ptask.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
 .pgrp.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
 .pnode.m { flex-direction: row; align-items: center; gap: 9px; text-align: left; }
 .pnode.m .pic { flex: none; }
@@ -264,14 +276,18 @@ td.nowrap { white-space: nowrap; }
 .scene-cap { font-size: 13.5px; color: var(--muted); margin: 0 0 12px; min-height: 2.6em; }
 .scene { display: grid; gap: 8px; font-size: 13px; }
 
-.term { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg); display: flex; flex-direction: column; overflow: hidden; }
-.term-head { font-size: 12px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; cursor: pointer; list-style: none; }
+.term { min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg); display: flex; flex-direction: column; overflow: hidden; }
+.term[open] { contain: size; }
+.term::details-content { display: flex; flex: 1; min-height: 0; }
+.term:not([open]) { align-self: start; }
+.term:not([open])::details-content { display: none; }
+.term-head { flex: none; font-size: 12px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; cursor: pointer; list-style: none; }
 .term-head::-webkit-details-marker { display: none; }
 .term-head > span:first-child::before { content: "▾"; display: inline-block; margin-right: 6px; transition: transform .2s; }
 .term:not([open]) .term-head > span:first-child::before { transform: rotate(-90deg); }
 .term:not([open]) .term-head { border-bottom: 0; }
 .term-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.term ol { list-style: none; margin: 0; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; overflow-y: auto; max-height: 400px; flex: 1; }
+.term ol { list-style: none; margin: 0; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; overflow-y: auto; min-height: 0; flex: 1; }
 .term li { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 6px; }
 .term li.old { opacity: .55; }
 .term .who { color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -484,7 +500,9 @@ pre.md-raw { margin: 0; border: 0; border-radius: 0; font-size: 12px; white-spac
   .demo { padding: 14px 12px; }
   .demo-body { grid-template-columns: 1fr; }
   .scene-wrap { min-height: 0; }
-  .term ol { max-height: 220px; }
+  .term[open] { contain: none; }
+  .term::details-content { display: block; }
+  .term ol { overflow-y: visible; }
   .lane { grid-template-columns: 1fr; gap: 4px; }
   .term li { grid-template-columns: 1fr; gap: 0; }
   .wpane { height: 400px; }
@@ -638,9 +656,9 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           </div>
 
           <div class="scene" data-scene="3" hidden>
-            <div class="task a" style="--i:0"><span><code>reviewer</code> · 同一上下文分遍：正确性 → 安全 → 需求核对</span><span class="muted">查找模型</span></div>
-            <div class="task a" style="--i:1"><span><code>rules-auditor</code> · 只对照写下来的规则</span><span class="muted">查找模型</span></div>
-            <div class="task a" style="--i:1.5"><span><code>analyst</code> · 同时起草 MR 说明，只引用原文，不下结论</span><span class="muted">已启动</span></div>
+            <div class="task a" style="--i:0"><span><code>reviewer</code> · 同一上下文分遍：正确性 → 安全 → 需求核对</span><span class="muted">缺陷候选</span></div>
+            <div class="task a" style="--i:1"><span><code>rules-auditor</code> · 只对照写下来的规则</span><span class="muted">规则候选</span></div>
+            <div class="task note a" style="--i:1.5"><span><code>analyst</code> · 同时起草 MR 说明，只引用原文，不判断对错</span><span class="muted">说明草稿</span></div>
             <div class="find a" data-fx="find" style="--i:2">
               <div class="lanes">
                 <div class="lane"><code>reviewer</code><span class="cands"><span class="cc sent" data-k="p42">paginate.ts:42</span><span class="cc sent" data-k="o118">order_service.go:118</span><span class="cc sent merged" data-k="p43" title="与 paginate.ts:42 同根因，已并入">paginate.ts:43</span><span class="cc sent" data-k="e55">export.ts:55</span><span class="cc sent" data-k="p12">paginate.ts:12</span></span></div>
@@ -760,10 +778,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
             </div>
 
             <div class="tc" data-scene="3" hidden>
-              <div class="ta ty a"><span class="bul">●</span>启动 3 个子 agent，并行、互相独立：</div>
+              <div class="ta ty a"><span class="bul">●</span>同时启动两个候选查找角色和一个 MR 说明角色，各自独立执行：</div>
               <div class="tsub a" data-fx="agent" data-done="3200"><span class="spin ok"></span><b>reviewer</b><em class="mdl">查找模型</em><span class="tsub-d">正确性 → 安全 → 需求核对</span><span class="st ok" data-run="查找中…">5 条候选</span></div>
               <div class="tsub a" data-fx="agent" data-done="2000"><span class="spin ok"></span><b>rules-auditor</b><em class="mdl">查找模型</em><span class="tsub-d">对照 3 份规则</span><span class="st ok" data-run="对照中…">1 条候选 · 引文 REVIEW.md</span></div>
-              <div class="tsub a" data-fx="agent" data-done="2600"><span class="spin ok"></span><b>analyst</b><span class="tsub-d">起草 MR 说明</span><span class="st ok" data-run="起草中…">草稿已存</span></div>
+              <div class="tsub a" data-fx="agent" data-done="2600"><span class="spin ok"></span><b>analyst</b><span class="tsub-d">起草 MR 说明 · 不参与候选查找</span><span class="st ok" data-run="起草中…">草稿已存</span></div>
               <div class="ta ty a"><span class="bul">●</span>合并去重：6 → 5 条候选（paginate.ts:43 与 :42 同根因）</div>
             </div>
 
@@ -948,7 +966,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <summary>设计依据：这些原则从哪来</summary>
         <ul>
           <li><b>精确率优先：</b>Uber 发现开发者对低质量建议很快失去信任，整类砍掉评分最差的评论；OpenAI 接受召回略降，换取信号质量。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
-          <li><b>先找后核实：</b>Claude Code Review 由多个 agent 并行查找，再由单独的验证步骤逐条对照代码过滤误报；官方 code-review 命令要求规则违反引用原文。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a></li>
+          <li><b>先找后核实：</b>Claude Code Review 由多个 agent 并行查找，再由单独的验证步骤逐条对照代码过滤误报；官方 code-review 命令要求规则违反引用原文。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a></li>
           <li><b>确定性的交给脚本：</b>简单的语法规则 linter 最好，LLM 补语义判断；CodeRabbit 用工具结果过滤模型的误报。<a href="https://addyosmani.com/blog/agentic-code-review/">Addy Osmani：Agentic Code Review</a>；<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>规则就是文件：</b>REVIEW.md、BUGBOT.md、Copilot 指令文件都是普通 Markdown。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://cursor.com/docs/bugbot">Cursor Bugbot 文档（BUGBOT.md）</a>；<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a></li>
           <li><b>记住人的判断：</b>Bugbot 从开发者的反应和回复里学习规则，CodeRabbit 把开发者的回复记成 learnings，避免同样的误报反复出现。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
@@ -989,16 +1007,20 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
         <div class="layer">
           <div class="layer-head"><b>审查</b><span>主 agent 编排；有子代理时并行，否则顺序执行</span></div>
-          <div class="subrow"><div class="label">① 查找<br>尽量不漏</div><div class="roles">
-            <div class="role"><b>reviewer</b><span>能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；在同一个上下文里分遍查：正确性 → 安全 → 需求核对，deep 加影响面</span></div>
-            <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
-                        <div class="role"><b>analyst</b><span>同时起草 MR 说明的一句话和分组，必须引用材料原文，不判断对错</span></div>
+          <div class="subrow"><div class="label">① 并行任务<br>同时启动</div><div class="parallel-work">
+            <div class="work-set"><div class="work-title">查找候选 · 两个角色互相独立 · 交给 verifier</div><div class="roles">
+              <div class="role"><b>reviewer</b><span>能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；在同一个上下文里分遍查：正确性 → 安全 → 需求核对，deep 加影响面</span></div>
+              <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
+            </div></div>
+            <div class="work-set note"><div class="work-title">MR 说明 · 草稿经脚本核对后用于说明</div>
+              <div class="role"><b>analyst</b><span>同时起草 MR 说明的一句话和分组，必须引用材料原文，不判断对错，不提交缺陷或规则候选</span></div>
+            </div>
           </div></div>
           <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
-            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；每批最多 3 条，严重问题单独核实；deep 下经 run-check.sh 复现。用强模型，能用另一家的模型核实更好</span></div>
+            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；每批最多 3 条，严重问题单独核实；deep 下经 run-check.sh 复现。用强模型</span></div>
           </div></div>
           <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
-            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、合并同一规则和同一根因的重复发现、原有问题单列、排序、条数上限、编号</span></div>
+            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、仅合并关键字段等价的重复发现并保留来源、历史处理单独留痕、原有问题单列、排序、条数上限、编号</span></div>
           </div></div>
         </div>
         <div class="flow"><span class="arrow">↓</span></div>
@@ -1006,7 +1028,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <div class="layer">
           <div class="layer-head"><b>输出</b><span>CR 报告留在本地；MR 说明由开发者自己贴进 MR</span></div>
           <div class="subrow"><div class="label">CR 报告</div><div class="chips">
-            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，标已复现 / 读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">改动代码里的原有问题单列</span><span class="chip">消耗含实际模型，与配置不一致时提示</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
+            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，区分已复现、执行未定与读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">改动代码里的原有问题单列</span><span class="chip">消耗含实际模型，与配置不一致时提示</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
           </div></div>
           <div class="subrow"><div class="label">MR 说明</div><div class="chips">
             <span class="chip">mr.md（30 行以内）</span><span class="chip">mr.html 完整版（保存记录时生成）</span><span class="chip">网页版（配置了才有）</span><span class="chip">随 CR 报告更新</span>
@@ -1034,7 +1056,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <details class="design-basis">
         <summary>设计依据：总体结构</summary>
         <ul>
-          <li><b>能读整个仓库、自己决定往哪查：</b>Bugbot 从固定多遍流水线改成 agent 式后效果提升最大；OpenAI 给 reviewer 仓库访问和执行能力后严重问题抓得更多、误报更少。<a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor：Building a better Bugbot</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
+          <li><b>允许自主调查：</b>reviewer 可沿调用链和数据流读取仓库，补足 diff 之外的证据。Bugbot 的代理化支持自主搜索、读代码和调用工具，但不代表单 agent，其现行 agent 数量未公开。<a href="https://cursor.com/blog/building-bugbot">Cursor：Building Bugbot</a></li>
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
           <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
@@ -1046,10 +1068,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h2>三、审查流程</h2>
       <div class="table-wrap"><table>
         <tr><th>步骤</th><th>谁做</th><th>产出</th></tr>
-        <tr><td>0. 审查前先问（有要问的才有）</td><td>主 agent 一轮问完；用配置的工具读取链接</td><td>对比基准（项目没有记录时，记成项目规则）、需求单和需求文档的链接和内容（同一分支记住）、可选的 PRD 等资料（可跳过）</td></tr>
+        <tr><td>0. 审查前先问（有要问的才有）</td><td>主 agent 一轮问完；用配置的工具读取链接</td><td>对比基准（无法自动确定才问，默认不记住）、需求单和需求文档的链接和内容（同一分支记住）、可选的 PRD 等资料（可跳过）</td></tr>
         <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
         <tr><td>2. 装配规则</td><td><code>collect-rules.sh</code></td><td><code>rules.txt</code>、<code>rules-index.json</code></td></tr>
-        <tr><td>3. 查找候选</td><td><code>reviewer</code>、<code>rules-auditor</code>，同时 <code>analyst</code> 起草 MR 说明（并行）</td><td><code>candidates.json</code>；<code>analysis.json</code>（经 <code>analysis_check.py</code> 校验）</td></tr>
+        <tr><td>3. 并行查找与起草</td><td><code>reviewer</code>、<code>rules-auditor</code>，同时 <code>analyst</code> 起草 MR 说明（并行）</td><td><code>candidates.json</code>；<code>analysis.json</code>（经 <code>analysis_check.py</code> 校验）</td></tr>
         <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
         <tr><td>5. 汇总</td><td><code>aggregate.sh</code></td><td><code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code></td></tr>
         <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录；保存时同时写入 <code>mr.md</code>、<code>mr.html</code></td></tr>
@@ -1060,11 +1082,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h3>对比基准</h3>
       <p>和 GitHub / GitLab 一样，diff 从源分支与目标分支<strong>远端最新</strong>的 merge-base 算起：</p>
       <ul>
-        <li><b>默认是远端最新的目标分支：</b>PR / MR 的目标分支，没有 MR 时是默认分支。所有路径（当前分支、其他分支、git 回退、<code>tools.code_host</code>）都先从 origin 拉取再算（只更新 <code>origin/</code> 下的远程跟踪分支，不动工作区）；拉取失败照常审查，但提示基准可能过期。报告的 SCOPE 行写明基准来自远端最新、本地缓存、平台给出还是用户指定。</li>
-        <li><b>已合入的 MR 用合入前的版本：</b>用 merge commit 合入后目标分支已包含 head，merge-base 就是 head、diff 为空。脚本在目标分支的 first-parent 链上找到合入它的提交，用它的第一个父提交算基准；squash / rebase 合入照常算；找不到合入提交（如快进合入）时输出 NOTE 并停止。</li>
+        <li><b>分支基准取远端最新：</b>选定分支后先从 origin 拉取再算（只更新 <code>origin/</code> 下的远程跟踪分支，不动工作区）；拉取失败使用本地缓存并提示可能过期。平台提供已合入 MR 的冻结 diff 时使用合入前版本。报告的 SCOPE 行写明实际基准及选择来源。</li>
+        <li><b>已合入的 MR 用合入前的版本：</b>用 merge commit 合入后目标分支已包含 head，merge-base 就是 head、diff 为空。脚本在目标分支的 first-parent 链上找到合入它的提交，用它的第一个父提交算基准；squash / rebase 合入照常算；找不到合入提交（如快进合入）时输出 BASE_FAILED 并停止，请用户指定有效基准。</li>
         <li><b>用户可以指定：</b><code>--base</code> 指定分支，<code>--base-sha</code> 指定提交（短哈希也行，必须是 head 的祖先，优先于任何自动计算）。都只对这一次生效，不改项目的记录。</li>
         <li><b>空 diff 一定提示：</b>MR 或用户指定的基准算出 0 个文件时输出 NOTE，说基准可能不对，不当成“0 条发现”。</li>
-        <li><b>先问基准，按项目问一次：</b>用户这次没说对比什么、这个项目也没有记录时，审查开始前问一次——远端最新的目标分支（推荐；已合入的 MR 写作“合入前的版本”）、其他分支、某个 commit。前两项记成项目规则，每次审查重新解析成当时的最新值；选择其他分支也适用于 PR / MR，会按所选分支重新计算 diff；commit 只对当次有效，不记。说“换个基准”会重新问并更新记录。develop、release/* 这类长期分支比默认分支更近时，并进同一个问题提示。没法问的非交互运行用推荐项，报告里写“基准未确认”。基准、必填的需求、可选的资料放在同一轮问完，什么都不需要问时不打断用户。</li>
+        <li><b>能确定就直接审，不确定才问：</b>当次明确基准优先，其次是用户明确保存的项目规则。没有这些时，PR / MR 使用目标分支，本地从分支创建和切换记录寻找可验证的切出来源，取来源分支远端最新版本算 diff。Git 不永久保存来源，记录缺失、过期或有歧义才问；不拿 upstream 或最近共同祖先当来源证据。</li>
+        <li><b>默认不记住：</b>回答基准问题默认仅本次使用，顺带提示“是否记住为这个项目的默认规则？默认不记住”。明确要求才保存“跟随每个 MR 目标分支”或“固定对比分支 X”，不保存提交哈希，自动推断也不保存。换基准默认不改旧规则。必要的基准、需求与可选资料合并一轮问。</li>
+        <li><b>计算失败先恢复基准：</b>分支缺失、没有共同祖先或无法推断合入前版本时，输出 BASE_FAILED 并停止，交互中让用户选有效分支或提交再继续。非交互缺少来源时可用推荐项并标“基准未确认”，实际计算失败仍停止，不生成误导报告。</li>
       </ul>
 
       <h3>读外部 MR：tools.code_host</h3>
@@ -1097,9 +1121,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <details class="design-basis">
         <summary>设计依据：查找怎么分工、对比基准和读外部 MR</summary>
         <ul>
-          <li><b>成本看子代理数量：</b>宿主的提示缓存按“前缀完全相同”命中。跨子代理的读取一般吃不到缓存，所以子代理数量推高成本；同一个 agent 内多轮读取走缓存，代价小。按类别拆焦点、但放在同一个上下文里，第 2 遍以后读到的代码已经在上下文里。</li>
-          <li><b>单 agent 自主调查：</b><a href="https://forum.cursor.com/t/building-a-better-bugbot/149040">Cursor 的 Bugbot</a> 把多路并行换成能自己决定往哪查的 agent，是他们效果提升最大的一次；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI</a> 给单个 reviewer 仓库访问和执行能力后，严重问题抓得更多、误报更少。</li>
-          <li><b>按类别专项：</b><a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>有专门查规则和查安全逻辑的 agent，<a href="https://www.uber.com/blog/ureview/">Uber uReview</a> 的缺陷、最佳实践、应用安全是三个助手。分遍是两者的折中。</li>
+          <li><b>分遍复用材料，成本按用量判断：</b>reviewer 在同一上下文保留已读材料，减少重复调查。提示缓存按前缀匹配；fresh agent 通常不共享父对话，但工具、系统提示等共同前缀仍可能命中缓存，取决于宿主和请求构造。子代理数不等于成本倍数，实际成本还取决于输入、输出和缓存读写。<a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic：Prompt caching</a></li>
+          <li><b>分工按任务边界：</b>两个查找角色分别处理缺陷判断和规则原文，analyst 同阶段起草说明。<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>当前并行运行两个规则检查和两个 bug finder；<a href="https://www.greptile.com/blog/greptile-v5">Greptile v5</a>明确并行探索多个假设。并行与单上下文分遍各有取舍，外部方案不直接决定本插件的角色数量。</li>
           <li><b>安全一遍默认开：</b>照搬 <a href="https://github.com/anthropics/claude-code-security-review">Anthropic security-review</a> 的排除清单，默认不报只导致服务不可用的问题、缺少限流、开放重定向、只在测试代码里出现的。</li>
           <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
           <li><b>不报可读性和小重构：</b>Uber 的数据显示这类建议的评分一直最差，宿主也自带 /simplify。</li>
@@ -1108,11 +1131,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>实际模型从会话记录里读：</b>宿主不支持为子代理指定模型时会照常用宿主的模型，用户读报告时只看到自己配置了什么，所以由脚本读出实际模型，对不上就提示；只读模型名，不读对话内容。</li>
           <li><b>基准以远端最新为准：</b>GitHub、GitLab 的 PR / MR 都按目标分支当前最新的状态与源分支的 merge-base 算 diff；本机缓存的 <code>main</code> 可能是几天前的，当前分支已经合入更新的 main 时，别人的提交会被算成这次的改动。<a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests">GitHub：PR 里的分支比较</a>；<a href="https://docs.gitlab.com/ee/user/project/merge_requests/changes.html">GitLab：合并请求的改动</a></li>
           <li><b>已合入的 MR 不能出空 diff：</b>合入后 merge-base 等于 head，报成“0 条发现”最误导，所以取合入前的版本，算不出来就停下来问。</li>
-          <li><b>问一次，记规则不记提交：</b>猜错基准整份报告都偏，每次都问又太烦，所以按项目问一次。记提交哈希下次审查时目标分支已经前进，那个提交早就不是对的基准，所以只记“远端最新的目标分支”“分支 X”这样的规则，commit 只对当次有效。业界也把“对哪些目标分支做审查”当项目级配置，而不是每次对话的参数。<a href="https://docs.coderabbit.ai/reference/configuration">CodeRabbit：reviews.auto_review.base_branches</a></li>
+          <li><b>有依据才自动选，记忆由用户决定：</b>PR / MR 有明确目标，本地 reflog 可以提供创建来源线索，但会过期，也不能代表未来一直合入同一分支。因此自动选择不持久化，缺少可靠线索才问，明确要求记住才保存规则；同一仓库的不同工作流可以使用不同基准。<a href="https://git-scm.com/docs/git-reflog">Git：reflog 的本地记录与过期机制</a></li>
           <li><b>读外部 MR 的适配层是三样东西：</b>主流做法是在平台之上加一层适配器，每家平台一套实现，统一成同一组能力；crosscheck 跑在 agent 里，不内置任何平台的客户端，能调用的是用户自己的工具，所以适配层是一句提示词、一个固定格式和脚本校验。<a href="https://docs.qodo.ai/install-and-configure/git-provider-feature-support">Qodo：各 Git 平台的功能支持</a>；<a href="https://github.com/anthropics/claude-code-action">Claude Code Action：由运行环境访问平台，把 PR 信息交给模型</a></li>
           <li><b>查找不自己过滤：</b>评测里漏掉的问题大多是查找阶段根本没提出来，而不是被核实否决。所以 reviewer 不读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
         </ul>
-        <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
       </details>
     </section>
 
@@ -1120,14 +1142,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <h2>四、审查角色</h2>
       <div class="cards">
         <div class="card"><h4><span class="num">1</span>reviewer</h4>
-          <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。最多 15 条，查到一半的也交，写明 <code>needs_check</code>。</p>
+          <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。每批 15 条是查找预算，查到一半的也交，写明 <code>needs_check</code>。回复同时声明覆盖限制，达限就标“覆盖可能受限、未交数量未知”，CR 报告与 MR 说明都保留这个提示。</p>
           <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。改动违反了接口写明的约定、或去掉了原有的锁、事务、过滤条件、校验时，即使现在没人这样调用也要提交。只负责找、不负责判：不读误报清单，拿不准的照常提交并写 <code>needs_check</code>；每块改动对照 base 过一遍最常漏的几类检查点。</div></div>
         <div class="card"><h4><span class="num">2</span>rules-auditor</h4>
           <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
           <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
         <div class="card"><h4><span class="num">3</span>verifier</h4>
-          <p>只拿到候选结论。先查历史判断（同一问题、代码没变 → 0 分），再按封顶检查尝试推翻：不在改动行、不可达、CI 会拦、命中误报清单。缺陷真实、但 base 里已以同样结果存在的，不打 0 分，标 <code>pre_existing</code>，过了 80 分门槛后单列在报告“改动代码里的原有问题”一节，不计入发现数、不进 MR 说明；被本次改动变得更容易触发或范围变大的，仍算本次引入。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
-          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。严重程度按后果类型定（数据错误、崩溃或未处理的异常——包括正常输入稳定返回 500、现有调用方因违反约定出错、安全边界被破坏算严重），不因影响范围窄、尚未出现、措辞轻重而降级，只在后果类型判断错时调整级别；定级标准附有几条虚构的对照例子。同一根因、同一改法的多处合并为一条，其余位置列在 <code>also_at</code>，逐处核对；汇总时脚本再合并位置有交集（或同文件相距 5 行内）且摘要相似度不低于 0.85 的重复发现，宁可漏合并也不误合并。deep 下运行命令必须经 <code>run-check.sh</code> 留记录，报告标「已复现 / 读代码推断」，展示的输出取自运行日志；声称跑过但没有记录的最高 60 分。</div></div>
+          <p>独立上下文核实候选，隐藏发现来源与旧分数，但候选描述本身仍可能影响判断。历史不修决定与事实真假分开：先核对当前场景、调用环境和前提，不因文件没变就自动压掉；不修保留当前证据分，过去的不成立不能覆盖本轮已确认事实。再按封顶检查尝试推翻：不在改动行、不可达、CI 会拦、命中误报清单。缺陷真实、但 base 里已以同样结果存在的，不打 0 分，标 <code>pre_existing</code>，过了 80 分门槛后单列在报告“改动代码里的原有问题”一节，不计入发现数、不进 MR 说明；被本次改动变得更容易触发或范围变大的，仍算本次引入。没推翻才走完场景打分。例外：本次改动破坏了接口写明的约定或原有保护时，不按“现在没人这样调用”否决，最高评为重要。</p>
+          <div class="accept">必须给 <code>evidence</code>（读过的代码位置）和 <code>ruled_out</code>；位置不存在或没给依据的最高 50 分。每批最多 3 条，严重问题单独核实。严重程度按后果类型定（数据错误、崩溃或未处理的异常——包括正常输入稳定返回 500、现有调用方因违反约定出错、安全边界被破坏算严重），不因影响范围窄、尚未出现、措辞轻重而降级，只在后果类型判断错时调整级别；定级标准附有几条虚构的对照例子。同一根因、同一改法的多处合并为一条，其余位置列在 <code>also_at</code>，逐处核对；汇总时脚本只合并关键字段等价的重复项，保留原始回复、来源映射和合并理由，不靠相似摘要证明同根因。核实要连起触发前提、可达路径、后果与 base 对照，引用位置存在本身不代表因果充分。deep 运行经 <code>run-check.sh</code> 留记录，只有复现结论与实际观察说明齐备才标“已复现”；反证否决场景，结果未定保留日志并标读代码判断。声称执行却没有记录最高 60 分，只有执行记录不能冒称复现。</div><div class="accept">原始候选中的失败场景和待核项不能因提前合并而消失；没有映射到送核实候选的原件由脚本补回。历史处理、合并去向和覆盖限制随本地记录保存。</div></div>
         <div class="card"><h4><span class="num">4</span>analyst（MR 说明）</h4>
           <p>和查找角色同时启动。代码分析由脚本 <code>analysis_facts.py</code> 先做好：改了哪些函数和接口、签名变化、本仓库里的调用方（影响面）、迁移和配置变化，按代码块编号。analyst 读这份分析、需要时看对应的 diff，再对照需求材料，起草一句话、改动分组、验收标准对应的代码块。不判断对错。</p>
           <div class="accept">每句必须带材料原文的引文，分组只能用脚本给的编号；<code>analysis_check.py</code> 核对引文、编号和禁用词，对不上的删掉。</div></div>
@@ -1135,7 +1157,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <details class="design-basis">
         <summary>设计依据：角色分工</summary>
         <ul>
-          <li><b>并行查找 + 独立核实：</b>Claude Code Review 多个 agent 各查一类问题，验证步骤逐条对照代码确认（如是否已有空值保护）。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
+          <li><b>查找与核实分开：</b>两个查找角色提交候选，verifier 独立读代码确认；analyst 仅提交说明草稿，交给脚本核对。查找过程与核实上下文分开，减少核实者沿用候选推理的影响。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
+          <li><b>80 分是操作性证据门槛：</b>本插件按依据完整性和反证检查给出 0–100 分，以 80 分过滤候选；它不是真实概率，也不是已校准的行业标准。Anthropic 官方<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">命令文件</a>当前没有数值 80 门槛，而其<a href="https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-review/README.md">README</a>仍写 80，不能据此宣称行业统一标准。</li>
           <li><b>verifier 的执行证据：</b>Meta TestGen-LLM 只保留能编译、稳定通过、确实提高覆盖率的测试；有 agent 跑了 0 个测试、退出码 0 就报告“全部通过”，所以执行声明要核对原始记录。<a href="https://arxiv.org/abs/2402.09171">Meta：TestGen-LLM（可执行的过滤器）</a>；<a href="https://redreamality.com/blog/coding-agent-done-claims-verification-survey/">综述：agent 自报“测试通过”的核实</a></li>
           <li><b>原有问题单独标出：</b>Anthropic 内部的代码审查给发现加 Pre-existing 标签：问题真实，但不是这次改动引入的，不当作作者要修的缺陷，也不丢掉。我们同样把它们和本次引入的问题分开展示。<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a></li>
           <li><b>analyst 只写可核对的描述：</b>Qodo /describe、CodeRabbit walkthrough 生成改动说明；我们要求引用原文并由脚本核对。<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a>；<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a></li>
@@ -1208,7 +1231,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <details class="design-basis">
         <summary>设计依据：怎样的规则才好用，规则发现怎么保证可信</summary>
         <ul>
-          <li><b>规则就是普通文件，引原文再核实：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-code/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>要求规则违反引用原文，再由核实步骤确认。写规则不需要编号或元数据。</li>
+          <li><b>规则就是普通文件，引原文再核实：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>要求规则违反引用原文，再由核实步骤确认。写规则不需要编号或元数据。</li>
           <li><b>核对引文，不证明“读过”：</b>证明“规则在上下文里、每条都有结论”的机制证明不了判断是对的，还会给流程增加容易出错的环节；逐字引文由脚本和 verifier 核对就够了。</li>
           <li><b>写法：</b>短的祈使句、限定路径、写原因、给正反例、写明不要报什么；Copilot 只读前 4000 字符，建议从 10–20 条起步。<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a>；<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://www.greptile.com/docs/code-review/custom-standards">Greptile：自定义规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a></li>
           <li><b>从历史里长出规则：</b>Bugbot 从反应和回复中学习规则，持续负反馈的自动停用；Qodo 只统计被采纳并改了代码的建议；CodeRabbit 从开发者回复里记 learnings。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
@@ -1262,12 +1285,12 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         pending             进行中标记，保存成功后删除
 
 仓库/.agents/rules/&lt;主题&gt;.md     cr-rules 沉淀的规则（你提交后生效）</code></pre>
-      <p>同一个目标再次审查默认做增量：diff 没变的文件不再看，上次的发现原样带过来；变了的重新审，上次的发现重新核实，分成“遗留”和“已解决”。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量，上次之后被判为不成立或不修的发现不再带入。读不到被审查的代码时直接停下，不出空报告。</p>
+      <p>同一个目标再次审查默认做增量：diff 没变的文件不再查找，上次的发现原样带过来；变更或识别到依赖的文件重新审，本轮进入核实流程时，上次仍在发现列表且有历史处理判断的条目也重新核对前提，分成“遗留”和“已解决”，已抑制不算已解决。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量。已进入历史抑制列表的条目不会自动带入以后每轮增量；符号名依赖匹配可能漏掉配置、反射等间接影响，环境广泛变化时可用“重新审”全量检查。读不到被审查的代码时停止生成结论，不出空报告。</p>
       <details class="design-basis">
         <summary>设计依据：记录和增量</summary>
         <ul>
           <li><b>在本地存记录、只重看变了的：</b>AI 评审工具普遍在每次提交后只评审新改动；Bugbot、CodeRabbit 把学到的东西按仓库存。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
-          <li><b>项目级和分支级分开记：</b>需求来源按分支记、90 天过期，因为分支会结束；对比基准规则是项目级的，和判断记录放在同一个项目目录里，不过期，要改就说“换个基准”。</li>
+          <li><b>项目级和分支级分开记：</b>需求来源按分支记、90 天过期；基准默认不记，用户明确要求才保存为项目规则，和判断记录放在同一目录。换基准默认仅本次，明确说记住才更新保存的规则。</li>
           <li><b>改动行覆盖：</b>Codecov 的 patch 覆盖率只统计本次改动的行，思路和“只审改动的行”一致。<a href="https://docs.codecov.com/docs/commit-status">Codecov：只统计改动行的 patch 覆盖率</a></li>
         </ul>
       </details>
@@ -1343,16 +1366,18 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
     { id: 'review', label: '开发者', sub: '审查一次改动',
       info: '谁：每个开发者 · 什么时候：提 MR 之前或审别人的 MR 时',
       actors: ['you', 'main', 'script', 'hook', 'reviewer', 'rules', 'analyst', 'verifier', 'repo'],
-      // 节点按列排;带 group 的列画成一个框,框里的角色各自独立
+      // 节点按列排;并行阶段按产出分组,只有查找组向 verifier 交候选
       nodes: [[['you', '你', '', 'user']], [['main', '主 agent', '', 'agent']], [['script', '脚本', '收集改动 / 规则', 'script']],
-        { group: 'gfind', kind: 'find', label: '并行查找 · 互相独立', members: [
+        { group: 'gparallel', kind: 'find', label: '并行任务 · 同时启动', tasks: [
+          { id: 'gfind', label: '查找候选', detail: '两个角色互相独立', members: ['reviewer', 'rules'] },
+          { id: 'gnote', kind: 'note', label: 'MR 说明', detail: '只写事实', members: ['analyst'] }], members: [
           ['reviewer', 'reviewer', '', 'search', { model: '查找模型', passes: ['正确性', '安全', '需求核对'] }],
           ['rules', 'rules-auditor', '对照规则', 'rule', { model: '查找模型' }],
-          ['analyst', 'analyst', '起草 MR 说明', 'pen']] },
+          ['analyst', 'analyst', '起草说明 · 不交候选', 'pen']] },
         { group: 'gverify', kind: 'verify', label: '独立核实 · 独立上下文', members: [
           ['verifier', 'verifier', '先推翻再打分', 'shield', { model: '核实模型', strong: true, gauge: true }]] },
         [['report', '报告', 'CR 报告', 'doc']], [['mrnote', 'MR 说明', '贴进 MR', 'note']]],
-      edges: [['you', 'main'], ['main', 'script'], ['script', 'gfind'], ['gfind', 'verifier', { label: '5 条候选' }],
+      edges: [['you', 'main'], ['main', 'script'], ['script', 'gparallel'], ['gfind', 'verifier', { label: '5 条候选' }],
         ['verifier', 'report', { label: 'pass' }], ['report', 'mrnote'], ['analyst', 'mrnote', { under: true }]],
       scenes: [
         { title: '发起审查', actors: ['you', 'main'], pipe: ['you', 'main'],
@@ -1364,9 +1389,9 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         { title: '意图与规则', actors: ['script', 'repo'], pipe: ['script'],
           cap: '从 MR 描述、关联需求、提交说明、人工讨论和你的补充里整理出意图和验收标准；规则直接读仓库里的 Markdown，PR/MR 从 base 读。',
           log: [['collect-context', '→ intent.md(验收标准 2 条)'], ['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc']] },
-        { title: '查找候选', actors: ['main', 'reviewer', 'rules', 'analyst'], pipe: ['reviewer', 'rules', 'analyst'],
-          cap: '两个查找角色并行、互相看不到对方。reviewer 自己决定往哪里深挖，在同一个上下文里分遍查正确性、安全、需求核对，后几遍读到的代码走缓存；rules-auditor 只对照写下来的规则，每条违反写出出处和原文。analyst 同时起草 MR 说明。查到一半的也交。',
-          log: [['主 agent', '启动 reviewer、rules-auditor、analyst(并行)'], ['reviewer', '5 条候选'], ['rules-auditor', '1 条候选 · 引文 REVIEW.md'], ['analyst', 'MR 说明草稿'], ['主 agent', '合并去重 6 → 5 条(:43 与 :42 同根因)']] },
+        { title: '查找与起草', actors: ['main', 'reviewer', 'rules', 'analyst'], pipe: ['reviewer', 'rules', 'analyst'],
+          cap: '同一阶段并行做两类任务：reviewer 和 rules-auditor 独立查找候选，analyst 只起草 MR 说明。reviewer 在同一上下文分遍查正确性、安全、需求核对，复用已读材料；rules-auditor 对照规则并引用原文。两个查找角色把候选交给核实，说明草稿经脚本核对后用于 MR 说明。',
+          log: [['主 agent', '并行启动：候选查找 ×2 · MR 说明 ×1'], ['reviewer', '5 条候选'], ['rules-auditor', '1 条候选 · 引文 REVIEW.md'], ['analyst', 'MR 说明草稿 · 不进入候选核实'], ['主 agent', '合并去重 6 → 5 条(:43 与 :42 同根因)']] },
         { title: '独立核实', actors: ['verifier', 'script'], pipe: ['verifier'],
           cap: 'verifier 只拿到候选结论，逐条重新读代码，先尝试推翻再打分，并给出读过的代码和排除的可能。脚本核对依据位置和规则引文，低于 80 分的不报但留档。',
           log: [['verifier ×1', '5 条候选'], ['aggregate', '依据位置 ✓ · 规则引文 ✓'], ['aggregate', '通过 3 · 否决 2 → rejected.json']] },
@@ -1820,12 +1845,24 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         c.appendChild(host);
         list = col.members;
       }
+      var taskHosts = {};
+      (col.tasks || []).forEach(function (task) {
+        var box = document.createElement('div');
+        box.className = 'ptask' + (task.kind ? ' ' + task.kind : '');
+        box.setAttribute('role', 'group');
+        box.setAttribute('aria-label', task.label + ' · ' + task.detail);
+        box.innerHTML = '<span class="ptask-l"><b>' + task.label + '</b> · ' + task.detail + '</span>';
+        nodeEls[task.id] = box;
+        groupOf[task.id] = task.members;
+        task.members.forEach(function (id) { taskHosts[id] = box; });
+        host.appendChild(box);
+      });
       list.forEach(function (n) {
         var d = document.createElement('div');
         d.className = 'pnode' + (col.kind === 'find' ? ' m' : '');
         d.innerHTML = nodeHTML(n);
         nodeEls[n[0]] = d;
-        host.appendChild(d);
+        (taskHosts[n[0]] || host).appendChild(d);
       });
       if (col.kind === 'verify') {
         binEl = document.createElement('span');

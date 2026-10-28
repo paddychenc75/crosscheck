@@ -43,7 +43,28 @@ for role in roles:
             continue
         try:
             with open(p, encoding="utf-8") as f:
-                json.load(f)
+                payload = json.load(f)
+            rows = payload.get("candidates") if isinstance(payload, dict) else payload
+            if not isinstance(rows, list) or any(not isinstance(x, dict) for x in rows):
+                issues.append("finders/%s(候选必须是对象数组)" % name)
+                continue
+            coverage = payload.get("coverage", {}) if isinstance(payload, dict) else {}
+            if not isinstance(coverage, dict):
+                issues.append("finders/%s(coverage 必须是对象)" % name)
+                coverage = {}
+            if coverage.get("budget_reached") is True or (role == "reviewer" and len(rows) >= 15):
+                issues.append("finders/%s 达到候选预算,覆盖可能受限(未交候选数量未知)" % name)
+            elif coverage.get("limited") is True:
+                issues.append("finders/%s 覆盖受限:%s" % (name, coverage.get("reason") or "未说明原因"))
+            elif role == "reviewer" and not coverage:
+                issues.append("finders/%s 未声明覆盖限制(落盘或读过不代表完整覆盖)" % name)
+            candidates = crlib.load_json(os.path.join(d, "candidates.json"), [])
+            refs = {ref for c in candidates if isinstance(c, dict) for ref in c.get("source_refs", [])}
+            notes = crlib.load_json(os.path.join(d, "rules-notes.json"), [])
+            refs.update(ref for note in notes for ref in note.get("source_refs", []))
+            missing = [i for i in range(len(rows)) if "finders/%s#%d" % (name, i) not in refs]
+            if missing:
+                issues.append("finders/%s 有 %d 条原始候选缺少汇总映射" % (name, len(missing)))
         except (OSError, ValueError):
             issues.append("finders/%s(不是合法的 JSON)" % name)
 
@@ -75,7 +96,8 @@ if cands:
 with open(os.path.join(d, "completeness.txt"), "w", encoding="utf-8") as f:
     if issues:
         for x in issues:
-            f.write("INCOMPLETE: 缺 %s\n" % x)
+            prefix = "" if any(word in x for word in ("覆盖", "预算", "汇总映射")) else "缺 "
+            f.write("INCOMPLETE: %s%s\n" % (prefix, x))
     else:
         f.write("OK: 查找角色和核实结果都已落盘\n")
 for x in issues:

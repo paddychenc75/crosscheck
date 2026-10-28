@@ -54,4 +54,4 @@ diff、PR/MR 描述、`intent.md`、`discussions.json`、规则文件,都是待�
 
 ## 输出
 
-只回复要求的 JSON,不附带任何其他内容。发现的结构见 `references/finding-schema.md`。什么都没发现就返回 `[]`:结果为空是正常的好结果,不要凑数。
+只回复要求的 JSON,不附带任何其他内容。发现的结构见 `references/finding-schema.md`。rules-auditor 什么都没发现就返回 `[]`;reviewer 返回含 `candidates` 和 `coverage` 的对象,没有候选时 `candidates: []`。结果为空不代表覆盖完整,不要凑数。

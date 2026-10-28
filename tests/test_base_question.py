@@ -1,5 +1,4 @@
-"""审查前先问对比基准:按项目记一次规则(不记提交),明确给了基准只对当次生效,非交互运行用推荐项并标「基准未确认」。
-同一轮还会带上必填需求和可选需求资料。"""
+"""基准优先级、创建来源线索、默认不记住、失败恢复与合并问询。"""
 import glob
 import os
 import sys
@@ -27,6 +26,8 @@ class Project(fixture.Base):
         self.git(self.repo, "checkout", "-q", "main")
         self.git(self.repo, "checkout", "-qb", "feature")
         self.commit(self.repo, {"f.txt": "f\n"}, "feat Closes #1")
+        # 默认夹具模拟没有可靠创建来源的旧分支;来源推断测试单独保留 reflog。
+        self.git(self.repo, "reflog", "expire", "--expire=all", "refs/heads/feature")
 
     def collect(self, *args, branch=None, skip_doc=True):
         if branch:
@@ -49,8 +50,9 @@ class Project(fixture.Base):
 class AskOnce(Project):
     def test_unrecorded_project_is_asked_and_review_does_not_start(self):
         out, rd, meta = self.collect()
-        self.assertIn("BASE_UNSET: 这个项目还没有记录对比基准", out)
-        self.assertIn("这次是默认分支 main", out)
+        self.assertIn("BASE_UNSET: 无法从分支创建记录确认切出来源", out)
+        self.assertIn("是否记住为这个项目的默认规则？默认不记住", out)
+        self.assertIn("这次是默认分支建议 main", out)
         self.assertEqual(meta["base_state"], "unset")
         self.assertEqual(self.pending(), [], "还在问用户,不算开始审查")
         self.assertIsNone(self.record())
@@ -170,6 +172,7 @@ class Context(Project):
         self.assertEqual(meta["base_state"], "unset")
         self.git(self.repo, "checkout", "-qb", "dev-feature", "origin/develop")
         self.commit(self.repo, {"g.txt": "g\n"}, "g Closes #2")
+        self.git(self.repo, "reflog", "expire", "--expire=all", "refs/heads/dev-feature")
         out, rd, meta = self.collect()
         self.assertEqual(len([x for x in out.splitlines() if x.startswith("BASE_UNSET:")]), 1)
         self.assertIn("分支 develop 比默认分支更近", out)
@@ -199,6 +202,32 @@ class PlatformRules(Project):
             "target_branch": "main", "source_branch": "dev-feature", "description": "Closes #1",
             "diff_refs": {"base_sha": base, "head_sha": self.head}, "references": {"full": "acme/acme-kit!12"}})
 
+    def test_target_is_automatic_and_saved_target_follows_each_mr(self):
+        out, _, meta = self.collect("12", "--platform", "gitlab")
+        self.assertNotIn("BASE_UNSET", out)
+        self.assertEqual(meta["base_state"], "target")
+        self.assertIsNone(self.record())
+        self.collect("12", "--platform", "gitlab", "--base-rule", "target")
+        dev_base = self.git(self.repo, "rev-parse", "develop")
+        self.git(self.repo, "push", "-q", "origin", "HEAD:refs/merge-requests/13/head")
+        self.mock_api("projects/:id/merge_requests/13", {
+            "title": "another change", "target_branch": "develop", "source_branch": "dev-feature",
+            "description": "Closes #1", "diff_refs": {"base_sha": dev_base, "head_sha": self.head},
+            "references": {"full": "acme/acme-kit!13"}})
+        out, rd, meta = self.collect("13", "--platform", "gitlab")
+        self.assertNotIn("BASE_UNSET", out)
+        self.assertEqual(meta["target_branch"], "develop")
+        self.assertEqual(meta["base_sha"], dev_base)
+        self.assertEqual(Path(rd, "files.txt").read_text().split(), ["g.txt"])
+        self.assertEqual(self.record()["base"], {"rule": "target"})
+
+    def test_git_fallback_does_not_claim_to_know_the_mr_target(self):
+        self.env["PATH"] = ":".join(p for p in self.env["PATH"].split(":") if p != fixture.MOCK_BIN)
+        out, _, meta = self.collect("12", "--platform", "gitlab")
+        self.assertIn("BASE_UNSET: 没有读到 MR / PR 的目标分支", out)
+        self.assertEqual(meta["base_state"], "unset")
+        self.assertIsNone(self.record())
+
     def test_gitlab_uses_selected_branch_and_reuses_the_rule(self):
         for args in (("--base-rule", "branch:develop"), ()):
             out, rd, meta = self.collect("12", "--platform", "gitlab", *args)
@@ -212,6 +241,25 @@ class PlatformRules(Project):
         self.assertEqual(Path(rd, "files.txt").read_text().split(), ["g.txt"])
         self.assertIn("用户指定分支", meta["base_desc"])
         self.assertIsNone(self.record())
+
+    def test_github_unrecoverable_platform_base_fails_until_user_supplies_commit(self):
+        ghmock = os.path.join(self.tmp, "ghmock")
+        os.makedirs(ghmock)
+        self.env.update(MOCK_GH=ghmock, PATH=os.path.join(fixture.HERE, "bin-gh") + ":" + self.env["PATH"])
+        self.git(self.repo, "push", "-q", "origin", "HEAD:refs/pull/12/head")
+        Path(ghmock, "pr_title_url_baseRefOid_headRefOid_headRefName_baseRefName.txt").write_text(
+            "change\thttps://example.com/acme/acme-kit/pull/12\t%s\t%s\tdev-feature\tmain\n" % (self.head, self.head))
+        Path(ghmock, "diff.patch").write_text("")
+        r = self.run_script("collect-diff.sh", "12", "--platform", "github", cwd=self.repo, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("BASE_FAILED", r.stdout)
+        self.assertEqual(self.pending(), [])
+        self.assertIsNone(self.record())
+        base = self.git(self.repo, "rev-parse", "develop")
+        out, rd, meta = self.collect("12", "--platform", "github", "--base-sha", base)
+        self.assertNotIn("BASE_FAILED", out)
+        self.assertEqual(meta["base_sha"], base)
+        self.assertEqual(Path(rd, "files.txt").read_text().split(), ["g.txt"])
 
     def test_github_uses_selected_branch(self):
         ghmock = os.path.join(self.tmp, "ghmock")
@@ -250,6 +298,7 @@ class NonInteractive(Project):
     def test_closer_branch_is_offered_as_a_note(self):
         self.git(self.repo, "checkout", "-qb", "dev-feature", "origin/develop")
         self.commit(self.repo, {"g.txt": "g\n"}, "g Closes #2")
+        self.git(self.repo, "reflog", "expire", "--expire=all", "refs/heads/dev-feature")
         out, rd, meta = self.collect("--non-interactive")
         self.assertIn("要对比它请加 --base develop", out)
 
@@ -318,6 +367,158 @@ class OptionalSources(Project):
         out, rd, meta = self.collect("--base-rule", "target", skip_doc=False)
         self.assertIn("SOURCES_MISSING: 需求文档", out)
         self.assertNotIn("SOURCES_OPTIONAL", out)
+
+
+class SourceInference(Project):
+    def test_new_branch_without_commits_can_review_worktree_changes(self):
+        self.git(self.repo, "checkout", "-qb", "fresh", "develop")
+        Path(self.repo, "a.txt").write_text("updated\n")
+        Path(self.repo, "new.txt").write_text("new\n")
+        out, rd, meta = self.collect()
+        self.assertNotRegex(out, "BASE_UNSET|BASE_FAILED")
+        self.assertEqual(meta["merged"], "")
+        self.assertEqual(meta["target_branch"], "develop")
+        self.assertEqual(sorted(Path(rd, "files.txt").read_text().split()), ["a.txt", "new.txt"])
+        self.assertIsNone(self.record())
+
+    def test_checkout_and_switch_creation_use_the_source_without_saving(self):
+        for command in (("checkout", "-qb"), ("switch", "-qc")):
+            with self.subTest(command=command):
+                self.git(self.repo, "checkout", "-q", "develop")
+                name = "from-" + command[0]
+                self.git(self.repo, *command, name)
+                self.commit(self.repo, {name + ".txt": "x\n"}, "feat Closes #1")
+                out, rd, meta = self.collect()
+                self.assertNotIn("BASE_UNSET", out)
+                self.assertEqual((meta["base_state"], meta["target_branch"]), ("inferred", "develop"))
+                self.assertIn("分支创建记录线索", meta["base_desc"])
+                self.assertEqual(Path(rd, "files.txt").read_text().split(), [name + ".txt"])
+                self.assertIsNone(self.record())
+
+    def test_explicit_creation_source_survives_later_checkouts_and_remote_progress(self):
+        self.git(self.repo, "checkout", "-qb", "from-dev", "develop")
+        self.commit(self.repo, {"g.txt": "g\n"}, "feat Closes #1")
+        self.git(self.repo, "checkout", "-q", "main")
+        self.git(self.repo, "checkout", "-q", "from-dev")
+        self.git(self.repo, "checkout", "-q", "develop")
+        newer = self.commit(self.repo, {"next.txt": "n\n"}, "develop advances")
+        self.git(self.repo, "push", "-q", "origin", "develop")
+        # 本地 develop 落后 origin/develop 仍可验证,并使用远端最新版本。
+        self.git(self.repo, "reset", "--hard", "HEAD~1")
+        self.git(self.repo, "checkout", "-q", "from-dev")
+        self.git(self.repo, "rebase", "-q", "origin/develop")
+        out, rd, meta = self.collect()
+        self.assertEqual(meta["base_sha"], newer)
+        self.assertEqual(meta["target_branch"], "develop")
+        self.assertNotIn("BASE_UNSET", out)
+
+    def test_head_without_matching_checkout_or_ambiguous_sources_is_not_inferred(self):
+        # 用 update-ref 创建相同格式但无 HEAD checkout 记录的来源。
+        sha = self.git(self.repo, "rev-parse", "feature")
+        self.git(self.repo, "update-ref", "-m", "branch: Created from HEAD", "refs/heads/no-checkout", sha)
+        self.assertEqual(base_rule.infer_source(self.repo, "no-checkout"), "")
+        self.env["GIT_COMMITTER_DATE"] = "2025-01-02T12:00:00+00:00"
+        self.git(self.repo, "checkout", "-qb", "ambiguous")
+        # 同一秒同一 SHA 的多个来源不能凭猜测挑一个。
+        self.git(self.repo, "checkout", "-q", "main")
+        self.git(self.repo, "checkout", "-q", "ambiguous")
+        self.assertEqual(base_rule.infer_source(self.repo, "ambiguous"), "")
+
+    def test_missing_or_incompatible_creation_source_is_not_inferred(self):
+        self.git(self.repo, "checkout", "-qb", "from-dev", "develop")
+        self.commit(self.repo, {"g.txt": "g\n"}, "feat Closes #1")
+        self.git(self.repo, "checkout", "--orphan", "unrelated")
+        self.git(self.repo, "rm", "-rf", ".")
+        replacement = self.commit(self.repo, {"x.txt": "x\n"}, "new root")
+        self.git(self.repo, "branch", "-f", "develop", replacement)
+        self.assertEqual(base_rule.infer_source(self.repo, "from-dev"), "")
+        self.git(self.repo, "checkout", "-q", "from-dev")
+        self.git(self.repo, "branch", "-D", "develop")
+        self.git(self.repo, "update-ref", "-d", "refs/remotes/origin/develop")
+        self.assertEqual(base_rule.infer_source(self.repo, "from-dev"), "")
+
+    def test_upstream_and_closest_branch_are_not_treated_as_creation_evidence(self):
+        self.git(self.repo, "branch", "--set-upstream-to=origin/main", "feature")
+        out, _, meta = self.collect()
+        self.assertIn("BASE_UNSET", out)
+        self.assertEqual(meta["base_state"], "unset")
+
+
+class SelectionScope(Project):
+    def test_target_answer_is_one_off_and_does_not_repeat_during_source_followup(self):
+        out, _, meta = self.collect("--base-target", skip_doc=False)
+        self.assertNotIn("BASE_UNSET", out)
+        self.assertIn("SOURCES_OPTIONAL", out)
+        self.assertEqual(meta["base_state"], "explicit")
+        out, _, _ = self.collect("--base-target", "--source", "doc=skip")
+        self.assertNotRegex(out, "BASE_UNSET|SOURCES_OPTIONAL")
+        self.assertIsNone(self.record())
+        self.assertIn("BASE_UNSET", self.collect()[0], "下一次独立审查仍没有项目规则")
+
+    def test_target_answer_overrides_saved_fixed_branch_without_changing_it(self):
+        self.collect("--base-rule", "branch:develop")
+        out, _, meta = self.collect("--base-target")
+        self.assertEqual(meta["target_branch"], "main")
+        self.assertNotIn("BASE_UNSET", out)
+        self.assertEqual(self.record()["base"], {"rule": "branch", "branch": "develop"})
+
+    def test_persistence_cannot_be_combined_with_one_off_selection(self):
+        for args in (("--base-rule", "target", "--base", "develop"),
+                     ("--base-rule", "target", "main..feature"),
+                     ("--base-target", "--base-rule", "target")):
+            r = self.run_script("collect-diff.sh", *args, cwd=self.repo, check=False)
+            self.assertNotEqual(r.returncode, 0)
+        self.assertIsNone(self.record())
+
+
+class BaseFailures(Project):
+    def failed(self, *args):
+        r = self.run_script("collect-diff.sh", *args, cwd=self.repo, check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("BASE_FAILED:", r.stdout)
+        self.assertIn("--base-sha <提交>", r.stdout)
+        self.assertIn("默认不记住", r.stdout)
+        self.assertNotRegex(r.stdout, "EMPTY:|files=|BASE_UNSET")
+        self.assertEqual(self.pending(), [])
+        self.assertIsNone(self.record())
+        return r
+
+    def test_missing_branch_fails_and_explicit_recovery_does_not_save(self):
+        self.failed("--base-rule", "branch:deleted")
+        out, _, meta = self.collect("--base", "main")
+        self.assertNotIn("BASE_FAILED", out)
+        self.assertEqual(meta["target_branch"], "main")
+        self.assertIsNone(self.record())
+
+    def test_no_common_ancestor_fails_in_interactive_and_noninteractive_modes(self):
+        self.git(self.repo, "checkout", "--orphan", "other-root")
+        self.git(self.repo, "rm", "-rf", ".")
+        self.commit(self.repo, {"x.txt": "x\n"}, "new root")
+        for args in ((), ("--non-interactive",)):
+            r = self.failed("--base", "main", *args)
+            self.assertIn("没有共同的祖先", r.stdout)
+
+    def test_invalid_range_and_unrelated_three_dot_range_fail_clearly(self):
+        self.failed("missing..feature")
+        self.git(self.repo, "checkout", "--orphan", "other-root")
+        self.git(self.repo, "rm", "-rf", ".")
+        self.commit(self.repo, {"x.txt": "x\n"}, "new root")
+        self.failed("main...other-root")
+
+    def test_missing_default_never_silently_uses_head(self):
+        self.git(self.repo, "remote", "remove", "origin")
+        self.git(self.repo, "branch", "-D", "main")
+        self.failed("--base-target")
+
+    def test_fast_forward_merge_failure_can_be_recovered_with_a_commit(self):
+        first = self.git(self.repo, "rev-parse", "main")
+        self.git(self.repo, "push", "-q", "origin", "feature:main")
+        r = self.failed("--base-target")
+        self.assertIn("算不出这次改动的对比基准", r.stdout)
+        out, rd, meta = self.collect("--base-sha", first)
+        self.assertEqual(Path(rd, "files.txt").read_text().split(), ["f.txt"])
+        self.assertNotIn("BASE_FAILED", out)
+        self.assertEqual(meta["base_sha"], first)
 
 
 class RuleStore(fixture.Base):

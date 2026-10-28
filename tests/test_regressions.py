@@ -91,6 +91,8 @@ class BaseRegressions(fixture.Base):
     def test_closer_long_lived_branch_is_suggested_and_base_overrides(self):
         self.git(self.repo, 'checkout', '-qb', 'feat', 'origin/develop')
         self.commit(self.repo, {'g.txt': 'g\n'}, 'g')
+        # 模拟没有可靠创建来源的旧分支,继续覆盖更近长期分支的 fallback 提示。
+        self.git(self.repo, 'reflog', 'expire', '--expire=all', 'refs/heads/feat')
         files, out = self.files()
         self.assertEqual(sorted(files), ['d.txt', 'g.txt'])
         self.assertIn('BASE_UNSET:', out)

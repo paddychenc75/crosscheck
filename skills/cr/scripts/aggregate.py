@@ -1,5 +1,5 @@
 """aggregate.sh 的实现,用法和说明见 aggregate.sh。"""
-import difflib, glob, json, os, re, sys
+import glob, json, os, re, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -108,8 +108,10 @@ for r in results:
     if not valid:
         verification_errors.append("核实分数缺失或无效: " + str(r.get("cid")))
 previous_candidates = {c.get("id") for c in cands if c.get("from_prev")}
+history_entries = crlib.load_json(os.path.join(d, "history.json"), [])
+judged_ids = {h.get("id") for h in history_entries if h.get("verdict") in ("invalid", "wontfix")}
 for old in prev:
-    if status.get(old.get("file")) in ("changed", "dependent") and old.get("id") not in previous_candidates:
+    if (status.get(old.get("file")) in ("changed", "dependent") or old.get("id") in judged_ids) and old.get("id") not in previous_candidates:
         verification_errors.append("遗漏待重新核实的历史发现: " + str(old.get("id")))
 error_file = os.path.join(d, "verification-errors.json")
 if verification_errors:
@@ -173,7 +175,7 @@ runs_dir = os.path.join(d, "runs")
 run_stats = {"failed_claims": 0, "reproduced": 0}
 
 def apply_runs(item, conf, reasons):
-    """声称执行(verification.method=executed)的,每个 run id 都要有记录;否则按读代码推断,最高 60 分。"""
+    """运行记录证明执行事实;outcome 和 observation 才声明本场景的运行结论,脚本不从退出码推断语义。"""
     v = item.get("verification") if isinstance(item.get("verification"), dict) else {}
     runs = []
     if v.get("method") == "executed":
@@ -195,14 +197,27 @@ def apply_runs(item, conf, reasons):
             tail = []
         item["repro"] = {"run": last.get("id"), "cmd": " ".join(last.get("argv") or []), "exit": last.get("exit"),
                          "tests_run": last.get("tests_run"), "tests_failed": last.get("tests_failed"), "tail": tail}
-        item["verification"] = dict(v, method="executed")
-        item["mark"] = "已复现"
+        outcome = v.get("outcome")
+        observation = str(v.get("observation") or "").strip()
+        if outcome == "refuted":
+            conf = 0
+            reasons.append("运行结果反证了所报场景")
+            item["mark"] = "运行反证"
+        elif outcome == "reproduced" and observation:
+            item["mark"] = "已复现"
+        else:
+            outcome = "inconclusive"
+            item["mark"] = "已执行·结果未定(读代码判断)"
+            if v.get("outcome") == "reproduced":
+                conf = min(conf, 75)
+                reasons.append("声称复现但未说明实际观察如何对应失败场景")
+        item["verification"] = dict(v, method="executed", outcome=outcome)
         return conf
     if v.get("method") == "executed" or item.get("repro"):
         run_stats["failed_claims"] += 1
         conf = min(conf, 60)
     item.pop("repro", None)
-    item["verification"] = dict(v, method="inferred")
+    item["verification"] = {"method": "inferred"}
     item["mark"] = "读代码推断"
     return conf
 
@@ -218,10 +233,10 @@ for c in cands:
         rejected.append(dict(c, confidence=0, verdict="没有核实结果", reject_reason="没有核实结果"))
         continue
     item = dict(r)
-    for k in ("found_by", "pass_hits", "from_prev", "id", "since", "raised_in_discussion"):
+    for k in ("found_by", "pass_hits", "from_prev", "id", "since", "raised_in_discussion", "source_refs", "merge_reason"):
         if k in c and k not in item:
             item[k] = c[k]
-    for k in ("from_prev", "id", "since"):
+    for k in ("from_prev", "id", "since", "source_refs", "merge_reason"):
         if k in c:
             item[k] = c[k]
     item.pop("needs_check", None)
@@ -231,9 +246,7 @@ for c in cands:
     if any(crlib.glob_match(g, f) for g in skip):
         skipped_by_settings += 1
         continue
-    if item.get("history_match"):
-        history.append(item)
-        continue
+    item["candidate_ids"] = [c["cid"]] if c.get("cid") else []
     cat = item.get("category", "bug")
     if cat == "rules":
         rf = str(item.get("rule_file") or "").strip()
@@ -267,6 +280,19 @@ for c in cands:
     if also: item["also_at"] = also
     else: item.pop("also_at", None)
     item["confidence"] = conf
+    match = next((h for h in history_entries if (h.get("id") or h.get("time")) == item.get("history_match")
+                  and h.get("verdict") in ("invalid", "wontfix") and h.get("file") == f
+                  and h.get("category") == cat), None) if item.get("history_match") else None
+    if match and str(item.get("history_context") or "").strip() and (match["verdict"] == "wontfix" or conf < THRESHOLD):
+        item["history_decision"] = match["verdict"]
+        item["suppression_reason"] = match.get("reason", "")
+        item["suppressed_by"] = "history"
+        history.append(item)
+        continue
+    if item.get("history_match"):
+        item.pop("history_match", None)
+        if item.get("suppressed_by") == "history": item.pop("suppressed_by", None)
+        reasons.append("历史抑制缺少匹配记录或当前场景/前提核对说明")
     # 缺陷真实存在,但对 base 版本同样存在、不是本次引入的:不进 findings,单列在 pre_existing 里
     if conf >= THRESHOLD and item.get("pre_existing") is True:
         pre.append({"file": f, "line": line, "summary": item.get("summary", ""), "verdict": item.get("verdict", ""),
@@ -282,18 +308,15 @@ for c in cands:
 
 carried, resolved = [], []
 prev_ids = {p.get("id") for p in prev}
-# 上次之后被判为不成立或不修、代码也没变的,不再带入。上下文哈希不含判断记录,所以这里要自己看。
-judged = {h.get("id"): h for h in crlib.load_json(os.path.join(d, "history.json"), [])
-          if h.get("id") and h.get("verdict") in ("invalid", "wontfix") and h.get("same_code")}
+# 只有本轮核实后明确抑制的才从遗留中排除,文件相同不证明调用环境相同。
+suppressed_ids = {h.get("id") for h in history}
 # 这一轮重新提交核实的历史发现:有核实结果就以这一轮为准(通过则带入,没通过则已解决),不看文件有没有变。
 resubmitted = {c.get("id") for c in cands if c.get("from_prev")}
 reverified = {x.get("id") for x in passed if x.get("from_prev")}
 for p in prev:
     st = status.get(p.get("file"))
-    if st == "unchanged" and p.get("id") in judged:
-        h = judged[p["id"]]
-        history.append(dict(p, history_match=p["id"], suppressed_by="history",
-                            verdict="已在 %s 被判为%s:%s" % (h.get("time", ""), h.get("verdict_name", ""), h.get("reason", ""))))
+    if p.get("id") in suppressed_ids:
+        continue
     elif st in (None, "removed"):
         resolved.append(dict(p, resolved_reason="文件已不在改动里"))
     elif p.get("id") in resubmitted:
@@ -308,65 +331,32 @@ for x in passed:
     (again if x.get("from_prev") else new).append(x)
 carried.extend(again)
 
-def rule_key(x):
-    return (x.get("rule_file") or "", crlib.norm(x.get("rule_quote") or ""))
 def same(a, b):
-    return (a.get("file") == b.get("file") and a.get("category") == b.get("category")
-            and abs(to_int(a.get("line")) - to_int(b.get("line"))) <= 3 and rule_key(a) == rule_key(b))
+    # 只能证明重复表达,不能靠位置相近/摘要相似证明同根因。
+    keys = ("file", "line", "category", "severity", "summary", "failure_scenario", "suggestion", "compat", "rule_file", "rule_quote", "also_at")
+    return all(a.get(k) == b.get(k) for k in keys)
+
+def merge_trace(target, other):
+    for key in ("candidate_ids", "source_refs", "found_by"):
+        target[key] = list(dict.fromkeys(list(target.get(key) or []) + list(other.get(key) or [])))
 dedup = []
 for x in new:
     hit = next((c for c in carried if same(c, x)), None)
     if hit:
-        hit["line"] = x.get("line", hit.get("line"))
+        merge_trace(hit, x)
         continue
     dedup.append(x)
 new = dedup
 
-# 同一条规则在同一个文件里的多处合并成一条
-def merge_rules(items):
-    out = []
-    for x in sorted(items, key=lambda y: to_int(y.get("line"))):
-        if x.get("category") == "rules":
-            hit = next((o for o in out if o.get("category") == "rules" and rule_key(o) == rule_key(x) and o.get("file") == x.get("file")), None)
-            if hit:
-                hit.setdefault("also_lines", []).append(to_int(x.get("line")))
-                continue
-        out.append(x)
-    for o in out:
-        if o.get("also_lines"):
-            o["summary"] = "%s(共 %d 处,其余在第 %s 行)" % (o.get("summary", ""), 1 + len(o["also_lines"]), "、".join(map(str, o["also_lines"])))
-    return out
-
-# 同一根因被报成几条(模型对同一个函数里的同一个问题各报一次):位置有交集,或同一文件里相距 5 行以内,
-# 且摘要高度相似(0.85 以上)才合并。只差一个编号或一个变量名的两条(如「小问题1」「小问题2」)不合并。宁可漏合并也不误合并,规则发现不走这里。
-def locs_of(x):
-    also = x.get("also_at") if isinstance(x.get("also_at"), list) else []
-    return {(x.get("file", ""), to_int(x.get("line")))} | {(a["file"], to_int(a.get("line"))) for a in also if isinstance(a, dict) and a.get("file")}
-
-def same_root(a, b):
-    if "rules" in (a.get("category"), b.get("category")):
-        return False
-    la, lb = locs_of(a), locs_of(b)
-    near = bool(la & lb) or any(fa == fb and abs(xa - xb) <= 5 for fa, xa in la for fb, xb in lb)
-    if not near:
-        return False
-    sa, sb = crlib.norm(a.get("summary", "")), crlib.norm(b.get("summary", ""))
-    return difflib.SequenceMatcher(None, sa, sb).ratio() >= 0.85
-
-def merge_same_root(items):
-    """留下分高的一条,另一条的位置并进它的 also_at。"""
-    out = []
-    for x in sorted(items, key=lambda y: -to_int(y.get("confidence"))):
-        hit = next((o for o in out if same_root(o, x)), None)
-        if hit is None:
-            out.append(x)
-            continue
-        extra = [{"file": f, "line": l} for f, l in sorted(locs_of(x) - locs_of(hit))]
-        also = clean_also_at(list(hit.get("also_at") or []) + extra, hit.get("file", ""), to_int(hit.get("line")), check_ranges=False)
-        if also: hit["also_at"] = also
-        else: hit.pop("also_at", None)
-    return out
-new = merge_same_root(merge_rules(new))
+# 自动去重只接受关键字段完全等价。语义合并在送核实前说明原因并保留原始来源。
+dedup = []
+for x in sorted(new, key=lambda y: -to_int(y.get("confidence"))):
+    hit = next((o for o in dedup if same(o, x)), None)
+    if hit is None:
+        dedup.append(x)
+    else:
+        merge_trace(hit, x)
+new = dedup
 
 order = lambda x: (crlib.SEV_ORDER.get(x.get("severity"), 3), -to_int(x.get("confidence")), x.get("file", ""), to_int(x.get("line")))
 for x in new: x["status"] = "new"

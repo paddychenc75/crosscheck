@@ -111,6 +111,8 @@ if m.get("finder_model"):
     extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
 if m.get("verifier_model", "host") not in ("", "host"):
     extra.append("核实模型配置:%s(实际执行模型由宿主说明)" % m["verifier_model"])
+if final.get("ignored_by_history"):
+    extra.append("按历史处理判断抑制重复提醒 %d 条(保留当前事实结论,不计为已解决)" % len(final["ignored_by_history"]))
 rs = final.get("runs") or {}
 if rs.get("total") or rs.get("failed_claims"):
     part = "运行 %d 次 · 复现成功 %d" % (rs.get("total", 0), rs.get("reproduced", 0))

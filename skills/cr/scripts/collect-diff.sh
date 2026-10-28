@@ -5,7 +5,7 @@
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
 #                        [--intent TEXT] [--plan FILE] [--doc FILE]... [--verifier-model NAME]
 #                        [--source KIND=VALUE]... [--source-dir DIR] [--tested TEXT]
-#                        [--code-host-dir DIR] [--base-sha COMMIT] [--base-rule RULE] [--ask-base]
+#                        [--code-host-dir DIR] [--base-sha COMMIT] [--base-target | --base-rule RULE] [--ask-base]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
@@ -13,11 +13,12 @@
 #   --base REF   当次指定的对比基准分支,优先于项目规则和 PR/MR 的目标分支,不改项目记录
 #   --base-sha COMMIT  用户直接给的对比基准提交(可以是短哈希),优先于任何自动计算;必须是被审查的 head 的祖先
 #                不指定时,对比基准一律以 origin 上最新的目标分支为准(先 fetch);拉取失败才用本地已有的,并输出 NOTE
-#   --base-rule RULE  把这个项目的对比基准规则记下来,之后每次审查都按它重新解析成当时的最新值:
-#                target(远端最新的目标分支:MR 的目标分支,没有 MR 时是默认分支)或 branch:<分支名>。记的是规则,不是某个提交
-#                (base_rule.py)。--base / --base-sha / A..B 只对当次生效,不改记录
-#                这个项目没有记录、这次也没有指定基准时,输出 BASE_UNSET 让编排者先问用户(非交互运行不问,用 target,记为「基准未确认」)
-#   --ask-base   忽略项目已有的记录,重新问一次(用户说「换个基准」);回答后用 --base-rule 更新记录
+#   --base-target  仅本次使用目标分支(无 MR 信息时用默认分支),覆盖项目规则,不保存;补充资料重新运行时保留此参数
+#   --base-rule RULE  用户明确要求记住才保存项目规则:target 跟随每个 MR 的目标分支(无 MR 时默认分支),
+#                branch:<分支名> 固定指定分支。记规则不记提交,不与当次基准参数同用;默认不记住
+#                无明确基准时沿用已有规则,PR/MR 用已知目标,本地尝试验证创建来源线索;无法确认才 BASE_UNSET
+#                非交互无可靠来源用推荐项并标「基准未确认」;计算失败 BASE_FAILED 非零停止,不能编基准
+#   --ask-base   忽略已有规则和创建来源,重新问一次;回答默认仅本次,明确记住才用 --base-rule 更新记录
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
@@ -35,12 +36,12 @@
 #   第一次运行输出 NEED_CODE_HOST: <暂存目录> 并结束;agent 把读到的信息写进 code-host.json 后,
 #   带 --code-host-dir <暂存目录> 重新运行。核对不过或 status=failed 时退回 git 拉取,并写明 MR 信息没有读到。
 #
-#   省略 target        当前分支相对其与对比基准(--base,默认是默认分支)的 merge-base 的改动,
+#   省略 target        当前分支相对基准的 merge-base 的改动;未指定且无项目规则时先验证分支创建来源,
 #                      加上未提交和未跟踪的改动
 #   target = A..B      该 commit 范围
 #   target = 路径      同"省略",但仅限该路径
 #   target = 分支/ref  该分支相对其与对比基准的 merge-base 的改动(不需要检出它)
-#   没有记录基准、也没传 --base 而存在比默认分支更近的长期分支(develop、release/* 等)时,并进 BASE_UNSET 提示一起问
+#   无法确认创建来源时才推荐默认分支并用 BASE_UNSET 问询;更近的长期分支只作同轮建议,不自动采用
 #   target = N 或 URL  第 N 号 pull request / merge request
 #
 # 写入 DIR(默认:新建的临时目录),并在最后一行打印其路径:
@@ -86,6 +87,8 @@ base_override=""
 base_sha_arg=""
 base_desc=""
 base_rule_arg=""
+base_target=no
+base_inferred=""
 ask_base=no
 allow_large=no
 tried=""
@@ -136,6 +139,7 @@ while [ $# -gt 0 ]; do
       [ ${#2} -ge 4 ] && [ ${#2} -le 40 ] || die "--base-sha 要写提交哈希(4 到 40 位十六进制): $2"
       base_sha_arg=$2; shift 2 ;;
     --base-rule) [ $# -ge 2 ] || die "--base-rule 需要一个值"; base_rule_arg=$2; shift 2 ;;
+    --base-target) base_target=yes; shift ;;
     --ask-base) ask_base=yes; shift ;;
     --allow-large) allow_large=yes; shift ;;
     -h|--help) sed -n '2,68p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -181,15 +185,23 @@ fi
 project_dir="$reviews_dir/$repo_key"
 
 # 对比基准是谁定的(base_state):
-#   explicit   这次明确给了(--base、--base-sha、A..B):只对这一次生效,不改记录
-#   rule       项目记录的规则,或这次用 --base-rule 新定的;每次重新解析成当时的最新值
-#   unset      都没有:交互运行先问用户(BASE_UNSET),非交互运行用 target 并标「基准未确认」
+#   explicit   当次明确给了(--base、--base-sha、A..B、--base-target),不改记录
+#   rule       用户明确保存的项目规则(或这次 --base-rule),每次解析当时最新值
+#   inferred / target  创建记录线索 / 已知 PR/MR 目标,自动选择不保存
+#   unset      无可靠来源:交互 BASE_UNSET;非交互用推荐项并标「基准未确认」
 base_state=unset
 base_rule=""          # target 或 branch
 base_rule_branch=""   # 规则是 branch 时的分支名
+parsed=""
+# 持久化和当次覆盖不可混用,防止用一次基准却悄悄保存另一条规则。
+if [ -n "$base_rule_arg" ] || [ "$base_target" = yes ]; then
+  [ -z "$base_override$base_sha_arg" ] || die "--base-rule / --base-target 不能和 --base / --base-sha 同用;仅本次用 --base、--base-sha 或 --base-target,明确记住才用 --base-rule"
+  case "$target" in *..*) die "提交范围只对本次生效,不能同时使用 --base-rule / --base-target" ;; esac
+  [ -z "$base_rule_arg" ] || [ "$base_target" = no ] || die "--base-rule 和 --base-target 不能同用"
+fi
 if [ -n "$base_rule_arg" ]; then
   parsed=$(python3 "$script_dir/base_rule.py" check "$base_rule_arg") || die "--base-rule 不合法"
-elif [ "$ask_base" = no ]; then
+elif [ "$ask_base" = no ] && [ "$base_target" = no ]; then
   parsed=$(python3 "$script_dir/base_rule.py" get "$project_dir")
 else
   parsed=""
@@ -199,7 +211,7 @@ case "$parsed" in
   branch:?*) base_rule=branch; base_rule_branch=${parsed#branch:} ;;
 esac
 [ -z "$base_rule" ] || base_state=rule
-if [ -n "$base_override" ] || [ -n "$base_sha_arg" ]; then base_state=explicit; fi
+if [ -n "$base_override" ] || [ -n "$base_sha_arg" ] || [ "$base_target" = yes ]; then base_state=explicit; fi
 case "$target" in *..*) base_state=explicit ;; esac
 # 当次明确指定了基准时,项目规则不参与解析(包括已经删除的分支)。
 [ "$base_state" != explicit ] || base_rule_branch=""
@@ -224,10 +236,24 @@ default_branch_ref() {
   return 1
 }
 
+# 计算失败必须停止,由编排者在交互中先问基准;没有人在场时保留失败,不生成报告。
+base_failed() {
+  printf 'BASE_FAILED: %s。请先选择正确的基准分支或合入前的提交,用 --base <分支>、--base-sha <提交> 或 A..B 重新运行;是否记住为这个项目的默认规则？默认不记住,明确记住分支规则才用 --base-rule target|branch:<分支>。\n' "$*"
+  die "$*;请换个基准后重新运行"
+}
+
+infer_local_base() { # 本地分支名
+  inferred_ref=$1
+  [ "$base_state" = unset ] && [ "$ask_base" = no ] || return 0
+  base_inferred=$(python3 "$script_dir/base_rule.py" infer "$root" "$1")
+  [ -z "$base_inferred" ] || base_state=inferred
+}
+
 # 对比基准:--base、项目规则、目标或默认分支;结果写进 base_ref。和 GitHub / GitLab 一样,
 # 以远端的最新状态为准:先从 origin 拉取这个分支(只更新 origin/ 下的远程跟踪分支,不动工作区和
 # 本地分支),本地、远端同名时用 origin/ 那个。拉取失败就用本地已有的,并在输出里提示。
 base_source=""
+base_ref=""
 base_hint=""
 base_stale=""
 fetch_base() { # 分支名(不带 origin/)
@@ -250,12 +276,16 @@ resolve_base_ref() { # [目标分支]
   elif [ -n "$base_rule_branch" ]; then
     base_source=rule
     name=${base_rule_branch#origin/}
+  elif [ -n "$base_inferred" ]; then
+    base_source=inferred
+    name=$base_inferred
   elif [ -n "${1:-}" ]; then
     base_source=target
     name=${1#origin/}
+    if [ "$base_state" = unset ] && [ "$ask_base" = no ]; then base_state=target; fi
   else
     base_source=default
-    name=$(default_branch_ref) || return 1
+    name=$(default_branch_ref) || base_failed "找不到默认分支,无法确定对比基准"
     name=${name#origin/}
   fi
   fetch_base "$name" || true
@@ -267,12 +297,16 @@ resolve_base_ref() { # [目标分支]
       else base_desc="远端最新 $r"; fi
       [ "$base_source" != user ] || base_desc="用户指定分支,$base_desc"
       [ "$base_source" != rule ] || base_desc="项目记录的基准分支,$base_desc"
+      if [ "$base_source" = inferred ]; then
+        if ! python3 "$script_dir/base_rule.py" infer "$root" "$inferred_ref" | grep -qxF "$base_inferred"; then
+          base_failed "分支创建记录的来源 $base_inferred 在拉取最新版本后无法验证,不能确定对比基准"
+        fi
+        base_desc="分支创建记录线索($inferred_ref 从 $base_inferred 切出),$base_desc"
+      fi
       return 0
     fi
   done
-  [ "$base_source" = user ] && die "找不到 --base 指定的分支: $base_override"
-  [ "$base_source" = rule ] && die "找不到项目记录的对比基准分支 $name(本地和 origin 都没有,可能已经删除);请说「换个基准」重新选择"
-  return 1
+  base_failed "找不到对比基准分支 $name(本地和 origin 都没有,可能已经删除);请说「换个基准」重新选择"
 }
 
 # --base-sha:用户直接给的基准提交,优先于任何自动计算。本地没有时先试着从 origin 拉;
@@ -284,10 +318,10 @@ user_base() { # head
         git fetch -q --no-tags origin "$base_sha_arg" >/dev/null 2>&1 || true
     fi
     ub=$(git rev-parse -q --verify "$base_sha_arg^{commit}" 2>/dev/null) \
-      || die "找不到 --base-sha 指定的提交 $base_sha_arg:本地没有,从 origin 也没拉到(短哈希只能用本地已有的提交,可以先 git fetch 或给完整哈希)"
+      || base_failed "找不到 --base-sha 指定的提交 $base_sha_arg:本地没有,从 origin 也没拉到(短哈希只能用本地已有的提交,可以先 git fetch 或给完整哈希)"
   }
   git merge-base --is-ancestor "$ub" "$1" 2>/dev/null \
-    || die "--base-sha 指定的 $base_sha_arg 不是被审查的 head($(git rev-parse --short "$1" 2>/dev/null || printf '%s' "$1"))的祖先,不能作为对比基准;请换成 head 之前的某个提交"
+    || base_failed "--base-sha 指定的 $base_sha_arg 不是被审查的 head($(git rev-parse --short "$1" 2>/dev/null || printf '%s' "$1"))的祖先,不能作为对比基准;请换成 head 之前的某个提交"
   base_sha=$ub
   base_source=sha
   base_desc="用户指定 $(git rev-parse --short "$ub")"
@@ -325,8 +359,8 @@ merge_commit=""
 pick_base() { # 目标分支, head
   if [ -n "$base_sha_arg" ]; then user_base "$2"; return 0; fi
   if ! pb=$(python3 "$script_dir/crlib.py" base "$root" "$1" "$2" 2>&1); then
-    printf 'NOTE: %s。可以直接给一个对比基准的提交哈希(如「对比基准是 abc1234」,即 --base-sha <提交>),或用 --base <分支>、A..B 指定后重新运行\n' "$pb"
-    die "$pb;请用 --base-sha <提交>、--base <分支> 或 A..B 指定对比基准"
+    printf 'NOTE: %s\n' "$pb"
+    base_failed "$pb"
   fi
   base_sha=$(printf '%s\n' "$pb" | sed -n 's/^base=//p')
   merge_commit=$(printf '%s\n' "$pb" | sed -n 's/^merge_commit=//p')
@@ -351,14 +385,22 @@ collect_local() {
   local_path=$1
   head_sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
   if [ -n "$head_sha" ]; then
+    source_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
+    infer_local_base "$source_branch"
     if [ -n "$base_sha_arg" ]; then
       user_base HEAD
-    elif resolve_base_ref; then
-      base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null) || die "当前分支与 $base_ref 没有共同的祖先,请用 --base 指定正确的对比基准,或用 --base-sha 直接给一个基准提交"
-      source_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
-      closer_base "$base_ref" HEAD
     else
-      base_sha=$head_sha
+      resolve_base_ref
+      # 刚切出的分支可能还没有自己的提交,只修改了工作区;不能误判成已经快进合入。
+      creation_entry=$(git reflog show --format='%H %gs' "refs/heads/$source_branch" 2>/dev/null | tail -n 1)
+      fresh_branch=no
+      case "$creation_entry" in "$head_sha branch: Created from "*) fresh_branch=yes ;; esac
+      if [ "$source_branch" = "${base_ref#origin/}" ] || [ "$fresh_branch" = yes ]; then
+        base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null) || base_failed "当前分支与 $base_ref 没有共同的祖先"
+      else
+        pick_base "$base_ref" HEAD
+      fi
+      closer_base "$base_ref" HEAD
     fi
     if [ -n "$pathspec" ]; then $GITDIFF "$base_sha" -- "$pathspec" >> "$raw"
     else $GITDIFF "$base_sha" >> "$raw"; fi
@@ -388,7 +430,8 @@ collect_ref() {
     collect_local ""   # 就是当前检出的 commit,按当前分支处理,带上未提交的改动
     return 0
   fi
-  resolve_base_ref || [ -n "$base_sha_arg" ] || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 --base <分支> 或 --base-sha <提交> 指定,或用 A..B 指定范围"
+  infer_local_base "$ref"
+  if [ -z "$base_sha_arg" ]; then resolve_base_ref; fi
   ref_key="branch-${ref#origin/}"
   source_branch=${ref#origin/}
   target_branch=$base_ref
@@ -400,13 +443,18 @@ collect_ref() {
 
 collect_range() {
   mode=range
-  $GITDIFF "$1" >> "$raw" || die "git 无法对 '$1' 做 diff"
   case "$1" in
-    *...*) a=${1%%...*}; b=${1##*...}; base_sha=$(git merge-base "${a:-HEAD}" "${b:-HEAD}") ;;
-    *) a=${1%%..*}; b=${1##*..}; base_sha=$(git rev-parse "${a:-HEAD}^{commit}") ;;
+    *...*) a=${1%%...*}; b=${1##*...} ;;
+    *) a=${1%%..*}; b=${1##*..} ;;
   esac
-  head_sha=$(git rev-parse "${b:-HEAD}^{commit}")
+  base_sha=$(git rev-parse -q --verify "${a:-HEAD}^{commit}" 2>/dev/null) || base_failed "找不到提交范围的起点 ${a:-HEAD}"
+  head_sha=$(git rev-parse -q --verify "${b:-HEAD}^{commit}" 2>/dev/null) || base_failed "找不到提交范围的终点 ${b:-HEAD}"
+  case "$1" in
+    *...*) base_sha=$(git merge-base "$base_sha" "$head_sha" 2>/dev/null) || base_failed "提交范围 $1 的两端没有共同的祖先" ;;
+  esac
+  $GITDIFF "$1" >> "$raw" || base_failed "git 无法对 '$1' 做 diff"
   code_ref=$head_sha
+  [ -n "$base_desc" ] || base_desc="用户指定提交范围 $1"
 }
 
 # origin 的地址,去掉协议、账号和凭证。任何要显示或保存远程地址的地方都用它,不要用原始地址。
@@ -431,7 +479,7 @@ collect_via_git() { # 远端 ref,给人看的名称
     die "无法拉取 $2。试过:${tried:+${tried};}git fetch origin(${oid}):失败,可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
   fi
   head_sha=$(git rev-parse FETCH_HEAD)
-  resolve_base_ref || [ -n "$base_sha_arg" ] || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支,或用 --base-sha <提交> 直接给对比基准"
+  if [ -z "$base_sha_arg" ]; then resolve_base_ref; fi
   pick_base "$base_ref" "$head_sha"
   $GITDIFF "$base_sha" "$head_sha" >> "$raw"
   if [ -n "$code_host_fail" ]; then
@@ -526,9 +574,11 @@ collect_github() {
   base_desc="平台给出的 baseRefOid(GitHub 上 $target_branch 的最新提交;已合入或关闭的停在那时)"
   if git cat-file -e "$base_sha^{commit}" 2>/dev/null && git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
     # 万一 baseRefOid 已包含 head(用 merge commit 合入之后),merge-base 会等于 head,同样用 crlib.pick_base 处理
-    if pb=$(python3 "$script_dir/crlib.py" base "$root" "$base_sha" "$head_sha" 2>/dev/null); then
+    if pb=$(python3 "$script_dir/crlib.py" base "$root" "$base_sha" "$head_sha" 2>&1); then
       base_sha=$(printf '%s\n' "$pb" | sed -n 's/^base=//p')
       merge_commit=$(printf '%s\n' "$pb" | sed -n 's/^merge_commit=//p')
+    elif [ -z "$base_sha_arg$base_override$base_rule_branch" ]; then
+      base_failed "$pb"
     fi
   fi
 }
@@ -615,7 +665,7 @@ collect_code_host() {
   if [ "$(ch_get status)" = ok ]; then
     title=$(ch_get title); head_sha=$(ch_get head_sha); target_branch=$(ch_get target_branch)
     # 基准和其他路径一样:fetch 最新的目标分支再算(--base、--base-sha 优先),agent 给的 base 一律不看
-    resolve_base_ref "$target_branch" || [ -n "$base_sha_arg" ] || die "找不到 MR 的目标分支 $target_branch(本地和 origin 都没有)"
+    if [ -z "$base_sha_arg" ]; then resolve_base_ref "$target_branch"; fi
     pick_base "$base_ref" "$head_sha"
     pr_source=code_host
     $GITDIFF "$base_sha" "$head_sha" >> "$raw"
@@ -665,6 +715,11 @@ if [ -n "$base_sha_arg" ] && [ "$base_source" != sha ]; then
   user_base "$head_sha"
   : > "$raw"
   $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+fi
+
+# 平台已经明确给出目标分支时无需因为项目未保存规则再问。git 回退没有读到 MR 信息,不能假装知道目标。
+if [ "$mode" = pr ] && [ "$base_state" = unset ] && [ "$ask_base" = no ] && [ -n "$target_branch" ]; then
+  case "$pr_source" in git*) ;; *) base_state=target ;; esac
 fi
 
 # --base-rule:基准算出来了才记(分支找不到时 resolve_base_ref 已经停下)。记的是规则,不是这次算出的提交。
@@ -1001,10 +1056,11 @@ if [ "$base_state" = unset ]; then
     closer=""; closer_name=""
   fi
   if [ -n "$base_ask" ]; then
-    what="默认分支"; [ "$mode" != pr ] || what="这个 MR / PR 的目标分支"
-    lead="这个项目还没有记录对比基准"; [ "$ask_base" = no ] || lead="用户要求重新选择这个项目的对比基准"
+    what="默认分支建议"; if [ "$mode" = pr ]; then case "$pr_source" in git*) ;; *) what="这个 MR / PR 的目标分支" ;; esac; fi
+    lead="无法从分支创建记录确认切出来源,也没有可用的项目规则"; [ "$mode" != pr ] || lead="没有读到 MR / PR 的目标分支,也没有可用的项目规则"
+    [ "$ask_base" = no ] || lead="用户要求重新选择这个项目的对比基准"
     done_before=""; [ "$merged" != yes ] || done_before=" 它已合入,推荐项对应的是合入前的版本。"
-    printf 'BASE_UNSET: %s。推荐「远端最新的目标分支」:这次是%s %s。%s%s\n' \
+    printf 'BASE_UNSET: %s。可选「远端最新的目标分支」:这次是%s %s。%s%s 仅本次用 --base-target、--base <分支> 或 --base-sha <提交>;是否记住为这个项目的默认规则？默认不记住,明确记住才用 --base-rule target|branch:<分支>。\n' \
       "$lead" "$what" "${target_branch#origin/}" "$done_before" "$closer"
   else
     printf 'NOTE: 这个项目没有记录对比基准,也没法询问,用了推荐项「远端最新的目标分支」(%s),报告里会写「基准未确认」。%s\n' "${target_branch#origin/}" "${closer:+$closer 要对比它请加 --base $closer_name 重新运行}"

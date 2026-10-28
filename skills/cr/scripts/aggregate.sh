@@ -12,17 +12,18 @@
 #   2. 规则发现:rule_file 必须是这次适用的规则文件、覆盖这个文件;rule_quote 必须逐字出现在那份规则里
 #      (「不要报」一节不算规则)。
 #      对不上的置信度为 0。严重程度用核实后的分级,没有就是轻微。
-#   3. 只看改动的行;REVIEW.md 的 skip 路径不报;带 history_match 的单独列为「已按历史判断忽略」。
+#   3. 只看改动的行;REVIEW.md 的 skip 路径不报;history_match 须有匹配历史记录和当前前提复核说明才抑制,
+#      不修保留事实分数与结论,不成立不能覆盖本轮达到门槛的确认,处理原因单独保留。
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
 #   5. 增量:上次的发现分成遗留(文件没变的原样带入;文件变了且再次通过核实的)和已解决。
 #   5b. 核实判为「原有问题」(pre_existing 为真)且达到阈值的,不进 findings、不计数,单列进 final.json 的 pre_existing。
-#   6. 同一条规则在同一个文件里的多处合并成一条;同一根因(位置有交集或相距 5 行内、摘要高度相似)的多条合并成一条,
-#      另一条的位置并进 also_at;按严重程度、置信度排序;套用条数上限
+#   6. 仅对位置、类别、严重程度、摘要、场景、建议等关键字段完全相同的条目去重,保留 candidate_ids/source_refs 映射;
+#      位置相近、摘要相似或同一规则不证明同根因。按严重程度、置信度排序;套用展示条数上限
 #      (默认缺陷 10 条、quick 5 条,需求核对、规范各 5 条;REVIEW.md 的 limits 可覆盖,
 #      还可以按 critical/major/minor 限制缺陷和需求核对的条数),超出的不展示但仍写进 findings.json。
 #   7. 给展示的发现编号(no),给新发现分配 id 和 since。
 # 写出:
-#   completeness.txt  流程是否完整(completeness.py 写):缺了哪些查找角色的回复或核实结果;只提示,不阻止汇总
+#   completeness.txt  流程缺项与覆盖限制(completeness.py 写):回复/核实缺项、预算达限、覆盖受限或声明缺失;只提示,不阻止汇总
 #   final.json     报告要用的全部内容:groups(defects/intent/rules,每条带 no 和 status:new|carried)、
 #                  resolved、ignored_by_history、trimmed、counts、notes
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量

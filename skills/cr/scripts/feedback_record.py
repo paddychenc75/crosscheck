@@ -79,6 +79,7 @@ def main(argv):
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "verdict": verdict, "reason": reason,
         "id": f.get("id"), "key": crlib.finding_key(f), "file": f.get("file"), "line": f.get("line"), "category": f.get("category"),
         "severity": f.get("severity"), "confidence": f.get("confidence"), "summary": f.get("summary"),
+        "failure_scenario": f.get("failure_scenario", ""),
         "code_line": f.get("code_line", ""), "context_hash": f.get("context_hash", ""), "target": os.path.basename(tdir),
         "rule_file": f.get("rule_file", ""), "rule_quote": f.get("rule_quote", ""), "author": crlib.author_hash(repo), "project": repo_id,
     }
@@ -87,7 +88,7 @@ def main(argv):
 
     print("已记录:`%s:%s` %s → %s%s" % (f.get("file"), f.get("line"), f.get("summary", ""), NAMES[verdict], "(原因:%s)" % reason if reason else ""))
     if verdict in ("invalid", "wontfix"):
-        print("之后在这个项目的任何分支、MR 和范围上审查到这段代码时,verifier 会参考这条判断:代码原样未变就不再报,代码变了才重新评估。")
+        print("之后在这个项目的任何分支、MR 和范围上审查到这段代码时,verifier 会参考这条判断:先重新核对是否同一场景、调用环境与判断前提;仍适用才抑制重复提醒。「不修」不否定缺陷事实或置信度。")
 
 
 if __name__ == "__main__":

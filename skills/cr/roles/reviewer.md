@@ -19,7 +19,7 @@
 | 3 | `intent` | 需求核对(对照验收标准) | 总是 |
 | 4 | `impact` | 影响面:从使用方往回查 | `meta.txt` 的 `depth` 是 `deep` 时 |
 
-某一遍里顺手看到别的类别的问题,照样记下,`pass` 写当时那一遍。所有遍的候选合成一个 JSON 数组回复,每条加 `pass` 字段。
+某一遍里顺手看到别的类别的问题,照样记下,`pass` 写当时那一遍。所有遍的候选合在回复的 `candidates` 数组里,每条加 `pass` 字段。
 
 `batch=<n>`:只负责第 n 批,见 `common.md`。
 
@@ -109,4 +109,6 @@
 
 同一根因、同一改法出现在多处时只提交一条,其余位置写进 `also_at`,合并规则见 `finding-schema.md` 的「硬性要求」。
 
-最多提交 15 条,按你认为成立的可能性从高到低排。`category` 只用 `bug`、`security`、`intent`,`pass` 取上表中的值,位置必须落在改动行上(字段规则见 `finding-schema.md`)。返回符合发现结构的 JSON 数组。
+每批以 15 条作为查找预算,不是最终报告的展示上限。达到预算就停止继续深挖,保留已形成的候选,不要为压到 15 而丢掉已经记下的场景或 `needs_check`。预算达到、上下文不足或未完成某遍/某块检查时,如实标记覆盖受限,不要估计未提交的候选数;不为消除标记自动增加代理或无限重试。读过文件不等于每条路径都已检查。
+
+返回对象 `{"candidates": [...], "coverage": {"budget_reached": false, "limited": false, "reason": ""}}`。达到预算时两个布尔值都为 `true`;其他限制用 `limited: true`,`reason` 简述未完成的遍、代码块或路径。没有候选也返回同一对象。`category` 只用 `bug`、`security`、`intent`,`pass` 取上表中的值,位置必须落在改动行上(字段规则见 `finding-schema.md`)。最终展示上限由 aggregate 的 `trimmed` 单独计算,不能据此声称查找完整。

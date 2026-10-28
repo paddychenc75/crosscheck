@@ -127,13 +127,12 @@ class TestPipeline(ProjectFixture):
         self.assertNotIn("VERIFY:", lines)
         self.assertIn("WEAKEN:", lines)
 
-    def test_same_rule_in_same_file_is_merged(self):
+    def test_same_rule_at_distinct_locations_is_not_automatically_merged(self):
         rd, _ = self.collect("feature")
         P = "src/orders/paginate.ts"
         cands = [{"file": P, "line": n, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "日志里不能出现邮箱", "summary": "邮箱%d" % n, "failure_scenario": "x"} for n in (1, 2)]
         final, _ = self.run_pipeline(rd, cands, {"邮箱1": (90, [{"file": P, "lines": "1"}]), "邮箱2": (90, [{"file": P, "lines": "2"}])})
-        self.assertEqual(len(final["groups"]["rules"]), 1)
-        self.assertEqual(final["groups"]["rules"][0]["also_lines"], [2])
+        self.assertEqual(len(final["groups"]["rules"]), 2, "同一引文不证明两处违反是同一根因")
 
     def test_same_root_cause_is_one_finding_with_also_at(self):
         rd, _ = self.collect("feature")
@@ -146,7 +145,7 @@ class TestPipeline(ProjectFixture):
         self.assertEqual(defects[0]["also_at"], [{"file": P, "line": 1}, {"file": L, "line": 2}], "第 9 行不在改动里,主位置重复的第 2 行也去掉")
         self.assertEqual(self.load(os.path.join(rd, "findings.json"))[0]["also_at"], defects[0]["also_at"])
 
-    def test_same_root_cause_reported_twice_is_merged_by_proximity_and_summary(self):
+    def test_similar_summaries_nearby_with_different_scenarios_stay_separate(self):
         rd, _ = self.collect("feature")
         P = "src/orders/paginate.ts"
         cands = [
@@ -156,8 +155,8 @@ class TestPipeline(ProjectFixture):
         scores = {c["summary"]: (90, [{"file": P, "lines": str(c["line"])}]) for c in cands}
         final, _ = self.run_pipeline(rd, cands, scores)
         defects = final["groups"]["defects"]
-        self.assertEqual(len(defects), 1, "相距 2 行、摘要高度相似的同一根因合并成一条")
-        self.assertEqual(defects[0]["also_at"], [{"file": P, "line": 4}], "被合并的那条位置并进 also_at")
+        self.assertEqual(len(defects), 2, "相近位置和高度相似摘要不证明根因相同")
+        self.assertEqual({x["failure_scenario"] for x in defects}, {"x", "y"})
 
     def test_different_problems_near_each_other_are_not_merged(self):
         rd, _ = self.collect("feature")

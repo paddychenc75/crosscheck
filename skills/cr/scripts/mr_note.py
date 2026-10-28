@@ -361,6 +361,14 @@ class Note:
             text = render(template, ctx)
         return text
 
+    def coverage_note(self):
+        try:
+            with open(os.path.join(self.d, "completeness.txt"), encoding="utf-8") as f:
+                gaps = [line.strip().split(": ", 1)[1] for line in f if line.startswith("INCOMPLETE: ")]
+        except OSError:
+            gaps = []
+        return "审查覆盖说明:" + "；".join(gaps) if gaps else ""
+
     def cr_facts(self):
         """MR 说明里 CR 情况的几项:概况一行、展开的发现、审查之后的新提交数。"""
         fixed, standing = self.findings()
@@ -374,6 +382,11 @@ class Note:
             parts.append("轻微 %d 条未展开" % len(minor))
         if not major and not minor:
             parts.append("没有未修复的发现")
+        if self.coverage_note():
+            parts.append(self.coverage_note())
+        suppressed = crlib.load_json(os.path.join(self.d, "final.json"), {}).get("ignored_by_history", [])
+        if suppressed:
+            parts.append("按历史判断抑制 %d 条(不计为已修复)" % len(suppressed))
         lines = []
         for f in major[:MAJOR_SHOWN]:
             why = VERDICT.get(f.get("verdict"), "未表态")
@@ -458,7 +471,12 @@ class Note:
             data.append([e(SEV.get(f.get("severity"), "")), e(CAT.get(f.get("category"), f.get("category", ""))),
                          self.loc(f.get("file", ""), f.get("line"), md=False), e(f.get("summary", "")), e(why)])
         ctx["cr_rows"] = rows(data)
+        suppressed = crlib.load_json(os.path.join(self.d, "final.json"), {}).get("ignored_by_history", [])
+        note = self.coverage_note()
+        if suppressed:
+            note += ("；" if note else "") + "按历史判断抑制 %d 条(不计为已修复)" % len(suppressed)
         ctx["fixed"] = str(fixed)
+        ctx["coverage_note"] = e(note)
         ctx["newer"] = e(self.reviewed_newer())
         ctx["version"] = e(version())
         ctx["depth"] = e(self.meta.get("depth", "standard"))

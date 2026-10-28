@@ -1,7 +1,7 @@
 """审查开始时取出这次改动涉及的文件上的历史判断,标明那段代码现在是否原样还在(same_code)。
 
 用法: python3 feedback_history.py REVIEW_DIR OUT.json    由 collect-diff.sh 调用
-不删除任何候选,怎么用由 verifier 判断:同一个问题、代码原样未变的不再报;代码变了重新评估。
+不删除任何候选。same_code 仅说明局部文本相同,调用环境和历史前提是否仍成立由 verifier 重新核实。
 """
 import os
 import sys
@@ -37,6 +37,7 @@ def history(rdir, out):
             "verdict": e.get("verdict"), "verdict_name": NAMES.get(e.get("verdict"), ""), "reason": e.get("reason", ""), "time": e.get("time", ""),
             "rule_file": e.get("rule_file", ""), "rule_quote": e.get("rule_quote", ""),
             "file": e.get("file"), "category": e.get("category"), "summary": e.get("summary"), "recorded_line": e.get("line"),
+            "failure_scenario": e.get("failure_scenario", ""), "confidence": e.get("confidence"),
             "code_line": e.get("code_line", ""), "same_code": bool(where), "line_now": where[0] if where else None, "id": e.get("id"),
         })
     crlib.save_json(out, result)

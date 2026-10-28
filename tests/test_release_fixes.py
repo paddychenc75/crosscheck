@@ -121,7 +121,15 @@ class JudgedAfterReview(fixture.ProjectFixture):
         rd2, _ = self.collect("feature")
         self.assertEqual(self.kv(os.path.join(rd2, "meta.txt"))["review_scope"], "incremental")
         a = dict(next(x for x in self.load(os.path.join(rd2, "prev-findings.json")) if x["summary"] == "A"), from_prev=True)
-        final, _ = self.run_pipeline(rd2, [a], {"A": (10, [{"file": P, "lines": "2"}])})
+        Path(rd2, "candidates.json").write_text(json.dumps([a]))
+        self.run_script("prepare-verify.sh", rd2)
+        rows = [x for path in Path(rd2, "verify").glob("batch-*.json") for x in self.load(path)]
+        self.assertEqual({x["summary"] for x in rows}, {"A", "B"}, "历史判断的未改文件也需重新核对前提")
+        results = [dict(x, confidence=0, verdict="当前调用方仍有守卫", evidence=[{"file": x["file"], "lines": "1"}],
+                        **({"history_match": b["id"], "history_context": "重新读调用方确认守卫仍覆盖该输入"} if x["summary"] == "B" else {})) for x in rows]
+        Path(rd2, "verify", "result-1.json").write_text(json.dumps(results))
+        self.run_script("aggregate.sh", rd2)
+        final = self.load(Path(rd2, "final.json"))
         shown = [x for g in final["groups"].values() for x in g]
         self.assertEqual([x["summary"] for x in shown], ["C"])
         self.assertEqual(shown[0]["no"], 1)

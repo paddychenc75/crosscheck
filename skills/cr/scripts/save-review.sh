@@ -66,10 +66,10 @@ repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
 [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
-for f in context-hash.txt final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json completeness.txt; do
+for f in context-hash.txt candidates.json history.json final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json analyst.json analysis.json completeness.txt; do
   [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
 done
-for sub in finders verify; do
+for sub in finders verify runs; do
   [ -d "$dir/$sub" ] && cp -R "$dir/$sub" "$dest/"
 done
 if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ]; then
