@@ -678,6 +678,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
           <li><b>去掉 simplifier：</b>Uber 的数据显示可读性挑刺、小的重构建议评分一直最差，宿主也自带 /simplify。</li>
           <li><b>流程不能省：</b>用 <a href="https://github.com/withmartian/code-review-benchmark">Martian Code Review Bench</a> 的公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论：第二轮 12 个用例里 10 个这样做。说明里改成 standard、deep 只要能启动子代理就必须启动，改动再小也一样；第三轮 11 个按流程走完，4 个干净对照都是 0 误报。</li>
+          <li><b>查找不自己过滤：</b>第三轮逐条看漏掉的问题，核实否决的 3 条理由基本站得住，查找阶段根本没提出来的有 9 条。所以 reviewer 不再读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
         </ul>
         <p><b>待验证：</b>分遍和多个子代理相比，抓到的问题和 token 变化，要在同一批改动上对比。</p>
       </details>
@@ -688,7 +689,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="cards">
         <div class="card"><h4><span class="num">1</span>reviewer</h4>
           <p>查正确性、安全和需求核对。先看 <code>weakening.txt</code> 里被削弱的测试和检查，再对照 <code>intent.md</code>；对每处改动读完整个函数，顺着调用方和数据流深挖。安全问题要说清可控输入从哪进、经过哪几步、得到什么。最多 15 条，查到一半的也交，写明 <code>needs_check</code>。</p>
-          <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。改动违反了接口写明的约定、或去掉了原有的锁、事务、过滤条件、校验时，即使现在没人这样调用也要提交。</div></div>
+          <div class="accept">在同一个上下文里分遍：① 正确性 ② 安全（默认不报 DoS、限流、开放重定向、仅测试代码）③ 需求核对；deep 加 ④ 影响面，从使用方往回查漏改的地方和被破坏的隐式契约。每条带 <code>pass</code>。改动违反了接口写明的约定、或去掉了原有的锁、事务、过滤条件、校验时，即使现在没人这样调用也要提交。只负责找、不负责判：不读误报清单，拿不准的照常提交并写 <code>needs_check</code>；每块改动对照 base 过一遍最常漏的几类检查点。</div></div>
         <div class="card"><h4><span class="num">2</span>rules-auditor</h4>
           <p>自己读 <code>rules.txt</code>，按 目录级 → 项目级 → 约定文件 的顺序，只用能对照代码检查的条目，只看改动的行。有针对同一规则的抑制注释不报；现有代码大量反着写时提示“规则可能过时”。</p>
           <div class="accept">每条违反写出 <code>rule_file</code> 和逐字的 <code>rule_quote</code>，脚本会核对。</div></div>
