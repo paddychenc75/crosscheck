@@ -53,7 +53,7 @@
 
 意图只能说明行为变化是有意的,不能豁免安全问题(见 `common.md`)。
 
-`discussions.json` 里已有人(或机器人)指出过的问题,按 `finding-schema.md` 的 `raised_in_discussion` 处理:该处代码仍未改的照常提交并标记,不要丢掉;讨论里已说明是有意如此、或已解决 / 已答复的,不提交。
+`discussions.json` 里已有人(或机器人)指出过的问题,按 `finding-schema.md` 的 `raised_in_discussion` 处理:该处代码仍未改的照常提交并标记,不要丢掉;讨论里已说明是有意如此、或已解决 / 已答复的,不提交。带 `"source": "code_host"` 的讨论例外:它的「已答复」「已解决」是 agent 读来的,核对不了,照常提交,只标 `raised_in_discussion`。
 
 ## 第 1 遍:正确性
 

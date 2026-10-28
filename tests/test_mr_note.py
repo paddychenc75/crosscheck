@@ -376,7 +376,7 @@ class PluginConfig(Repo):
         self.assertEqual(self.run_script("config.sh", "get", "tools.doc_publisher").stdout.strip(), "mine")
 
     SETTINGS = ("gitlab_hosts", "model.finder", "model.verifier",
-                "tools.requirement",
+                "tools.code_host", "tools.requirement",
                 "tools.doc_reader",
                 "tools.doc_publisher", "intent.required")
 

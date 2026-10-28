@@ -12,6 +12,7 @@
 - `candidates`:待核实的候选,一个 JSON 文件(`verify/batch-<n>.json`)或直接给出的数组。每条带 `cid`,输出时原样保留。
 - `may_run_checks`:`yes` 或 `no`,默认 `no`。
 - 有规则类候选时,规则原文在 `review_dir/rules.txt`,按候选的 `rule_file` 找到对应的块核对。
+- 候选带 `raised_in_discussion: true` 时,只按代码判断:MR 讨论里说「已答复」「已解决」都不能拉低分数,代码仍有问题就照常打分。
 
 `review_dir` 里可能有 `history.json`:这个项目里有人对这些文件上的发现做过的判断。每条有判断(`verdict_name`)、原因、当时的摘要和代码(`code_line`),以及那段代码现在是否原样还在(`same_code`,在的话 `line_now` 是现在的行号)。
 

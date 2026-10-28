@@ -90,13 +90,17 @@ class Note:
         self.hunks = {h["id"]: h for h in self.facts.get("hunks", []) if isinstance(h, dict) and h.get("id")}
         self.sha = self.meta.get("head_sha", "")
         self.link_base = self._link_base()
+        if self.meta.get("merged") == "yes":
+            self.notes.append("这个 MR 已合入:说明照常生成,但描述已无法影响合入")
+        if self.meta.get("code_host_reason"):
+            self.notes.append("MR 信息没有读到(tools.code_host:%s),标题和描述没有用上" % self.meta["code_host_reason"])
 
     # ---------- 链接 ----------
     def _web_base(self):
         """仓库的网页地址(不含末尾斜杠)。依次用:PR/MR 的网页地址、gitlab_host 加仓库路径、https:// 加 repo_id。"""
         m = self.meta
         url = m.get("url", "")
-        base = re.sub(r"/(-/)?merge_requests/\d+.*$|/pull/\d+.*$", "", url)
+        base = re.sub(r"/(-/)?(merge_requests|merge)/\d+.*$|/pulls?/\d+.*$", "", url)
         if url and base != url:
             return base
         if m.get("gitlab_host") and m.get("repo"):
@@ -159,6 +163,16 @@ class Note:
             else:
                 val = "未提供"
             out.append((c["label"], val))
+        return out
+
+    def state(self):
+        """基本信息里的状态行:已合入、MR 信息没有读到。"""
+        out = []
+        if self.meta.get("merged") == "yes":
+            tb = self.meta.get("target_branch", "")
+            out.append(("状态", "已合入%s,描述已无法影响合入" % (" " + tb if tb else "")))
+        if self.meta.get("code_host_reason"):
+            out.append(("MR 信息", "没有读到(tools.code_host:%s)" % self.meta["code_host_reason"]))
         return out
 
     def summary(self):
@@ -289,7 +303,7 @@ class Note:
         blocks = []   # (名字, 行);超长时按 OPTIONAL 的顺序整块去掉
         one, by = self.summary()
         head = ["**%s**" % one] if one else []
-        info = ["%s:%s" % (lab, val) for lab, val in self.sources()]
+        info = ["%s:%s" % (lab, val) for lab, val in self.state() + self.sources()]
         sc = self.facts.get("scope") or {}
         size = "%s 个文件 +%s/−%s" % (sc.get("files", self.meta.get("files", "?")), sc.get("added", "?"), sc.get("deleted", "?"))
         tb = self.meta.get("target_branch", "")
@@ -407,7 +421,7 @@ class Note:
             return "<div class=t><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>" % (
                 "".join("<th>%s</th>" % e(h) for h in head), "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in rows))
 
-        info = [(lab, e(val)) for lab, val in self.sources()]
+        info = [(lab, e(val)) for lab, val in self.state() + self.sources()]
         sc = self.facts.get("scope") or {}
         info.append(("分支", e("%s → %s" % (self.meta.get("source_branch") or "?", self.meta.get("target_branch") or "?"))))
         info.append(("规模", e("%s 个文件 +%s/−%s" % (sc.get("files", "?"), sc.get("added", "?"), sc.get("deleted", "?")))))

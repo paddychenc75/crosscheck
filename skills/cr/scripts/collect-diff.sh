@@ -5,23 +5,30 @@
 #                        [--repo DIR] [--base REF] [--platform github|gitlab] [--out DIR]
 #                        [--intent TEXT] [--plan FILE] [--doc FILE]... [--verifier-model NAME]
 #                        [--source KIND=VALUE]... [--source-dir DIR] [--tested TEXT]
+#                        [--code-host-dir DIR] [--base-sha COMMIT]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
 #   --allow-large  改动较大时不再输出 LARGE 提示(用户已经确认要全部审查)
 #   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
+#   --base-sha COMMIT  用户直接给的对比基准提交(可以是短哈希),优先于任何自动计算;必须是被审查的 head 的祖先
+#                不指定时,对比基准一律以 origin 上最新的目标分支为准(先 fetch);拉取失败才用本地已有的,并输出 NOTE
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
 #                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
 #   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):缺的必填需求来源记为 unasked,不输出 SOURCES_MISSING
+#   --code-host-dir DIR  agent 用配置的 tools.code_host 读到的 MR / PR 信息(code_host.py request 建的目录,内有 code-host.json)
 #   --tested TEXT 作者写的「怎么验证的」,只用于 MR 说明
 #   --only LIST  bug、security、rules 中的若干项;默认三项都查
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
 #
 # 平台:--platform > 环境变量 CR_PLATFORM > 配置的 gitlab_hosts > 域名含 github.com / gitlab >
 #       链接里的 /pull/、/merge_requests/
+# 配置了 tools.code_host 时,链接形式的 MR / PR 一律由 agent 用那个工具只读取(见 collect_code_host):
+#   第一次运行输出 NEED_CODE_HOST: <暂存目录> 并结束;agent 把读到的信息写进 code-host.json 后,
+#   带 --code-host-dir <暂存目录> 重新运行。核对不过或 status=failed 时退回 git 拉取,并写明 MR 信息没有读到。
 #
 #   省略 target        当前分支相对其与对比基准(--base,默认是默认分支)的 merge-base 的改动,
 #                      加上未提交和未跟踪的改动
@@ -71,6 +78,8 @@ local_path=""
 ref_key=""
 repo_arg=""
 base_override=""
+base_sha_arg=""
+base_desc=""
 allow_large=no
 tried=""
 pr_source=""
@@ -88,6 +97,9 @@ api_project=""
 gitlab_host=""
 source_branch=""
 target_branch=""
+code_host_dir=""
+code_host_fail=""
+code_host_notes=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
@@ -103,6 +115,8 @@ while [ $# -gt 0 ]; do
     --source-dir) [ $# -ge 2 ] || die "--source-dir 需要一个值"; [ -d "$2" ] || die "--source-dir 指定的目录不存在: $2"
       source_dir=$(cd "$2" && pwd); shift 2 ;;
     --tested) [ $# -ge 2 ] || die "--tested 需要一个值"; tested_arg=$2; shift 2 ;;
+    --code-host-dir) [ $# -ge 2 ] || die "--code-host-dir 需要一个值"; [ -d "$2" ] || die "--code-host-dir 指定的目录不存在: $2"
+      code_host_dir=$(cd "$2" && pwd); shift 2 ;;
     --verifier-model) [ $# -ge 2 ] || die "--verifier-model 需要一个值"; verifier_model=$2; shift 2 ;;
     --only) [ $# -ge 2 ] || die "--only 需要一个值"; only=$2; shift 2 ;;
     --non-interactive) CR_NONINTERACTIVE=1; export CR_NONINTERACTIVE; shift ;;
@@ -110,8 +124,12 @@ while [ $# -gt 0 ]; do
     --with-tests) with_tests=yes; shift ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --base) [ $# -ge 2 ] || die "--base 需要一个值"; base_override=$2; shift 2 ;;
+    --base-sha) [ $# -ge 2 ] || die "--base-sha 需要一个值"
+      case "$2" in ""|*[!0-9a-fA-F]*) die "--base-sha 要写提交哈希(4 到 40 位十六进制),对比分支请用 --base: $2" ;; esac
+      [ ${#2} -ge 4 ] && [ ${#2} -le 40 ] || die "--base-sha 要写提交哈希(4 到 40 位十六进制): $2"
+      base_sha_arg=$2; shift 2 ;;
     --allow-large) allow_large=yes; shift ;;
-    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -178,10 +196,15 @@ fetch_base() { # 分支名(不带 origin/)
   base_stale="无法从 origin 拉取 $1"
   return 1
 }
-resolve_base_ref() {
+# 所有要按目标分支算基准的路径(当前分支、其他分支、git 回退、tools.code_host)都经这里,不各自 fetch。
+# $1 是 MR / PR 的目标分支(可选);--base 优先,其次 $1,再次默认分支。base_desc 记下基准来自哪一版,写进报告。
+resolve_base_ref() { # [目标分支]
   if [ -n "$base_override" ]; then
     base_source=user
     name=${base_override#origin/}
+  elif [ -n "${1:-}" ]; then
+    base_source=target
+    name=${1#origin/}
   else
     base_source=default
     name=$(default_branch_ref) || return 1
@@ -189,16 +212,41 @@ resolve_base_ref() {
   fi
   fetch_base "$name" || true
   for r in "origin/$name" "$name"; do
-    if git rev-parse -q --verify "$r^{commit}" >/dev/null 2>&1; then base_ref=$r; return 0; fi
+    if git rev-parse -q --verify "$r^{commit}" >/dev/null 2>&1; then
+      base_ref=$r
+      if ! git remote get-url origin >/dev/null 2>&1; then base_desc="本地分支 $r(没有 origin 远程)"
+      elif [ -n "$base_stale" ]; then base_desc="本地缓存 $r(没能拉取远端,可能不是最新)"
+      else base_desc="远端最新 $r"; fi
+      [ "$base_source" != user ] || base_desc="用户指定分支,$base_desc"
+      return 0
+    fi
   done
   [ "$base_source" = user ] && die "找不到 --base 指定的分支: $base_override"
   return 1
 }
 
+# --base-sha:用户直接给的基准提交,优先于任何自动计算。本地没有时先试着从 origin 拉;
+# 必须是被审查的 head($1)的祖先。结果写进 base_sha。
+user_base() { # head
+  ub=$(git rev-parse -q --verify "$base_sha_arg^{commit}" 2>/dev/null) || {
+    if [ "${CR_FETCH:-1}" != 0 ] && git remote get-url origin >/dev/null 2>&1; then
+      GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=10" \
+        git fetch -q --no-tags origin "$base_sha_arg" >/dev/null 2>&1 || true
+    fi
+    ub=$(git rev-parse -q --verify "$base_sha_arg^{commit}" 2>/dev/null) \
+      || die "找不到 --base-sha 指定的提交 $base_sha_arg:本地没有,从 origin 也没拉到(短哈希只能用本地已有的提交,可以先 git fetch 或给完整哈希)"
+  }
+  git merge-base --is-ancestor "$ub" "$1" 2>/dev/null \
+    || die "--base-sha 指定的 $base_sha_arg 不是被审查的 head($(git rev-parse --short "$1" 2>/dev/null || printf '%s' "$1"))的祖先,不能作为对比基准;请换成 head 之前的某个提交"
+  base_sha=$ub
+  base_source=sha
+  base_desc="用户指定 $(git rev-parse --short "$ub")"
+}
+
 # 没指定 --base 时,看有没有比默认分支更近的长期分支(develop、release/* 这类):从它拉出来的
 # 分支如果按默认分支对比,会把别人已经合进去的提交也算进来。只提示,不替用户换基准。
 closer_base() { # 默认分支, 被审查的 commit
-  [ "$base_source" = default ] || return 0
+  [ "$base_source" = default ] && [ -z "$base_sha_arg" ] || return 0
   tip=$(git rev-parse "$2^{commit}" 2>/dev/null) || return 0
   ahead=$(git rev-list --count "$1..$tip" 2>/dev/null) || return 0
   best=""; best_n=$ahead
@@ -217,6 +265,26 @@ closer_base() { # 默认分支, 被审查的 commit
   [ -z "$best" ] || base_hint="$best $best_n $ahead"
 }
 
+# head($2)相对目标分支($1)的对比基准,写进 base_sha。一般就是 merge-base;已用 merge commit 合入时
+# merge-base 等于 head、diff 会是空的,改用合入它的那个提交的第一个父提交(见 crlib.pick_base),
+# 合入它的提交写进 merge_commit。算不出来时输出 NOTE 并退出,不给出空 diff。
+# 用户给了 --base-sha 时直接用它(user_base),不做这些计算。
+merged=""
+merge_commit=""
+pick_base() { # 目标分支, head
+  if [ -n "$base_sha_arg" ]; then user_base "$2"; return 0; fi
+  if ! pb=$(python3 "$script_dir/crlib.py" base "$root" "$1" "$2" 2>&1); then
+    printf 'NOTE: %s。可以直接给一个对比基准的提交哈希(如「对比基准是 abc1234」,即 --base-sha <提交>),或用 --base <分支>、A..B 指定后重新运行\n' "$pb"
+    die "$pb;请用 --base-sha <提交>、--base <分支> 或 A..B 指定对比基准"
+  fi
+  base_sha=$(printf '%s\n' "$pb" | sed -n 's/^base=//p')
+  merge_commit=$(printf '%s\n' "$pb" | sed -n 's/^merge_commit=//p')
+  if [ -n "$merge_commit" ]; then
+    merged=yes
+    base_desc="${base_desc:+$base_desc,}已合入:取合入提交 $(git rev-parse --short "$merge_commit") 的第一个父提交"
+  fi
+}
+
 # 取 JSON 文件中点分路径(如 .diff_refs.base_sha)处的值。
 json_get() {
   python3 -c '
@@ -232,8 +300,10 @@ collect_local() {
   local_path=$1
   head_sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
   if [ -n "$head_sha" ]; then
-    if resolve_base_ref; then
-      base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null) || die "当前分支与 $base_ref 没有共同的祖先,请用 --base 指定正确的对比基准"
+    if [ -n "$base_sha_arg" ]; then
+      user_base HEAD
+    elif resolve_base_ref; then
+      base_sha=$(git merge-base "$base_ref" HEAD 2>/dev/null) || die "当前分支与 $base_ref 没有共同的祖先,请用 --base 指定正确的对比基准,或用 --base-sha 直接给一个基准提交"
       source_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
       closer_base "$base_ref" HEAD
     else
@@ -267,12 +337,14 @@ collect_ref() {
     collect_local ""   # 就是当前检出的 commit,按当前分支处理,带上未提交的改动
     return 0
   fi
-  resolve_base_ref || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 --base <分支> 指定,或用 A..B 指定范围"
+  resolve_base_ref || [ -n "$base_sha_arg" ] || die "找不到默认分支,无法确定 '$ref' 的对比基准;请用 --base <分支> 或 --base-sha <提交> 指定,或用 A..B 指定范围"
   ref_key="branch-${ref#origin/}"
   source_branch=${ref#origin/}
   target_branch=$base_ref
   closer_base "$base_ref" "$ref"
-  collect_range "$base_ref...$ref"
+  # 不直接用 base...ref:分支已用 merge commit 合进 base_ref 时三点 diff 是空的
+  pick_base "$base_ref" "$ref"
+  collect_range "$base_sha..$ref"
 }
 
 collect_range() {
@@ -308,11 +380,15 @@ collect_via_git() { # 远端 ref,给人看的名称
     die "无法拉取 $2。试过:${tried:+${tried};}git fetch origin(${oid}):失败,可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
   fi
   head_sha=$(git rev-parse FETCH_HEAD)
-  resolve_base_ref || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支"
-  base_sha=$(git merge-base "$base_ref" "$head_sha" 2>/dev/null) || die "$2 与 $base_ref 没有共同的祖先,请用 --base 指定正确的目标分支"
+  resolve_base_ref || [ -n "$base_sha_arg" ] || die "找不到默认分支,请用 --base <分支> 指定 $2 的目标分支,或用 --base-sha <提交> 直接给对比基准"
+  pick_base "$base_ref" "$head_sha"
   $GITDIFF "$base_sha" "$head_sha" >> "$raw"
-  printf '(未能读取 %s 的标题和描述:gh/glab 不可用或未登录,本次只用 git 拉取了代码。)\n' "$2" > "$out/description.md"
-  pr_source="git;base=$base_ref"
+  if [ -n "$code_host_fail" ]; then
+    printf '(MR 信息没有读到:tools.code_host 没有给出可用的结果(%s)。本次只用 git 拉取了代码,标题和描述不可用。)\n' "$code_host_fail" > "$out/description.md"
+  else
+    printf '(未能读取 %s 的标题和描述:gh/glab 不可用或未登录,本次只用 git 拉取了代码。)\n' "$2" > "$out/description.md"
+  fi
+  if [ "$base_source" = sha ]; then pr_source="git;base=$base_sha_arg"; else pr_source="git;base=$base_ref"; fi
   target_branch=${base_ref#origin/}
 }
 
@@ -356,7 +432,7 @@ detect_platform() {
   case "$remote" in
     *github.com*) platform=github ;;
     *gitlab*) platform=gitlab ;;
-    *) die "无法判断 '$remote' 是 GitHub 还是 GitLab。在 $(sh "$script_dir/config.sh" path) 里加一行 gitlab_hosts=<域名>(文件不存在就新建,多个域名用逗号分隔),或传入 --platform github|gitlab" ;;
+    *) die "无法判断 '$remote' 是 GitHub 还是 GitLab。在 $(sh "$script_dir/config.sh" path) 里加一行 gitlab_hosts=<域名>(文件不存在就新建,多个域名用逗号分隔),或传入 --platform github|gitlab;链接形式的 MR / PR 也可以配置 tools.code_host,让 agent 用你的代码托管工具读取" ;;
   esac
 }
 
@@ -391,11 +467,18 @@ collect_github() {
   { printf '# %s\n\n' "$title"; gh pr view "$number" -R "$repo" --json body --jq .body; } > "$out/description.md"
   gh pr diff "$number" -R "$repo" >> "$raw" || die "gh 无法获取 PR #${number} 的 diff"
   git fetch -q origin "pull/$number/head" 2>/dev/null || true
-  # baseRefOid 是目标分支现在的最新提交;GitHub 的 diff 从它和 head 的 merge-base 算起,规则也该从那一版读。
+  # baseRefOid 是目标分支的最新提交(合入或关闭后停在那时);GitHub 的 diff 从它和 head 的 merge-base 算起,
+  # 规则也该从那一版读。diff 本身来自 gh pr diff,已合入的 PR 也是原来的改动。
   fetch_base "$target_branch" || true
   base_stale=""
+  [ "$(gh pr view "$number" -R "$repo" --json state --jq .state 2>/dev/null || true)" = MERGED ] && merged=yes
+  base_desc="平台给出的 baseRefOid(GitHub 上 $target_branch 的最新提交;已合入或关闭的停在那时)"
   if git cat-file -e "$base_sha^{commit}" 2>/dev/null && git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
-    base_sha=$(git merge-base "$base_sha" "$head_sha" 2>/dev/null || printf '%s' "$base_sha")
+    # 万一 baseRefOid 已包含 head(用 merge commit 合入之后),merge-base 会等于 head,同样用 crlib.pick_base 处理
+    if pb=$(python3 "$script_dir/crlib.py" base "$root" "$base_sha" "$head_sha" 2>/dev/null); then
+      base_sha=$(printf '%s\n' "$pb" | sed -n 's/^base=//p')
+      merge_commit=$(printf '%s\n' "$pb" | sed -n 's/^merge_commit=//p')
+    fi
   fi
 }
 
@@ -448,6 +531,9 @@ collect_gitlab() {
   target_branch=$(json_get "$out/mr.json" .target_branch)
   source_branch=$(json_get "$out/mr.json" .source_branch)
   [ -n "$repo" ] || repo=$(json_get "$out/mr.json" .references.full | sed 's/![0-9]*$//')
+  # diff_refs 是 MR 最后一版 diff 的基准和 head,合入后不再变化,所以已合入的 MR 照样按它审
+  [ "$(json_get "$out/mr.json" .state)" = merged ] && merged=yes
+  base_desc="平台给出的 diff_refs.base_sha(GitLab 上这个 MR 最新一版 diff 的基准)"
   { printf '# %s\n\n' "$title"; json_get "$out/mr.json" .description; } > "$out/description.md"
   rm -f "$out/mr.json"
   git fetch -q origin "merge-requests/$number/head" 2>/dev/null || true
@@ -461,9 +547,40 @@ collect_gitlab() {
   fi
 }
 
+# tools.code_host:链接形式的 MR / PR 由 agent 用配置的工具只读取。第一次运行只核对链接和仓库,输出
+# NEED_CODE_HOST 并结束;agent 把读到的信息写进那个目录的 code-host.json 后,带 --code-host-dir 重新运行,
+# 这时由 code_host.py 核对、fetch 并算 merge-base。核对不过或 status 为 failed 时退回 git 拉取。
+collect_code_host() {
+  mode=pr
+  if [ -z "$code_host_dir" ]; then
+    stage=$(python3 "$script_dir/code_host.py" request "$target" "$root") || exit 1
+    printf 'NEED_CODE_HOST: %s\n' "$stage"
+    exit 0
+  fi
+  ch=$(python3 "$script_dir/code_host.py" resolve "$code_host_dir" "$target" "$root" "$out") || exit 1
+  ch_get() { printf '%s\n' "$ch" | sed -n "s/^$1=//p" | head -n 1; }
+  code_host_notes=$(printf '%s\n' "$ch" | sed -n 's/^note=//p')
+  repo=$(ch_get repo); number=$(ch_get number); url=$(ch_get url); platform=$(ch_get platform)
+  if [ "$(ch_get status)" = ok ]; then
+    title=$(ch_get title); head_sha=$(ch_get head_sha); target_branch=$(ch_get target_branch)
+    # 基准和其他路径一样:fetch 最新的目标分支再算(--base、--base-sha 优先),agent 给的 base 一律不看
+    resolve_base_ref "$target_branch" || [ -n "$base_sha_arg" ] || die "找不到 MR 的目标分支 $target_branch(本地和 origin 都没有)"
+    pick_base "$base_ref" "$head_sha"
+    pr_source=code_host
+    $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+    return 0
+  fi
+  code_host_fail=$(ch_get reason)
+  [ -n "$code_host_fail" ] || code_host_fail="没有给出原因"
+  label="MR !$number"; [ "$platform" = github ] && label="PR #$number"
+  collect_via_git "$(ch_get fallback_ref)" "$label"
+}
+
+code_host_cfg=$(sh "$script_dir/config.sh" get tools.code_host 2>/dev/null || true)
 case "$target" in
   "") collect_local "" ;;
-  http://*|https://*) detect_platform; "collect_$platform" ;;
+  http://*|https://*)
+    if [ -n "$code_host_cfg" ]; then collect_code_host; else detect_platform; "collect_$platform"; fi ;;
   *[!0-9]*)
     if [ -e "$prefix$target" ]; then collect_local "$prefix$target"
     else
@@ -479,6 +596,15 @@ case "$target" in
     ;;
   *) detect_platform; "collect_$platform" ;;
 esac
+
+# --base-sha:gh、glab 和提交范围的基准是各自算的,这里统一换成用户指定的提交(其余路径已在 pick_base 里用上了)
+if [ -n "$base_sha_arg" ] && [ "$base_source" != sha ]; then
+  [ -n "$head_sha" ] && git cat-file -e "$head_sha^{commit}" 2>/dev/null \
+    || die "本地没有被审查的 head 提交 ${head_sha:-?},无法按 --base-sha 计算 diff;请先拉取它"
+  user_base "$head_sha"
+  : > "$raw"
+  $GITDIFF "$base_sha" "$head_sha" >> "$raw"
+fi
 
 # 范围/本地审查也尽力识别平台,以收集提交关联的需求;未知平台不阻止本地审查。
 if [ "$mode" != pr ] && [ -z "$platform" ]; then
@@ -585,7 +711,7 @@ done < "$split/index"
 
 # 这个目标的审查记录放在哪里。
 case "$mode" in
-  pr) if [ "$platform" = gitlab ]; then target_key="mr-$number"; else target_key="pr-$number"; fi ;;
+  pr) if [ "$platform" = github ]; then target_key="pr-$number"; else target_key="mr-$number"; fi ;;
   range) target_key=${ref_key:-range-$target} ;;
   *)
     branch=$(git symbolic-ref -q --short HEAD 2>/dev/null || true)
@@ -617,7 +743,7 @@ finder_model=$(sh "$script_dir/config.sh" get model.finder)
   printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
   printf 'depth=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$plan_arg" "$store_dir" "$repo_id"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
-  printf 'with_tests=%s\nonly=%s\n' "$with_tests" "$only"
+  printf 'with_tests=%s\nonly=%s\nbase_sha_arg=%s\n' "$with_tests" "$only" "$base_sha_arg"
   printf 'source_branch=%s\ntarget_key=%s\nrepo=%s\n' "$source_branch" "$target_key" "$repo"
   # 风险分级要看整个目标的改动大小,这时还没有按增量裁剪。
   printf 'changed_lines=%s\n' "$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)"
@@ -750,6 +876,9 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'unchanged_files=%s\n' "$unchanged_count"
   printf 'repo_id=%s\n' "$repo_id"
   printf 'pr_source=%s\n' "${pr_source:-api}"
+  printf 'code_host_reason=%s\n' "$code_host_fail"
+  printf 'merged=%s\nmerge_commit=%s\n' "$merged" "$merge_commit"
+  printf 'base_desc=%s\nbase_sha_arg=%s\n' "$base_desc" "$base_sha_arg"
   printf 'target_key=%s\n' "$target_key"
   printf 'store_dir=%s\n' "$store_dir"
   printf 'source_branch=%s\n' "$source_branch"
@@ -790,7 +919,7 @@ fi
 printf 'files=%s changed_lines=%s skipped=%s batches=%s head_checked_out=%s scope=%s unchanged=%s\n' \
   "$file_count" "$changed_lines" "$skipped_count" "$batch_count" "$head_checked_out" "$review_scope" "$unchanged_count"
 if [ -n "$base_stale" ]; then
-  printf 'NOTE: %s,按本地已有的 %s(%s)对比。它可能落后于远端:如果当前分支已经合入或 rebase 了更新的 %s,别人的提交会被算进这次的改动\n' \
+  printf 'NOTE: %s,按本地已有的 %s(%s)对比,目标分支可能不是最新。它可能落后于远端:如果当前分支已经合入或 rebase 了更新的 %s,别人的提交会被算进这次的改动\n' \
     "$base_stale" "$base_ref" "$(git log -1 --date=format:'%Y-%m-%d %H:%M' --format='最后一个提交在 %cd' "$base_ref" 2>/dev/null)" "${base_ref#origin/}"
 fi
 if [ -n "$base_hint" ]; then
@@ -798,8 +927,23 @@ if [ -n "$base_hint" ]; then
   printf 'BASE_CHOICE: 对比基准按默认分支 %s 计算(领先 %s 个提交);%s 更近(领先 %s 个提交)。如果这个分支是从 %s 拉出来、要合回 %s 的,应加 --base %s 重新运行\n' \
     "${target_branch#origin/}" "$3" "${1#origin/}" "$2" "${1#origin/}" "${1#origin/}" "${1#origin/}"
 fi
+[ -z "$code_host_notes" ] || printf '%s\n' "$code_host_notes" | sed 's/^/NOTE: /'
+if [ "$merged" = yes ]; then
+  if [ "$mode" = pr ]; then
+    what="这个 MR"; [ "$platform" = github ] && what="这个 PR"
+    printf 'NOTE: %s 已合入%s。照常按合入前的改动审查;MR 说明照常生成,但描述已无法影响合入;--fix 不改代码,要修请从 %s 另开分支\n' \
+      "$what" "${target_branch:+ $target_branch}" "${target_branch:-目标分支}"
+  else
+    printf 'NOTE: 分支 %s 已合入 %s,按合入前的改动审查\n' "$source_branch" "${target_branch#origin/}"
+  fi
+fi
 case "$pr_source" in
-  git*) printf 'NOTE: 没有通过 gh/glab 读到这个 PR/MR 的信息,已改用 git 直接拉取代码。标题和描述不可用;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "${pr_source#git;base=}" ;;
+  git*)
+    if [ -n "$code_host_fail" ]; then
+      printf 'NOTE: MR 信息没有读到(tools.code_host:%s),已改用 git 直接拉取代码。标题和描述不可用,报告和 MR 说明里会写明;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "$code_host_fail" "${pr_source#git;base=}"
+    else
+      printf 'NOTE: 没有通过 gh/glab 读到这个 PR/MR 的信息,已改用 git 直接拉取代码。标题和描述不可用;对比基准是 %s,目标分支不是它时请加 --base <分支> 重新运行\n' "${pr_source#git;base=}"
+    fi ;;
 esac
 if [ -n "$gap_vars" ]; then
   printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把这几个变量的设置挪到 ~/.zshenv(zsh 的所有终端都会读)或宿主的环境变量配置里。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file" "$gap_vars"
@@ -809,6 +953,12 @@ if [ "$file_count" -eq 0 ]; then
   if [ "$unchanged_count" -gt 0 ]; then printf 'UNCHANGED: 自上次审查(%s)以来没有变化\n' "$prev_review"
   else
     printf 'EMPTY: 没有可审查的内容\n'
+    # MR 或用户指定的基准算出 0 个文件,多半是基准不对,不能当成「0 条发现」
+    if [ "$skipped_count" -eq 0 ] && [ "$base_source" = sha ]; then
+      printf 'NOTE: 按指定的对比基准 %s 算出的 diff 是空的(0 个文件),它可能就是 head 本身。这不是「没有问题」;请换一个更早的基准提交重新运行\n' "$base_sha_arg"
+    elif [ "$skipped_count" -eq 0 ] && [ "$mode" = pr ]; then
+      printf 'NOTE: 这个 MR / PR 的 diff 是空的(0 个文件),很可能是对比基准算错了,不能当成「0 条发现」。可以直接给一个对比基准的提交哈希(如「对比基准是 abc1234」,即 --base-sha <提交>),或用 --base <分支> 重新运行\n'
+    fi
     if [ "$mode" = local ] && [ -n "$source_branch" ] && [ "$source_branch" = "${target_branch#origin/}" ]; then
       printf 'HINT: 当前就在默认分支 %s 上,也没有未提交的改动。可以审最近几个提交(如 HEAD~3..HEAD),或者指定一个分支、PR/MR\n' "$source_branch"
     fi

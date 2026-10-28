@@ -44,7 +44,7 @@ Codex 里是 `$crosscheck:cr ...`,Cursor 里是 `/cr ...`。不需要记任何�
 | 审一个 PR / MR | 「review MR 128」,或直接贴链接 |
 | 审某几个提交 | 「看看最近 3 个提交」 |
 | 只看某个目录 | 「只看 src/orders 下面的改动」 |
-| 指定对比基准 | 「对比 develop」「要合到 release/1.2」 |
+| 指定对比基准 | 「对比 develop」「要合到 release/1.2」,或者直接给提交:「对比基准是 abc1234」 |
 | 快速过一遍 | 「快速看一下」 |
 | 上线前仔细审 | 「仔细看看」「上线前深度审一下」 |
 | 只关心某一方面 | 「只看安全问题」「只对照团队规范」 |
@@ -58,7 +58,8 @@ Codex 里是 `$crosscheck:cr ...`,Cursor 里是 `/cr ...`。不需要记任何�
 | 审完顺手修掉 | 「审完把问题修掉」 |
 
 - **深度**:没说时按 standard。查找由一个 reviewer 在同一个上下文里分遍做(正确性 → 安全 → 需求核对),规则由 rules-auditor 单独查。quick 由主 agent 自己查和核实,最多 5 条;deep 时 reviewer 多做一遍影响面(从调用方往回查),verifier 可以跑项目已有的检查和测试来复现。
-- **对比基准**:和 GitHub / GitLab 一样以远端最新为准,审查前先从 origin 拉取目标分支(只更新 `origin/` 下的远程跟踪分支)。当前分支离 develop、release/* 这类分支比离默认分支更近时,会先问你对比哪个。
+- **对比基准**:你没说对比什么时,一律以远端最新的目标分支为准:审查前先从 origin 拉取目标分支(只更新 `origin/` 下的远程跟踪分支),不用本地可能过期的 `main`。拉取失败(离线、没权限)才用本地已有的,并提醒你目标分支可能不是最新。你说了「对比 develop」或「对比基准是 abc1234」时以你说的为准。报告第一行写明基准来自哪一版。当前分支离 develop、release/* 这类分支比离默认分支更近时,会先问你对比哪个。
+- **已合入的 MR**:照样能审,审的是合入前的那份改动(用 merge commit、squash 还是 rebase 合入都行)。报告开头会写明「这个 MR 已合入」;MR 说明照常生成,但描述已经影响不了合入;要修的话请另开分支,`--fix` 不会改代码。算不出基准时(比如快进合入)它会请你给一个基准提交,不会给出空的结果。
 - **改动很大**:按约 1000 行一批审查;超过 4 批时先问你是全部审、只审某个目录,还是用 quick。
 - 你没说「修掉」时不改任何文件;「review 一下」「这个该怎么修」都不算修改请求。
 
@@ -125,7 +126,7 @@ Codex 里是 `$crosscheck:cr ...`,Cursor 里是 `/cr ...`。不需要记任何�
 
 - MR 描述;本地分支时用提交说明。
 - 关联的需求单:GitLab Issue 用 `glab` 读,GitHub issue 用 `gh` 读,其他系统用配置的需求管理工具(见下)。
-- MR / PR 上已有的人工讨论(已经有人指出的问题不重复报)。
+- MR / PR 上已有的人工讨论(已经有人指出的问题不重复报;经代码托管工具读到的讨论,即使标着已答复、已解决,问题还在也照报,只标注「讨论中已有人提出」)。
 - 你说的这次改动的目的,和你给的方案、接口文档。
 - 配置的需求管理工具和文档阅读工具(见下)。
 
@@ -267,10 +268,11 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 - **插件里的 `skills/cr/crosscheck.conf`**:随插件分发,适合团队统一的设置。它同时是完整的配置模板:所有设置都列在里面,默认全部注释掉,用哪项就去掉那行开头的 `#` 再填值。用自己的插件市场分发时,团队改一次,所有成员装上就生效。
 - **个人的 `~/.crosscheck/config`**:逐项覆盖插件里的。格式相同,可以把 `crosscheck.conf` 复制过去再改。值为空的行和注释行一样,都等于没配置。
 
-**三类外部工具**。插件本身不认识任何一家的工具,由你告诉 agent 用什么;每项的值是**一句话的提示词**:用哪个 skill 或命令、怎么用,想让它自动识别链接就写一个链接示例。
+**四类外部工具**。插件本身不认识任何一家的工具,由你告诉 agent 用什么;每项的值是**一句话的提示词**:用哪个 skill 或命令、怎么用,想让它自动识别链接就写一个链接示例。
 
 | 设置 | 干什么 | 不写会怎样 | 示例 |
 |---|---|---|---|
+| `tools.code_host` | 代码托管工具:读 MR / PR 的标题、描述、讨论、目标分支和源引用。**只能是只读的**,不评论、不改描述、不合入。写了以后贴 MR / PR 链接(GitHub、GitLab 的也一样)都由它读;读到的东西插件会自己核对仓库、分支和提交,对不上就只用 git 拉代码,并写明「MR 信息没有读到」 | GitHub 用 gh、GitLab 用 glab;都认不出的平台只能审本地分支 | `用 acme-kit:mr-reader 读 MR,链接形如 https://code.example.com/x/y/merge/12` |
 | `tools.requirement` | 需求管理工具:读需求单(标题、描述、验收标准) | 只认 GitLab / GitHub 的 Issue,别的需求单要你用一句话补充目的 | `用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.example.com/browse/XX-123` |
 | `tools.doc_reader` | 文档阅读工具:读 PRD、技术方案等文档链接 | 不读文档内容,只记下链接 | `用 acme-kit:doc-reader 读文档链接,支持 https://docs.example.com/ 下的页面` |
 | `tools.doc_publisher` | 文档发布工具:把 MR 说明发布成网页,之后随报告更新 | 只生成本地文件 | `用 acme-kit:page-publisher 把 HTML 发布成网页,返回网页链接` |
@@ -285,7 +287,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder = opus`、`model.verifier = opus`:查找用强模型能找到更多高危问题,但成本比便宜的组合高;想省钱把 `model.finder` 换成 `sonnet`。Codex 用 sol 一类的强模型,Cursor 写它自己的模型名 |
 | `intent.required` | 每次都要收集(可跳过)的需求类别,`ticket`(需求单)、`doc`(需求文档),逗号分隔;不写时只有 `ticket` |
 
-平台依次按你指定的、环境变量 `CR_PLATFORM`、`gitlab_hosts`、域名和链接形态判断。私有化 GitLab 需要先 `glab auth login --hostname <域名>`。
+平台依次按你指定的、环境变量 `CR_PLATFORM`、`gitlab_hosts`、域名和链接形态判断。私有化 GitLab 需要先 `glab auth login --hostname <域名>`。配置了 `tools.code_host` 时,贴完整链接的 MR / PR 不走这一套,只给编号时照旧。
 
 ## 成本
 
@@ -327,7 +329,8 @@ tests/                python3 -m unittest discover -s tests
 - **MR 说明可以被改**:贴进 MR 后作者能改,评审人应以写明的提交和 MR 最新提交对照。
 - **需求来源靠你配置的工具**:能否读到取决于工具和权限;读取发生在审查开始前。
 - **运行记录只防幻觉**:声称跑过的命令要有 `run-check.sh` 留下的记录,但记录本身不防刻意伪造。
-- **真实环境验证不足**:私有化 GitLab 子路径部署、GitHub 的 issue 和评论读取主要用模拟的 `glab` / `gh` 测过;判断记录只在本机。
+- **真实环境验证不足**:私有化 GitLab 子路径部署、GitHub 的 issue 和评论读取主要用模拟的 `glab` / `gh` 测过;判断记录只在本机。`tools.code_host` 只用本地仓库模拟过,没在真实的代码托管平台上验证。
+- **代码托管工具靠约定只读**:`tools.code_host` 由 agent 执行,插件看不出远端的 MR 有没有被改过,只能靠配置和说明里「只读」的约束;读到的标题、描述和讨论也只是 agent 转述的,插件只核对得了仓库、分支和提交。
 
 ## 内部参数对照
 
@@ -344,6 +347,7 @@ tests/                python3 -m unittest discover -s tests
 | 「看看最近 3 个提交」 | `A..B` |
 | 「只看 src/orders 下面的改动」 | `src/orders` |
 | 「对比 develop」「要合到 release/1.2」 | `--base <分支>` |
+| 「对比基准是 abc1234」「从 abc1234 开始比」 | `--base-sha <提交>` |
 | 「快速看一下」 | `--depth quick` |
 | 「仔细看看」「上线前深度审一下」 | `--depth deep` |
 | 「只看安全问题」「只对照团队规范」 | `--only bug,security,rules` |

@@ -30,7 +30,7 @@
 | `suggestion` | 可选。能修复问题的最小改动,优先选不改变接口和既有行为的修法。能确定时直接给出替换后的代码,并说明替换的是哪几行;只能确定方向时用一句话描述;不确定怎么修就省略。 |
 | `also_at` | 可选。同一根因、同一改法的其他位置,写成 `[{"file": "...", "line": 12}]`,每处都要落在 `ranges.txt` 的改动行内。只放同一个问题的位置,不要把别的问题放进来。合并规则见下面「硬性要求」。 |
 | `needs_check` | 可选,只在候选阶段使用。还没确认的那一环,写成 verifier 可以直接去核对的一句话。 |
-| `raised_in_discussion` | 可选,只有 reviewer:`true` 表示 `discussions.json` 里已有人(或机器人)提出过同一问题,而该处代码仍未改。讨论里已说明是有意如此、或已解决 / 已答复的,不提交。 |
+| `raised_in_discussion` | 可选,只有 reviewer:`true` 表示 `discussions.json` 里已有人(或机器人)提出过同一问题,而该处代码仍未改。讨论里已说明是有意如此、或已解决 / 已答复的,不提交。例外:带 `"source": "code_host"` 的讨论(经 `tools.code_host` 由 agent 读到,脚本核对不了它的状态),「已答复」「已解决」不能让发现不提交,只标 `raised_in_discussion`,照常提交。 |
 | `rule_file` | 只有 `rules`:规则所在的文件,照抄 `rules.txt` 块头部的 `file=`。 |
 | `rule_quote` | 只有 `rules`:逐字引用的规则原文。脚本会核对它真的出现在 `rule_file` 的规则里、那块规则覆盖这个文件,对不上的发现直接作废。 |
 

@@ -49,6 +49,8 @@ class Platform:
     def why_unreadable(self):
         """关联需求读不到时的原因说明。"""
         meta = self.meta
+        if meta.get("pr_source") == "code_host":
+            return "MR 信息经 tools.code_host 读取,没有 API 访问;可用 --intent 或 --doc 补充"
         if meta.get("platform") == "github":
             return "未找到 gh 或没有登录" if not self.has_gh else "API 请求失败,请检查访问权限与编号"
         if meta.get("platform") != "gitlab":

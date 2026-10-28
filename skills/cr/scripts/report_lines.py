@@ -20,7 +20,7 @@ DEPTH = {"quick": "快速", "standard": "标准", "deep": "深度"}
 # 审查范围
 mode, plat = m.get("mode"), m.get("platform")
 if mode == "pr":
-    what = ("MR !%s" if plat == "gitlab" else "PR #%s") % m.get("number", "")
+    what = ("PR #%s" if plat == "github" else "MR !%s") % m.get("number", "")
 elif mode == "range" and m.get("target_key", "").startswith("branch-"):
     what = "分支 %s" % m.get("source_branch", m.get("target", ""))
 elif mode == "range":
@@ -36,8 +36,14 @@ scope = "全量"
 if m.get("review_scope") == "incremental":
     scope = "增量(上次审过的 %s 个文件没变)" % m.get("unchanged_files", "0")
 ref_note = ""
+if m.get("base_desc"):
+    ref_note += " · 对比基准:%s" % m["base_desc"]
 if m.get("head_checked_out") == "no":
-    ref_note = " · 代码读自 %s" % (m.get("code_ref", "")[:12])
+    ref_note += " · 代码读自 %s" % (m.get("code_ref", "")[:12])
+if m.get("merged") == "yes":
+    # 放在报告开头:已合入的 MR 改描述、改代码都影响不了这次合入
+    print("MERGED: %s 已合入%s。按合入前的改动审查;MR 说明照常生成,但描述已无法影响合入;要修请另开分支" % (
+        "分支 %s" % sb if mode != "pr" else ("这个 PR" if plat == "github" else "这个 MR"), " " + tb.replace("origin/", "", 1) if tb else ""))
 print("SCOPE: 审查范围:%s · 深度:%s · %s%s" % (what, DEPTH.get(m.get("depth"), m.get("depth")), scope, ref_note))
 
 # 意图
@@ -99,6 +105,8 @@ if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
 st = crlib.load_json(os.path.join(d, "settings.json"), {})
 if any(st.get(k) for k in ("skip", "limits")):
     extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % st.get("source", ""))
+if m.get("code_host_reason"):
+    extra.append("MR 信息没有读到(tools.code_host:%s),标题和描述未用上" % m["code_host_reason"])
 if m.get("finder_model"):
     extra.append("查找模型配置:%s(实际执行模型由宿主说明)" % m["finder_model"])
 if m.get("verifier_model", "host") not in ("", "host"):

@@ -279,6 +279,33 @@ def git(root, *args, check=True):
     return r.stdout
 
 
+def pick_base(root, target, head):
+    """head 相对目标分支 target 的对比基准,返回 (base, merge_commit)。
+    还没合入、或用 squash / rebase 合入(head 不是 target 的祖先)时就是 merge-base(target, head),merge_commit 为空。
+    用 merge commit 合入后 target 已包含 head,merge-base 就等于 head、diff 为空:这时在 target 的 first-parent
+    链上找到合入它的那个提交 M,基准取 merge-base(M^1, head)。找不到 M(快进合入、head 就是 target)时抛 ValueError。"""
+    def run(*args):
+        r = subprocess.run(["git", "-C", root] + list(args), capture_output=True, text=True)
+        return r.returncode, r.stdout.strip()
+    code, full = run("rev-parse", "-q", "--verify", head + "^{commit}")
+    if code or not full:
+        raise ValueError("找不到提交 %s" % head)
+    if run("merge-base", "--is-ancestor", full, target)[0] != 0:
+        code, base = run("merge-base", target, full)
+        if code or not base:
+            raise ValueError("%s 与 %s 没有共同的祖先" % (target, full[:12]))
+        return base, ""
+    chain = run("rev-list", "--first-parent", "--ancestry-path", "%s..%s" % (full, target))[1].split()
+    parent = run("rev-parse", "-q", "--verify", chain[-1] + "^1")[1] if chain else ""
+    if not parent or parent == full:
+        raise ValueError("%s 已经在 %s 里,但在它的 first-parent 链上找不到合入它的 merge commit(可能是快进合入,"
+                         "或者它本来就是 %s 上的提交),算不出这次改动的对比基准" % (full[:12], target, target))
+    code, base = run("merge-base", parent, full)
+    if code or not base:
+        raise ValueError("%s 与 %s 没有共同的祖先" % (parent[:12], full[:12]))
+    return base, chain[-1]
+
+
 class Source:
     """读文件:工作区,或者某个 commit(不检出)。"""
 
@@ -476,10 +503,16 @@ def author_hash(root=None):
 
 
 if __name__ == "__main__":
-    # 给 shell 脚本用:config get KEY / config path / config plugin-path / repo-id
+    # 给 shell 脚本用:config get KEY / config path / config plugin-path / repo-id / base 仓库 目标 head
     import sys
     cmd = sys.argv[1:2]
-    if cmd == ["repo-id"]:
+    if cmd == ["base"] and len(sys.argv) == 5:
+        try:
+            b, m = pick_base(sys.argv[2], sys.argv[3], sys.argv[4])
+        except ValueError as e:
+            sys.exit(str(e))
+        print("base=%s\nmerge_commit=%s" % (b, m))
+    elif cmd == ["repo-id"]:
         print(repo_identity())
     elif cmd == ["path"]:
         print(config_path())

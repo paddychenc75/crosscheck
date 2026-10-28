@@ -2,7 +2,7 @@
 
 ## [0.3.0] - 未发布(试验性)
 
-一次审查产出两份东西:给开发者自己修的 CR 报告,和给 MR 评审人看的 MR 说明。依据是团队问卷:52% 的人卡在「改动太大、难以判断影响」,15% 缺需求背景,15% 缺验证手段(见 DESIGN.md 决策 22–25)。
+一次审查产出两份东西:给开发者自己修的 CR 报告,和给 MR 评审人看的 MR 说明。依据是团队问卷:52% 的人卡在「改动太大、难以判断影响」,15% 缺需求背景,15% 缺验证手段(见 DESIGN.md 决策 22–26)。
 
 **MR 说明**
 
@@ -18,6 +18,13 @@
 - 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等)、`tools.doc_publisher`(文档发布,发布 MR 说明网页),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`ticket`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
 - 新增 `--source`、`--source-dir`、`--doc`(可多次,`--plan` 同义)、`--tested`。
 - GitHub PR 读取关联 issue(含验收标准)和 PR 评论、review,与 GitLab 对齐。
+
+**代码托管工具与对比基准**
+
+- 新增可选配置 `tools.code_host`:一句给 agent 的提示词,说明用哪个只读工具读 MR / PR。配置后链接形式的 MR / PR(GitHub、GitLab 的链接也一样)由它读取标题、描述、讨论、目标分支和源引用,写成固定格式的 `code-host.json`(两段式:`NEED_CODE_HOST` → `--code-host-dir`)。编号、仓库、平台、网址从链接解析,仓库要和 origin 对得上,分支名过 `git check-ref-format`,head 以只读 fetch 到的为准(和 agent 给的不一致就不用),基准由脚本算,不取 agent 的;讨论作者只存哈希、去掉机器人,标 `source=code_host`,其「已答复」「已解决」不让发现不报。核对不过或 `status=failed` 时退回 git 拉取,并在 NOTE、报告和 MR 说明里写明「MR 信息没有读到」。不写时照旧用 gh / glab(决策 26)。
+- 对比基准默认一律用 origin 上最新的目标分支:所有路径(当前分支、其他分支、git 回退、`tools.code_host`)先拉取再算 merge-base,拉取失败才用本地已有的并输出 NOTE;报告的 SCOPE 行写明基准来自远端最新、本地缓存、平台给出还是用户指定(决策 21)。
+- 新增 `--base-sha <提交>`(「对比基准是 abc1234」):短哈希也行,必须是 head 的祖先,优先于任何自动计算,对本地分支、提交范围、PR/MR 都生效;它变了算作全量重审。
+- 已合入的 MR / PR 能正确审查:用 merge commit 合入时在目标分支的 first-parent 链上找到合入提交,用它的第一个父提交算基准(`crlib.pick_base`),squash / rebase 合入照常;找不到合入提交时输出 NOTE 并停止,不给出空 diff。报告开头写明「这个 MR 已合入」,MR 说明照常生成并提示描述已无法影响合入,`--fix` 不改代码。MR 的 diff 为空时一律输出 NOTE,不当成「0 条发现」。
 
 **配置**
 

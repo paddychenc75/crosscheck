@@ -11,6 +11,7 @@
 | 审一个 MR | 「review MR 128」,或者直接贴 MR 链接 |
 | 审某几个提交 | 「看看最近 3 个提交」 |
 | 只看某个目录 | 「只看 src/orders 下面的改动」 |
+| 指定对比基准 | 「对比 develop」「要合到 release/1.2」;或者直接给提交:「对比基准是 abc1234」「从 abc1234 开始比」 |
 | 快速过一遍 | 「快速看一下」(最多 5 条) |
 | 上线前仔细审 | 「仔细看看」「上线前深度审一下」(更慢、更贵) |
 | 只关心某一方面 | 「只看安全问题」「只对照一下团队规范」 |
@@ -37,4 +38,6 @@
 | 规则维护 | 用命令 `/crosscheck:cr-rules`(Codex 里 `$crosscheck:cr-rules`,拷贝安装时 `$cr-rules`):不带参数是从 MR 评论里沉淀规则,带「检查」是检查现有规则,带「整理 REVIEW.md」是起草或整理 REVIEW.md。不能用自然语言触发 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 
-想预先配置私有化 GitLab 的域名、查找和核实用的模型、读需求单和需求文档的工具、发布 MR 说明网页的工具时,打开插件里的 `crosscheck.conf`:所有设置都列在里面,默认全部注释掉,每项一两句话说明用途和不写时的行为。团队统一的写在这一份里,个人的写到 `~/.crosscheck/config`(`sh <skill_dir>/scripts/config.sh path` 查位置),格式相同。三个工具(`tools.requirement`、`tools.doc_reader`、`tools.doc_publisher`)各写一句话告诉 agent 用什么、怎么用,想让它自动识别需求链接就在那句话里写一个链接示例。
+想预先配置私有化 GitLab 的域名、查找和核实用的模型、读 MR 的代码托管工具、读需求单和需求文档的工具、发布 MR 说明网页的工具时,打开插件里的 `crosscheck.conf`:所有设置都列在里面,默认全部注释掉,每项一两句话说明用途和不写时的行为。团队统一的写在这一份里,个人的写到 `~/.crosscheck/config`(`sh <skill_dir>/scripts/config.sh path` 查位置),格式相同。四个工具(`tools.code_host`、`tools.requirement`、`tools.doc_reader`、`tools.doc_publisher`)各写一句话告诉 agent 用什么、怎么用,想让它自动识别需求链接就在那句话里写一个链接示例。`tools.code_host` 是只读的代码托管工具:写了以后,贴 MR / PR 链接时由它读标题、描述和讨论,不再用 gh / glab;要给完整链接,只给编号时照旧用 gh / glab。
+
+对比基准默认是 origin 上最新的目标分支(审查前先拉取),拉取失败才用本地已有的,并会说明;用户说了对比哪个分支、或给了基准提交时以用户的为准。已合入的 MR 也能审,审的是合入前的改动。

@@ -50,7 +50,11 @@ def github(api, repo, number):
 def fetch(api, meta, review_dir):
     """返回 (讨论列表, 平台名称)。有讨论时写 discussions.json。"""
     number = meta.get("number")
-    if api.has_glab and number:
+    if meta.get("pr_source") == "code_host":
+        # 经 tools.code_host 读到的讨论已由 code_host.py 核对,写在 code-host.json 里,带 source=code_host
+        found = (crlib.load_json(os.path.join(review_dir, "code-host.json"), {}) or {}).get("discussions") or []
+        name = "PR" if meta.get("platform") == "github" else "MR"
+    elif api.has_glab and number:
         found, name = gitlab(api, number), "MR"
     elif api.has_gh and meta.get("mode") == "pr" and number:
         found, name = github(api, meta["repo"], number), "PR"
@@ -66,6 +70,7 @@ def summary(found):
     lines = []
     for x in found[:8]:
         where = "%s:%s " % (x["file"], x["line"]) if x.get("file") else ""
-        lines.append("- %s%s%s" % (where, "(已解决)" if x.get("resolved") else "", crlib.clip(x["body"].replace("\n", " "), 300)))
+        state = "(已解决)" if x.get("resolved") else ("(已答复)" if x.get("replied") else "")
+        lines.append("- %s%s%s" % (where, state, crlib.clip(x["body"].replace("\n", " "), 300)))
     more = "\n……还有 %d 条,见 discussions.json" % (len(found) - 8) if len(found) > 8 else ""
     return "\n".join(lines) + more

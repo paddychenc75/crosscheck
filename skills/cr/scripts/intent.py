@@ -88,8 +88,8 @@ def collect(api, meta, review_dir):
     if user_intent:
         it.add("你补充的意图", user_intent, "你的补充")
     desc = (crlib.read_text(os.path.join(review_dir, "description.md")) or "").strip()
-    if desc and mode == "pr" and not desc.startswith("(未能读取"):
-        name = "MR 描述" if meta.get("platform") == "gitlab" else "PR 描述"
+    if desc and mode == "pr" and not desc.startswith(("(未能读取", "(MR 信息没有读到")):
+        name = "PR 描述" if meta.get("platform") == "github" else "MR 描述"
         it.add(name, crlib.clip(desc, 3000), name)
     commits = commit_log(api, meta)
     if commits.strip():
