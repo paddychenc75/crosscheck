@@ -11,13 +11,19 @@
 - 新角色 `analyst` 起草一句话和分组,`analysis_check.py` 核对引文、编号和禁用词,对不上的删掉。
 - CR 情况:已修复数量;未修复的严重和重要问题附作者的判断和理由,未表态的也列出;写明基于哪个提交,之后又有提交时标出。表态、`--fix`、重新审查后重新生成。
 - 代码位置在提交推送后带上 GitLab / GitHub 行链接;给出 `glab mr create/update`、`gh pr create/edit` 命令,由开发者自己执行,插件不提交 MR。
-- 配置 `output.page` 后可生成网页版,同意一次后随 CR 报告更新同一个页面。
+- 配置 `tools.doc_publisher` 后可生成网页版,同意一次后随 CR 报告更新同一个页面。
 
 **需求来源**
 
-- 配置按用途写工具名:`source.ticket`、`source.prd`、`source.required`、`source.<类别>.label` / `.match`。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
+- 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等)、`tools.doc_publisher`(文档发布,发布 MR 说明网页),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`ticket`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
 - 新增 `--source`、`--source-dir`、`--doc`(可多次,`--plan` 同义)、`--tested`。
 - GitHub PR 读取关联 issue(含验收标准)和 PR 评论、review,与 GitLab 对齐。
+
+**配置**
+
+- 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读、文档发布)和 `intent.required`,`--source` 的类别为 `ticket` 和 `doc`。
+- `skills/cr/crosscheck.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
+- README 和常用说法改成自然语言的用法,脚本参数只留在 `SKILL.md` 和 README 末尾的「内部参数对照」。
 
 **收敛**
 
@@ -27,7 +33,7 @@
   - 去掉风险分级和「建议用 deep」(`risk.txt`、`risk_paths`、`SUGGEST`);`REVIEW.md` 头部只剩 `skip`、`limits`,平台判断去掉 `REVIEW.md` 的 `platform`。
   - 去掉同根因合并展示(`display-groups.json`、`report.json`、`report_groups.py`)。
   - 去掉 simplifier 和 `--only simplify`。
-  - 去掉 `issue_cmd` 和 Jira 编号识别,统一走需求来源 `source.ticket`。
+  - 去掉 `issue_cmd` 和 Jira 编号识别,统一走需求管理工具 `tools.requirement`。
   - 去掉 `REVIEW.md` 的 `@` 引入,以及 `.cursor/BUGBOT.md`、`.cursorrules`、`.windsurfrules`、`GEMINI.md`、`CONVENTIONS.md`。
   - 去掉自动打开报告(`CROSSCHECK_OPEN*`)和旧记录目录迁移。
   - 去掉借用登录 shell 重试 glab(`CR_USER_SHELL`),保留变量写在哪个文件的提示和 git 兜底。
@@ -60,7 +66,7 @@
 - 0 条发现的报告也用统一结构,不写没经过核实的判断。
 - reviewer 只负责找、不负责判:不再读误报清单,拿不准是否触发、base 是否已有、别处是否有守卫的照常提交,交给 verifier。评测里查找阶段漏掉的比核实否决的多得多。
 - reviewer 对每块有效改动过一遍检查点:去掉或缩小的保护、读-改-写并发、包装层绕回自己、违反写明的约定、新实现处理空输入不一致、搬移或重命名时丢掉的行为。
-- MR 说明和 CR 报告一样给出本地版本链接(`mr.md`、`mr.html`,`mr-note.sh` 新增 `md_link=`);配置了 `output.page` 时自动发布网页版,不再询问。开发者可以复制内容进 MR 描述,或直接贴网页链接。
+- MR 说明和 CR 报告一样给出本地版本链接(`mr.md`、`mr.html`,`mr-note.sh` 新增 `md_link=`);配置了 `tools.doc_publisher` 时自动发布网页版,不再询问。开发者可以复制内容进 MR 描述,或直接贴网页链接。
 - 修复宿主把命令写成 `{ sh save-review.sh …; } 2>&1 | grep …` 时 hook 认不出来、token 没统计。
 - 修复 `log/`、`logs/` 目录里的源代码被当成日志跳过(如 Go 的 `pkg/plugins/log/`),现在只跳过其中不是源代码的文件。
 - 评分标准新增例外:本次改动破坏了接口写明的约定或去掉了原有保护(锁、事务、过滤条件、校验、await)的,不按「现在没人这样调用」否决,严重程度最高「重要」;reviewer 也要提交这类倒退。

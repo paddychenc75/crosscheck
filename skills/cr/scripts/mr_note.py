@@ -7,7 +7,7 @@
 
 写出 DIR/mr.md(贴进 MR 描述,30 行以内,包在 crosscheck:begin/end 标记里)和 DIR/mr.html(完整版),并输出:
   mr=<mr.md 的路径>  md_link=<mr.md 的 file:// 链接>  html=<mr.html 的路径>  link=<mr.html 的 file:// 链接>
-  page=<配置的 output.page 工具,没配置为空>  page_url=<之前生成过的网页链接>
+  page=<配置的 tools.doc_publisher 说明(一句话,原样照做),没配置为空>  page_url=<之前生成过的网页链接>
   update=<把描述更新到 MR 的命令,由作者自己执行>
   NOTE: …  需要转告作者的话(没推送、审查后又有提交、一句话由 AI 起草等)
 

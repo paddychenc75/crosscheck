@@ -12,7 +12,7 @@
 #   --base REF   对比基准分支。审查本地分支时默认用默认分支;PR/MR 只在无法通过 gh/glab 读取目标分支时使用
 #   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
-#   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket、prd 等(见配置的 source.*),VALUE 是链接、
+#   --source KIND=VALUE  需求来源(可多次):KIND 是 ticket(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
 #                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
 #   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):缺的必填需求来源记为 unasked,不输出 SOURCES_MISSING
@@ -97,7 +97,7 @@ while [ $# -gt 0 ]; do
     --plan|--doc) [ $# -ge 2 ] || die "$1 需要一个值"; doc_files="${doc_files}$2
 "; [ -n "$plan_arg" ] || plan_arg=$2; shift 2 ;;
     --source) [ $# -ge 2 ] || die "--source 需要一个值"
-      case "$2" in *=?*) ;; *) die "--source 要写成 KIND=VALUE,如 ticket=<链接>、prd=skip" ;; esac
+      case "$2" in *=?*) ;; *) die "--source 要写成 KIND=VALUE,如 ticket=<链接>、doc=skip" ;; esac
       source_args="${source_args}$2
 "; shift 2 ;;
     --source-dir) [ $# -ge 2 ] || die "--source-dir 需要一个值"; [ -d "$2" ] || die "--source-dir 指定的目录不存在: $2"

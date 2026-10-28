@@ -95,7 +95,7 @@ def collect(api, meta, review_dir):
     if commits.strip():
         it.add("提交说明", crlib.clip(commits, 2000), "提交说明")
 
-    # 关联的需求单:GitLab / GitHub Issue(#123、Closes #123、/-/issues/123);其他需求系统走 source.ticket
+    # 关联的需求单:GitLab / GitHub Issue(#123、Closes #123、/-/issues/123);其他需求系统走配置的 tools.requirement
     refs = issue_refs(api, meta, desc + "\n" + commits + "\n" + user_intent)
     first_issue = {}
     for iid in sorted(refs, key=int)[:5]:

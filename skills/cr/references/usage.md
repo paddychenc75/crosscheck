@@ -17,7 +17,7 @@
 | 测试也一起看 | 「测试也一起看」 |
 | 从头完整审一遍 | 「重新审」「全量审一遍」 |
 | 告诉它改动的目的 | 「这次是为了修复分页丢数据」「方案在 docs/plan.md」 |
-| 给需求链接 | 「需求单是 <链接>,PRD 是 <链接>」「这是 hotfix,没有需求单」 |
+| 给需求链接 | 「需求单是 <链接>,需求文档是 <链接>」「这是 hotfix,没有需求单」 |
 
 **审查之后**
 
@@ -27,8 +27,8 @@
 | 修复 | 「把第 1、3 条修掉」 |
 | 看没报的 | 「还有别的吗」「70 多分的那些是什么」 |
 | 定规则 | 「以后这种别报了」「以后都要检查 X」 |
-| 改 MR 说明 | 「重点请看 api/orders.ts:42 的兼容分支」「补一句:本地跑过 jest」「PRD 是 <链接>」 |
-| MR 说明网页版 | 配置了 `output.page` 时每次自动发布;「更新网页」手动再发一次 |
+| 改 MR 说明 | 「重点请看 api/orders.ts:42 的兼容分支」「补一句:本地跑过 jest」「需求文档是 <链接>」 |
+| MR 说明网页版 | 配置了 `tools.doc_publisher` 时每次自动发布;「更新网页」手动再发一次 |
 
 **维护**
 
@@ -37,5 +37,4 @@
 | 规则维护 | 用命令 `/crosscheck:cr-rules`(Codex 里 `$crosscheck:cr-rules`,拷贝安装时 `$cr-rules`):不带参数是从 MR 评论里沉淀规则,带「检查」是检查现有规则,带「整理 REVIEW.md」是起草或整理 REVIEW.md。不能用自然语言触发 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 
-配置文件(`sh <skill_dir>/scripts/config.sh path` 查位置)里常用的设置:私有化 GitLab 的域名 `gitlab_hosts`、查找和核实用的模型 `model.finder` / `model.verifier`、需求来源 `source.*`(每类写读取用的工具名,`source.required` 写每次都要收集的类别)、MR 说明网页版用的工具 `output.page`。
-
+想预先配置私有化 GitLab 的域名、查找和核实用的模型、读需求单和需求文档的工具、发布 MR 说明网页的工具时,打开插件里的 `crosscheck.conf`:所有设置都列在里面,默认全部注释掉,每项一两句话说明用途和不写时的行为。团队统一的写在这一份里,个人的写到 `~/.crosscheck/config`(`sh <skill_dir>/scripts/config.sh path` 查位置),格式相同。三个工具(`tools.requirement`、`tools.doc_reader`、`tools.doc_publisher`)各写一句话告诉 agent 用什么、怎么用,想让它自动识别需求链接就在那句话里写一个链接示例。

@@ -1,6 +1,7 @@
 """需求来源、MR 说明、analyst 校验和 GitHub 上下文的测试。"""
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,12 +10,10 @@ import fixture
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = fixture.SCRIPTS
 TEAM = """
-source.ticket = acme-kit:ticket-reader
-source.ticket.label = Ticket
-source.prd = acme-kit:doc-reader
-source.prd.label = PRD
-source.required = ticket, prd
-output.page = acme-kit:page-publisher
+tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
+tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
+intent.required = ticket, doc
+tools.doc_publisher = 用 acme-kit:page-publisher 把 HTML 发布成网页,返回网页链接
 """
 
 
@@ -38,19 +37,48 @@ class Repo(fixture.Base):
 
 
 class Sources(Repo):
+    def settings_of(self, text):
+        import sys
+        sys.path.insert(0, SCRIPTS)
+        import sources
+        cfg = {}
+        for line in text.splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                cfg[k.strip()] = v.strip()
+        return sources.settings(cfg)["kinds"]
+
+    def test_link_keywords_come_from_urls_in_the_prompt(self):
+        kinds = self.settings_of("tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://Tickets.acme.example.com/browse/XX-123,"
+                                 "也支持 http://pm.acme.example.com\n"
+                                 "tools.doc_reader = 用 acme-kit:doc-reader 读文档\n")
+        self.assertEqual(kinds["ticket"]["match"], ["tickets.acme.example.com", "pm.acme.example.com"])
+        self.assertEqual(kinds["doc"]["match"], [])           # 提示词里没有网址:不自动识别
+        self.assertEqual((kinds["ticket"]["label"], kinds["doc"]["label"]), ("需求单", "需求文档"))
+        self.assertEqual(self.settings_of("")["ticket"]["tool"], "")
+
+    def test_prompt_without_url_does_not_auto_detect_links(self):
+        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\n")
+        r, rd = self.collect()
+        ticket = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "ticket")
+        self.assertEqual(ticket["status"], "missing")
+        self.assertIn("SOURCES_MISSING: 需求单", r.stdout)
+        r, rd = self.collect("--source", "ticket=https://tickets.acme.example.com/story/42")
+        self.assertNotIn("SOURCES_MISSING", r.stdout)
+
     def test_missing_required_sources_are_reported_once_per_branch(self):
         self.config(TEAM)
         r, rd = self.collect()
-        self.assertIn("SOURCES_MISSING: PRD 还没有提供(prd)", r.stdout)
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", r.stdout)
         src = self.load(os.path.join(rd, "sources.json"))
         ticket = next(x for x in src["items"] if x["kind"] == "ticket")
-        self.assertEqual(ticket["source"], "自动识别")   # 提交说明里的需求单链接(按工具名里的 ticket 识别)
-        self.assertEqual(src["missing"], ["prd"])
-        r, _ = self.collect("--source", "prd=skip")
+        self.assertEqual(ticket["source"], "自动识别")   # 提交说明里的需求单链接(按提示词里网址的域名识别)
+        self.assertEqual(src["missing"], ["doc"])
+        r, _ = self.collect("--source", "doc=skip")
         self.assertNotIn("SOURCES_MISSING", r.stdout)
         r, rd = self.collect()                               # 记住了跳过,不再问
         self.assertNotIn("SOURCES_MISSING", r.stdout)
-        self.assertEqual(next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "prd")["source"], "记录")
+        self.assertEqual(next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")["source"], "记录")
 
     def test_unasked_is_not_remembered_and_default_requires_ticket_only(self):
         r, _ = self.collect()
@@ -58,8 +86,8 @@ class Sources(Repo):
         self.commit(self.repo, {"b.ts": "b\n"}, "Closes #12")
         r, _ = self.collect()
         self.assertNotIn("SOURCES_MISSING", r.stdout)       # 提交说明里的需求编号也算
-        self.config("source.required = prd\n")
-        r, _ = self.collect("--source", "prd=unasked")
+        self.config("intent.required = doc\n")
+        r, _ = self.collect("--source", "doc=unasked")
         self.assertNotIn("SOURCES_MISSING", r.stdout)
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING", r.stdout)
@@ -67,16 +95,16 @@ class Sources(Repo):
     def test_staged_documents_join_intent_and_title(self):
         self.config(TEAM)
         stage = self.run_py("sources.py", "stage").stdout.strip()
-        Path(stage, "prd.md").write_text("url: https://docs.acme.example.com/d/abc\ntitle: 订单游标分页 PRD\ntool: acme-kit:doc-reader\n---\n"
+        Path(stage, "doc.md").write_text("url: https://docs.acme.example.com/d/abc\ntitle: 订单游标分页 PRD\ntool: acme-kit:doc-reader\n---\n"
                                          "## 验收标准\n- 接口支持 cursor 参数\n", encoding="utf-8")
         Path(stage, "ticket.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
-        r, rd = self.collect("--source", "prd=https://docs.acme.example.com/d/abc", "--source-dir", stage)
+        r, rd = self.collect("--source", "doc=https://docs.acme.example.com/d/abc", "--source-dir", stage)
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
-        self.assertIn("## PRD:订单游标分页 PRD", intent)
-        self.assertIn("接口支持 cursor 参数(来自 PRD)", intent)
-        self.assertIn("Ticket https://tickets.acme.example.com/story/42 没有读到(没有权限)", r.stdout)
-        prd = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "prd")
-        self.assertEqual(prd["title"], "订单游标分页 PRD")
+        self.assertIn("## 需求文档:订单游标分页 PRD", intent)
+        self.assertIn("接口支持 cursor 参数(来自 需求文档)", intent)
+        self.assertIn("需求单 https://tickets.acme.example.com/story/42 没有读到(没有权限)", r.stdout)
+        doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
+        self.assertEqual(doc["title"], "订单游标分页 PRD")
 
     def test_multiple_docs_and_sources_do_not_change_context_hash(self):
         Path(self.repo, "plan.md").write_text("方案 A\n", encoding="utf-8")
@@ -93,7 +121,7 @@ class Sources(Repo):
         self.assertNotEqual(Path(rd3, "context-hash.txt").read_text(), h1)
 
     def test_bad_source_argument(self):
-        r, _ = self.collect("--source", "prd", check=False)
+        r, _ = self.collect("--source", "doc", check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("KIND=VALUE", r.stderr)
 
@@ -107,22 +135,22 @@ class NonInteractive(Repo):
                     self.env["CR_NONINTERACTIVE"] = env
                 r, rd = self.collect(*([args] if args else []), "--source", "ticket=skip")
                 self.assertNotIn("SOURCES_MISSING", r.stdout)
-                prd = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "prd")
-                self.assertEqual(prd["status"], "unasked")
+                doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
+                self.assertEqual(doc["status"], "unasked")
         self.run_py("mr_note.py", rd)
         md = Path(rd, "mr.md").read_text(encoding="utf-8")
-        self.assertIn("PRD:未提供(非交互运行,没有询问)", md)
+        self.assertIn("需求文档:未提供(非交互运行,没有询问)", md)
         # 没有记进记录:交互运行时仍然会问
         self.env.pop("CR_NONINTERACTIVE")
         r, _ = self.collect("--source", "ticket=skip")
-        self.assertIn("SOURCES_MISSING: PRD", r.stdout)
+        self.assertIn("SOURCES_MISSING: 需求文档", r.stdout)
 
 
 class AnalystCheck(Repo):
     def setUp(self):
         super().setUp()
         self.config(TEAM)
-        _, self.rd = self.collect("--source", "prd=skip", "--intent", "订单列表改为游标分页,解决翻页超时")
+        _, self.rd = self.collect("--source", "doc=skip", "--intent", "订单列表改为游标分页,解决翻页超时")
         self.hunks = [h["id"] for h in self.load(os.path.join(self.rd, "analysis-facts.json"))["hunks"]]
 
     def check(self, raw):
@@ -155,7 +183,7 @@ class MrNote(Repo):
     def setUp(self):
         super().setUp()
         self.config(TEAM)
-        _, self.rd = self.collect("--source", "prd=skip", "--intent", "订单列表改为游标分页", "--tested", "本地跑了 jest")
+        _, self.rd = self.collect("--source", "doc=skip", "--intent", "订单列表改为游标分页", "--tested", "本地跑了 jest")
         Path(self.rd, "findings.json").write_text(json.dumps([
             {"id": "f1", "no": 1, "file": "api/orders.ts", "line": 1, "category": "bug", "severity": "major", "summary": "旧参数没兼容"},
             {"id": "f2", "no": 2, "file": "api/orders.ts", "line": 2, "category": "bug", "severity": "minor", "summary": "命名"},
@@ -171,8 +199,8 @@ class MrNote(Repo):
         self.assertTrue(md.startswith("<!-- crosscheck:begin -->"))
         self.assertIn("<!-- crosscheck:end -->", md)
         self.assertIn("**订单列表改为游标分页**", md)
-        self.assertIn("Ticket:https://tickets.acme.example.com/story/42", md)
-        self.assertIn("PRD:未提供(作者跳过)", md)
+        self.assertIn("需求单:https://tickets.acme.example.com/story/42", md)
+        self.assertIn("需求文档:未提供(作者跳过)", md)
         self.assertIn("`listOrders` 签名变化", md)
         self.assertIn("report/daily.ts", md)
         self.assertIn("怎么验证的:本地跑了 jest", md)
@@ -182,7 +210,8 @@ class MrNote(Repo):
         self.assertLessEqual(len(md.strip().splitlines()), 32)
         for word in ("已实现", "已覆盖", "无风险"):
             self.assertNotIn(word, md)
-        self.assertIn("page=acme-kit:page-publisher", out)
+        self.assertIn("page=用 acme-kit:page-publisher 把 HTML 发布成网页,返回网页链接", out)   # 提示词原样交给 agent
+        self.assertNotIn("page-publisher", md)                                          # MR 说明里不显示提示词
         self.assertIn("md_link=file://", out)
         self.assertIn("glab mr create --target-branch main", out)
         html = Path(self.rd, "mr.html").read_text(encoding="utf-8")
@@ -334,19 +363,51 @@ class GitHubContext(fixture.Base):
 class PluginConfig(Repo):
     def test_plugin_config_is_default_and_user_config_overrides(self):
         conf = os.path.join(self.tmp, "crosscheck.conf")
-        Path(conf).write_text("source.required = ticket, prd\nsource.prd.label = 需求文档\noutput.page = acme-kit:page-publisher\n", encoding="utf-8")
+        Path(conf).write_text("intent.required = ticket, doc\ntools.doc_publisher = 用 acme-kit:page-publisher 发布网页\n", encoding="utf-8")
         self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单、需求文档 还没有提供", r.stdout)
-        self.config("source.required = ticket\n")
+        self.config("intent.required = ticket\n")
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单 还没有提供", r.stdout)
-        out = self.run_script("config.sh", "get", "output.page").stdout.strip()
-        self.assertEqual(out, "acme-kit:page-publisher")
-        self.config("output.page = mine\n")
-        self.assertEqual(self.run_script("config.sh", "get", "output.page").stdout.strip(), "mine")
+        out = self.run_script("config.sh", "get", "tools.doc_publisher").stdout.strip()
+        self.assertEqual(out, "用 acme-kit:page-publisher 发布网页")
+        self.config("tools.doc_publisher = mine\n")
+        self.assertEqual(self.run_script("config.sh", "get", "tools.doc_publisher").stdout.strip(), "mine")
+
+    SETTINGS = ("gitlab_hosts", "model.finder", "model.verifier",
+                "tools.requirement",
+                "tools.doc_reader",
+                "tools.doc_publisher", "intent.required")
+
+    def shipped_conf(self):
+        return Path(SCRIPTS, "..", "crosscheck.conf").read_text(encoding="utf-8")
 
     def test_shipped_plugin_config_sets_nothing(self):
-        conf = os.path.join(SCRIPTS, "..", "crosscheck.conf")
-        lines = [l for l in Path(conf).read_text(encoding="utf-8").splitlines() if l.strip() and not l.lstrip().startswith("#")]
+        lines = [l for l in self.shipped_conf().splitlines() if l.strip() and not l.lstrip().startswith("#")]
         self.assertEqual(lines, [])
+        for key in self.SETTINGS:
+            self.assertEqual(self.run_script("config.sh", "get", key).stdout, "", key)
+
+    def test_shipped_plugin_config_lists_every_setting_commented_out(self):
+        text = self.shipped_conf()
+        for key in self.SETTINGS:
+            self.assertRegex(text, r"(?m)^# %s =" % re.escape(key), key)
+
+    def test_prompt_values_keep_hash_inside_urls_and_drop_trailing_comments(self):
+        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/browse/XX-1#comment-2 # 团队约定\n")
+        out = self.run_script("config.sh", "get", "tools.requirement").stdout.strip()
+        self.assertEqual(out, "用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/browse/XX-1#comment-2")
+
+    def test_empty_values_count_as_not_configured(self):
+        conf = os.path.join(self.tmp, "crosscheck.conf")
+        Path(conf).write_text("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nintent.required = ticket, doc\n", encoding="utf-8")
+        self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
+        self.config("tools.requirement =\nintent.required = # 先不写\nmodel.finder =\n")
+        self.assertEqual(self.run_script("config.sh", "get", "tools.requirement").stdout.strip(), "用 acme-kit:ticket-reader 读需求单")
+        self.assertEqual(self.run_script("config.sh", "get", "intent.required").stdout.strip(), "ticket, doc")
+        self.assertEqual(self.run_script("config.sh", "get", "model.finder").stdout, "")
+        Path(conf).write_text("intent.required =\n", encoding="utf-8")
+        self.config("")
+        r, _ = self.collect()
+        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(ticket)", r.stdout)   # 空值等于没配置:只要需求单

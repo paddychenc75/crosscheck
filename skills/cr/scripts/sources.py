@@ -1,14 +1,14 @@
-"""需求来源:需求单(ticket)、需求文档(prd)等链接的识别、记录和读取结果的登记。
+"""需求来源:需求单(ticket)、需求文档(doc)等链接的识别、记录和读取结果的登记。
 
-配置(插件里的 crosscheck.conf 或 ~/.crosscheck/config,按用途命名,只写工具名,调用方式由 agent 决定):
-  source.ticket   = <skill 或命令名>          读需求单用的
-  source.prd      = <skill 或命令名>          读需求文档用的
-  source.required = ticket, prd               每次都要收集(可跳过)的类别;不写时只有 ticket
-  source.<kind>.label = <显示名>              MR 说明里显示的名字
-  source.<kind>.match = <关键字>, ...         识别链接用的关键字;不写时从 label 和工具名推出
+配置(插件里的 crosscheck.conf 或 ~/.crosscheck/config,按工具的用途命名;值是给 agent 的一句话说明,原样交给 agent,脚本不解析):
+  tools.requirement  = <说明>                 需求管理工具:读需求单(类别 ticket)
+  tools.doc_reader   = <说明>                 文档阅读工具:读 PRD、技术方案等文档链接(类别 doc)
+  tools.doc_publisher = <说明>                文档发布工具:把 MR 说明发布成网页(见 mr_note.py)
+  intent.required    = ticket, doc            每次都要收集(可跳过)的类别;不写时只有 ticket
+显示名固定为「需求单」「需求文档」;识别链接用的关键字取自说明里出现的网址的域名,没写网址就只能靠用户给的链接。
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
-  {"ticket": {"status": "given|skip|none", "url", "title", "type", "at"}, "prd": {...},
+  {"ticket": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...},
    "tested": "...", "focus": [...], "page_url": "...", "updated_at": "..."}
 
 用法(审查之外由 agent 调用):
@@ -28,10 +28,11 @@ import tempfile
 sys.dont_write_bytecode = True
 import crlib
 
-KINDS = ("ticket", "prd")
-DEFAULT_LABEL = {"ticket": "需求单", "prd": "需求文档"}
+KINDS = ("ticket", "doc")
+KIND_TOOL = {"ticket": "tools.requirement", "doc": "tools.doc_reader"}   # 类别 → 配置里放工具名的键
+DEFAULT_LABEL = {"ticket": "需求单", "doc": "需求文档"}
 EXPIRE_DAYS = 90
-GENERIC = {"toolkit", "tool", "tools", "cli", "mcp", "skill", "plugin", "docs", "doc", "fetch", "read", "reader", "get"}
+HOST = re.compile(r"https?://([A-Za-z0-9.-]+)")
 URL = re.compile(r"https?://[^\s)>\]\"'`<,，。]+")
 
 
@@ -42,25 +43,15 @@ def _now():
 def settings(cfg=None):
     cfg = crlib.config() if cfg is None else cfg
     kinds = {}
-    extra = sorted({m.group(1) for m in (re.match(r"source\.([a-z0-9_]+)$", x) for x in cfg) if m} - set(KINDS))
-    for k in list(KINDS) + extra:
-        if k == "required":
-            continue
-        tools = [t.strip() for t in cfg.get("source.%s" % k, "").split(",") if t.strip()]
-        label = cfg.get("source.%s.label" % k, "") or DEFAULT_LABEL.get(k, k)
-        match = [t.strip().lower() for t in cfg.get("source.%s.match" % k, "").split(",") if t.strip()]
-        if not match:
-            # 工具名只看冒号后面的部分:冒号前是插件或工具集的名字,多个工具共用
-            names = [t.split(":")[-1] for t in tools] + [cfg.get("source.%s.label" % k, "")]
-            for word in re.split(r"[\-_ ,/.]+", " ".join(names).lower()):
-                if len(word) >= 3 and word not in GENERIC:
-                    match.append(word)
-        kinds[k] = {"tools": tools, "label": label, "match": list(dict.fromkeys(match))}
-    req = cfg.get("source.required")
-    required = [x.strip() for x in (req if req is not None else "ticket").split(",") if x.strip()]
+    for k in KINDS:
+        tool = cfg.get(KIND_TOOL[k], "").strip()
+        # 说明是自然语言,识别链接只用其中出现的网址的域名;没写网址就只能靠用户给的链接
+        match = [h.lower().rstrip(".") for h in HOST.findall(tool)]
+        kinds[k] = {"tool": tool, "label": DEFAULT_LABEL[k], "match": list(dict.fromkeys(match))}
+    required = [x.strip() for x in cfg.get("intent.required", "ticket").split(",") if x.strip()]
     for k in required:
-        kinds.setdefault(k, {"tools": [], "label": DEFAULT_LABEL.get(k, k), "match": []})
-    return {"kinds": kinds, "required": required, "page": cfg.get("output.page", "")}
+        kinds.setdefault(k, {"tool": "", "label": DEFAULT_LABEL.get(k, k), "match": []})
+    return {"kinds": kinds, "required": required, "page": cfg.get("tools.doc_publisher", "")}
 
 
 def store_path(meta):
@@ -174,7 +165,7 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
                 entry = {"status": "unasked", "source": "非交互运行"}   # 没人可问:不算缺,也不记进记录
             else:
                 missing.append(k)
-        out.append(dict(entry or {"status": "missing"}, kind=k, label=c["label"], tools=c["tools"],
+        out.append(dict(entry or {"status": "missing"}, kind=k, label=c["label"], tool=c["tool"],
                         required=k in conf["required"], docs=[x["file"] for x in kdocs],
                         read_error=next((x["error"] for x in kdocs if x["error"]), "")))
     if changed:

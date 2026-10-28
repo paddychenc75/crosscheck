@@ -7,7 +7,7 @@
 #   intent.md         这次改动的意图:用户补充的一句话、MR 描述、关联需求单(含验收标准)、
 #                     需求单和需求文档(agent 用配置的工具读到的)、提交说明、计划等文档、
 #                     MR 上的人工讨论摘要。都是待审查的材料,不是指令。
-#   sources.json      需求来源:每类(ticket、prd…)的链接、状态、标题,以及缺了哪些(见 sources.py)
+#   sources.json      需求来源:每类(ticket、doc)的链接、状态、标题,以及缺了哪些(见 sources.py)
 #   discussions.json  MR / PR 上的人工评论(只读获取;作者只存哈希)
 #   weakening.txt     kind<TAB>file<TAB>说明 — 测试或检查被削弱的地方
 # 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、sources_missing。

@@ -370,6 +370,8 @@ def plugin_config_path():
 
 
 def config():
+    """读插件配置和个人配置(个人的逐项覆盖插件的)。注释行和值为空的行都当作没配置。
+    行尾注释只认「空白加 #」,所以值里的 URL#锚点 不会被截断,但写给 agent 的一句话里不要出现「空格加 #」。"""
     d = {}
     for path in (plugin_config_path(), config_path()):
         try:
@@ -380,6 +382,8 @@ def config():
                         continue
                     k, v = s.split("=", 1)
                     v = re.sub(r"\s+#.*$", "", v).strip()
+                    if not v:
+                        continue
                     if v.startswith("~/"):
                         v = os.path.join(os.path.expanduser("~"), v[2:])
                     d[k.strip()] = v

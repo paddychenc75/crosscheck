@@ -1138,8 +1138,8 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>事实交给脚本：</b><code>analysis_facts.py</code> 提取改了哪些函数、接口、配置键和签名变化，用 <code>git grep</code> 找本仓库里的调用方，标出迁移、配置、环境变量、依赖变化和可跳过的文件。表头写明能力边界：依赖注入、反射、跨服务调用搜不到；签名不变的行为变化由 CR 报告负责。</li>
         <li><b>请重点看由作者点名：</b>最多 3 处，每处写想要什么反馈；没点名时列出脚本挑的候选并标“自动列出”。</li>
         <li><b>CR 情况如实列出：</b>严重和重要的未修复问题附作者的判断，没表态的标“未表态”；写明基于哪个提交，之后又有提交时标出。</li>
-        <li><b>需求来源：</b>配置按用途写工具名（<code>source.ticket</code>、<code>source.prd</code> 等，值是读取用的 skill 或命令名；可以写在随插件分发的 <code>crosscheck.conf</code> 里，个人配置逐项覆盖），缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），同一分支记住；agent 用配置的工具读取内容作为意图材料。MR 说明里只放链接和标题。</li>
-        <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用 <code>output.page</code> 配置的工具，写进配置就自动发布，不再逐次询问。</li>
+        <li><b>需求来源：</b>配置三类外部工具：需求管理工具 <code>tools.requirement</code>、文档阅读工具 <code>tools.doc_reader</code>、文档发布工具 <code>tools.doc_publisher</code>，值是写给 agent 的一句话（用什么、怎么用、链接长什么样）；全部设置列在随插件分发的 <code>crosscheck.conf</code> 里、默认注释掉，个人配置逐项覆盖，缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），同一分支记住；agent 用配置的工具读取内容作为意图材料。MR 说明里只放链接和标题。</li>
+        <li><b>人提交 MR：</b>插件不提交 MR、不改 MR 描述，只给出 <code>glab</code> / <code>gh</code> 命令。网页版用文档发布工具 <code>tools.doc_publisher</code>，写进配置就自动发布，不再逐次询问。</li>
         <li><b>衡量：</b>先不做自动收集；用一段时间后直接问评审人有没有帮他找到重点，重发问卷看“难以判断影响”的比例是否下降。</li>
       </ul>
       <details class="design-basis">
