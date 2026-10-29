@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0] - 未发布
+## [0.3.0] - 2026-10-29
 
 一次审查产出一份给开发者自己修的 CR 报告。依据是团队问卷:52% 的人卡在「改动太大、难以判断影响」,15% 缺需求背景,15% 缺验证手段(见 DESIGN.html)。
 
@@ -65,24 +65,16 @@
 **配置**
 
 - 团队配置迁至插件级 `config/defaults.conf`,唯一解析器迁至 `scripts/config.py`,`scripts/config.sh` 为薄转发;review/improve 共用入口。保留 `CROSSCHECK_HOME`、`CROSSCHECK_CONFIG`、`CROSSCHECK_PLUGIN_CONFIG` 的覆盖语义;增量指纹包含共享实现、默认模板和实际配置文件。安装指南与复制测试夹具保留完整共享布局。
-- 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读、文档发布)和 `intent.required`,`--source` 的类别为 `ticket` 和 `doc`。
+- 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读)和 `intent.required`,`--source` 的类别为 `ticket` 和 `doc`。
 - `config/defaults.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
 - README 和常用说法改成自然语言的用法,脚本参数只留在 `SKILL.md` 和 README 末尾的「内部参数对照」。
 
 **收敛**
 
-- 工程化收敛,脚本从约 7100 行降到约 6000 行,每个机制要么对应问卷里的痛点或精确率,要么有业界做法支撑(DESIGN.html):
-  - 去掉采纳收集:`adoption.sh`、`judge` 角色,以及使用统计。
-  - 去掉 `stats.sh` 汇总统计,判断记录和 `rejected.json` 照常保存。
-  - 去掉风险分级和「建议用 deep」(`risk.txt`、`risk_paths`、`SUGGEST`);`REVIEW.md` 头部只剩 `skip`、`limits`,平台判断去掉 `REVIEW.md` 的 `platform`。
-  - 去掉同根因合并展示(`display-groups.json`、`report.json`、`report_groups.py`)。
-  - 去掉 simplifier 和 `--only simplify`。
-  - 去掉 `issue_cmd` 和 Jira 编号识别,统一走需求管理工具 `tools.requirement`。
-  - 去掉 `REVIEW.md` 的 `@` 引入,以及 `.cursor/BUGBOT.md`、`.cursorrules`、`.windsurfrules`、`GEMINI.md`、`CONVENTIONS.md`。
-  - 去掉自动打开报告(`CROSSCHECK_OPEN*`)和旧记录目录迁移。
-  - 去掉借用登录 shell 重试 glab(`CR_USER_SHELL`),保留变量写在哪个文件的提示和 git 兜底。
-  - 去掉执行记录的宿主见证和两档封顶。
-  - 去掉 MR 模板适配;事实脚本去掉 C#、PHP、Ruby、shell 的识别和配置文件的完整展开。
+- 去掉 `stats.sh` 汇总统计:判断记录照常保存。
+- 去掉 simplifier 角色和 `--only simplify`,查找角色只剩 `reviewer` 与 `rules-auditor`。
+- 去掉自动打开报告(`CROSSCHECK_OPEN*`)。
+- 去掉借用登录 shell 重试 glab(`CR_USER_SHELL`),保留变量写在哪个文件的提示和 git 兜底。
 - reviewer 改成在同一个上下文里分遍查:正确性 → 安全 → 需求核对,deep 加影响面(不再单独启动影响面 reviewer)。安全一遍默认不报只导致服务不可用的问题、缺少限流、开放重定向和只在测试代码里的问题。同一上下文可复用已读材料;不同子代理的相同前缀也可能命中缓存,实际成本取决于输入、缓存和输出,不按角色数直接推算;规则仍由 rules-auditor 单独查。
 - verifier 每批最多 3 条,critical 单独一批。
 
@@ -135,68 +127,6 @@
 - 原有问题(`pre_existing`):verifier 核实缺陷真实存在、但 base 里已以同样结果存在的,标 `pre_existing: true`,不再打 0 分;过了 80 分门槛后单列在报告「改动代码里的原有问题」一节(`report-lines.sh` 的 `PREEXIST:` 行),不计入发现数、不进概览表。被本次改动变得更容易触发或范围变大的,仍算本次引入。借鉴 Anthropic 内部代码审查实践里的 Pre-existing 标签。
 - 严重程度统一按后果类型定级:正常输入稳定触发的 500 或未处理异常是严重;`finding-schema.md` 加了几条虚构的对照例子;措辞轻重、个人觉得不严重也不是降级的理由,verifier 只在后果类型判断错时调整级别。
 - `REVIEW.md` 模板新增「出问题长什么样」一节,由代码负责人写这块代码失败时是什么样(文档写错事实、配置接错路由或开关、迁移不可回滚),只用来说明后果类型,不用于挑风格、命名上的小毛病。`improve` 起草或整理 `REVIEW.md` 时会提醒补这一节。借鉴 Anthropic 文章里 REVIEW.md 写「what failure looks like」的做法。
-
-## [0.2.0] - 未发布
-
-意图、依据校验、脚本化汇总、项目级判断和采纳率。开发过程中加过的一批机制,端到端跑下来问题多出在机制之间的衔接点,而业界没有人这样做,发布前收敛掉了(见 DESIGN.html)。核心审查流程需要 python3(3.8+)。
-
-**审查流程**
-
-- 增量审查只看会改变审查方式的输入:规则(含 `REVIEW.md` 引入的文件)、审查设置、`--only`、`--with-tests`、用户给的意图和计划、模型和插件本身。提交说明、MR 讨论和判断记录不再触发全量,之前每提交一次就变成全量;上次之后被判为不成立或不修、代码也没变的发现不再带入。
-- 带入重新核实的上次发现,由 `prepare-verify.sh` 去掉上次的分数、结论、依据和编号,保证独立核实;展示编号每次重新分配,不会出现两条同号。
-- 读不到被审查的代码(PR/MR 的 head 拉取失败)时,汇总直接停下,不再输出一份看似没问题的空报告。
-- 审查提交范围或分支、而工作区有未提交改动时,改从 git 读那一版代码,不再读工作区。
-- GitHub PR 先拉取目标分支,规则和提交说明从 merge-base 读。
-- 风险分级按整个目标的改动大小判断(之前读不到改动行数,永远不因改动大而升级)。
-- 改动超过 4 批时先问用户(`LARGE`),确认后加 `--allow-large`;在默认分支上没有改动时提示下一步(`HINT`)。
-- quick 不对照项目规则,报告不再写「已检查项目规则」;没有检测到只读拦截时,报告里写明(`GUARD`)。
-
-- 查找角色从四个合并成两个:`reviewer`(bug、安全、需求核对,能读整个仓库、自己决定往哪里深挖,先看测试和检查的改动)和 `rules-auditor`(只对照写下来的规则)。`simplifier` 改为按需:用户要求时用 `--only bug,security,rules,simplify` 才启动。
-- deep:多一个 `lens=impact` 的 reviewer 从使用方往回查,verifier 可以复现。去掉了同一模型换文件顺序重复查的那几遍;要加强核实,换一个和查找不同的模型(`model.verifier`)。
-- verifier 必须给出依据。引用的代码位置不存在、或没有依据的发现,分数最高 50;引用 review_dir 里的材料(如 `intent.md` 的验收标准)和用文字定位的依据也被接受。报告里每条发现附折叠的「依据」。
-- 汇总、过滤、增量的遗留与已解决、编号全部由 `aggregate.sh` 完成。核实回复缺失、重复、格式错误或遗漏需要重核的历史发现时停止,不生成「已解决」。低于 80 分的候选存进 `rejected.json`,用于校准。
-- 同一失败事实在独立核实后可合并展示(`display-groups.json` → `report.json`),保留原始发现、关联编号和依据。
-- 不报风格、命名、可读性、日志措辞和影响很小的性能优化。
-
-**意图和上下文**
-
-- 汇总 MR 描述、关联需求(GitLab Issue 用 glab 读,其他系统配 `issue_cmd`)、提交说明、MR 上的人工讨论、`--plan` 计划文件和 `--intent`(都在调用时提供,插件不要求仓库里有专属目录)。需求里有明确验收标准时,新增「需求核对」一节。意图只能解释改动,不能让安全问题不报。
-- 测试和检查被削弱的地方在报告里单列;按风险分级,没指定深度时可能建议 deep(只建议);MR 上已有人工评论的问题不重复报。
-- 本地和提交范围审查尽力识别 GitLab,保留提交正文并读取关联需求。
-- 规则、意图、审查设置或插件本身变化时,本轮重审目标的全部 diff。
-
-**规则**
-
-- 兼容 Claude Code Review 的 `REVIEW.md` 写法:`## Do not report` 等英文标题等同「不要报」;根目录 `REVIEW.md` 里单独一行的 `@文件名` 展开成那个文件(同目录或 `.claude/skills/<目录>/SKILL.md`,一层,最多 8 个、合计 150000 字节)。
-- 读取 Cursor Bugbot 的 `.cursor/BUGBOT.md`,按所在目录生效。
-
-- 规则就是仓库里的 Markdown:目录级和根目录的 `REVIEW.md`(可选),以及 `CLAUDE.md`、`AGENTS.md`、`.claude/rules/`、`.cursor/rules/`、`.github/instructions/` 等约定文件,按各自的路径语义生效(Copilot 的 `excludeAgent: code-review` 排除)。不需要编号或元数据。
-- 不想再被提醒的情况写在 `REVIEW.md` 标题为「不要报」的一节,按目录生效;不再读 `.cr/ignore.md`。
-- 规则发现必须写出 `rule_file` 和逐字引用的 `rule_quote`;脚本核对引文在那份规则里、规则覆盖这个文件,对不上的作废。
-- `REVIEW.md` 头部的 `skip`、`limits`、`risk_paths`、`platform` 由脚本执行。审查 PR/MR 和其他分支时规则从 base 读,base 不可读时停止,不回退工作区。
-- 从 MR 评论总结规则、检查规则改为由 agent 按 `maintenance.md` 现场做,用户确认后只改工作区的规则文件。
-
-**判断和度量**
-
-- 统计以采纳率为主(`adoption.sh`:MR 合并后问题是否真的解决了,代码改了的交给 `judge`),另有判断、去向、校准和差一点通过(70–79 分);样本不足 10 条不算比例。
-- 离线检验改为用自己仓库里修过的 bug(`maintenance.md`)。
-- 新增模型选择:`model.finder` / `model.verifier`,调用时可以指定核实模型。
-
-**其他**
-
-- 安装:插件通过插件市场分发,三家的插件清单按官方文档编写;README 写明各宿主的安装、调用方式和 Codex 的 `/hooks` 信任。
-- 没有 python3 时一开始就用中文提示安装;GitLab / GitHub 拉取失败时列出试过哪些路径(没装、没登录还是读不到);提示里的时间改成中文日期。
-- 修正几处文档和代码不一致:SKILL.md 的深度参数写成 `--depth quick|deep`;「深挖几个文件」不再覆盖整个目标的增量基准;去掉「规则元数据」「SETTINGS 块」「reference_only」等残留;`save-review.sh` 兼容 Python 3.8。
-
-- 主推自然语言用法,报告第一行写明审查范围;说「review 帮助」可以看常用说法。报告之后的回复有了固定处理方式(`after-report.md`)。
-- 私有化 GitLab:新增配置文件 `~/.crosscheck/config`,`gitlab_hosts` 支持子路径和端口;平台判断顺序固定。
-- 对比基准以远端最新为准:本地分支和分支名审查前先从 origin 拉取基准分支(只更新远程跟踪分支),拉取失败时提示可能过期;本地审查也支持 `--base <分支>`;develop、release/* 这类长期分支比默认分支更近时输出 `BASE_CHOICE`,由 agent 问用户。见 DESIGN.html。
-- Hook 仅在结束脚本成功执行后解除保护,支持 exec_command 和多种补丁输入,识别常见 shell 字面路径写入,处理 Cursor 失败退出码。去掉了已不再使用的 Task/Agent 分支。hook 只用各家文档里写明的事件、工具名和字段:Codex 改用单独的 `hooks/codex-hooks.json`(不再注册它没有的 `PostToolUseFailure`);Cursor 的 `preToolUse` 只匹配 `Write`、`Delete`,去掉了读取 `stop` 里未写明用量字段的统计。token 未统计时写明原因:hook 没有运行(没装,或 Codex 里还没用 `/hooks` 信任),还是运行了但读不到用量。
-- 插件不往 GitLab / GitHub 写任何东西;审查后唯一的写操作是用户确认后改工作区的规则文件。
-- 去掉 `dismiss.sh`(用 `feedback.sh invalid`)。
-- 测试:`python3 -m unittest discover -s tests`,用 `tests/bin/glab` 模拟 GitLab;在本地 GitLab 上端到端跑过一遍。
-
-**开发中加过、发布前去掉的**:规则编号和 `<!-- cr: -->` 元数据;组织规则包、`sync-rules.sh` 和规则仓库模板;外部资料导入(`--materials`);规则指纹、hook 检查子代理任务、核对码、检查清单和补跑(`check-rules.sh`)、抽查「没违反」;`mine-reviews.sh`、`rule-miner`、`propose-rules.sh`、`open-mr.sh`;`rules-lint.sh`、`rules-health.sh`;评测框架 `eval.sh`;团队数据同步 `sync-data.sh`;`model.helper`。
 
 ## [0.1.6] - 2026-10-17
 
