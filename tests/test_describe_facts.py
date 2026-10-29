@@ -149,6 +149,53 @@ class AttentionAndSkip(Facts):
         self.assertFalse(any(s["file"] in ("config/new.yml", "bin/run.sh") for s in data["symbols"]))
         self.assertTrue(any("bin/run.sh" in l for l in data["limits"]))
 
+    def test_path_rules_for_resources_project_config_and_dependencies(self):
+        """.plist、Podfile、xcassets、.strings 按路径进「资源、配置与依赖」;xcassets 的 Contents.json 不当配置键。"""
+        _, data = self.feature("paths", {
+            "App/Info.plist": "<plist><dict><key>A</key><string>1</string></dict></plist>\n",
+            "Podfile": "pod 'Alamofire'\n",
+            "App/XView.swift": "class XView {\n}\n",
+        }, {
+            "App/Info.plist": "<plist><dict><key>A</key><string>2</string></dict></plist>\n",
+            "Podfile": "pod 'Alamofire'\npod 'SnapKit'\n",
+            "App/Assets.xcassets/icon_history_v2.imageset/Contents.json": '{\n  "info" : {\n    "version" : 1\n  }\n}\n',
+            "App/zh-Hans.lproj/Localizable.strings": '"history" = "历史";\n',
+            "App/XView.swift": "class XView {\n  let title = \"历史记录\"\n}\n",
+        })
+        types = {(a["type"], a["file"]) for a in data["attention"]}
+        self.assertIn(("project_config", "App/Info.plist"), types)
+        self.assertIn(("dependency", "Podfile"), types)
+        res = {a["name"]: a for a in data["attention"] if a["type"] == "resource"}
+        self.assertEqual(sorted(res), ["App/Assets.xcassets", "App/zh-Hans.lproj"])
+        self.assertFalse(any(s["kind"] == "config_key" for s in data["symbols"]), data["symbols"])
+        kinds = {h["file"]: h["kind"] for h in data["hunks"]}
+        self.assertEqual(kinds["App/Assets.xcassets/icon_history_v2.imageset/Contents.json"], "resource")
+        swift = next(h for h in data["hunks"] if h["file"] == "App/XView.swift")
+        self.assertEqual(swift["strings_added"], ["历史记录"])
+        self.assertEqual(swift["strings_removed"], [])
+        # Swift 不在自动识别范围:记进 unchecked,不算「检查过」
+        self.assertEqual(data["coverage"], {"checked": 0, "unchecked": [{"lang": "Swift", "files": 1}]})
+        self.assertNotIn("batches", data)
+
+    def test_coverage_counts_checked_files(self):
+        _, data = self.feature("cov", {"src/a.ts": "export const a = 1\n", "src/b.swift": "let b = 1\n"},
+                               {"src/a.ts": "export const a = 2\n", "src/b.swift": "let b = 2\n"})
+        self.assertEqual(data["coverage"], {"checked": 1, "unchecked": [{"lang": "Swift", "files": 1}]})
+
+    def test_batches_split_by_directory_only_when_many_hunks(self):
+        import sys
+        sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
+        import describe_facts
+        few = [{"id": "H%d" % i, "file": "a/b.ts"} for i in range(1, 41)]
+        self.assertEqual(describe_facts.batches(few), [])
+        many = [{"id": "H%d" % i, "file": ("app/ui/v%d.swift" if i <= 30 else "lib/core/c%d.ts") % i} for i in range(1, 61)]
+        b = describe_facts.batches(many)
+        self.assertEqual([x["id"] for x in b], ["B1", "B2"])
+        self.assertEqual(sum(len(x["hunks"]) for x in b), 60)
+        self.assertTrue(all(len(x["hunks"]) <= describe_facts.BATCH_HUNKS for x in b))
+        self.assertEqual(b[0]["dirs"], ["app/ui", "lib/core"])
+        self.assertEqual(b[1]["dirs"], ["lib/core"])
+
     def test_bad_input_still_writes_file(self):
         rd = os.path.join(self.tmp, "rd")
         os.makedirs(rd)

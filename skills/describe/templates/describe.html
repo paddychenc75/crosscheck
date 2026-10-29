@@ -1,7 +1,35 @@
-{{! PR/MR 描述网页版(describe.html)的模板,由 scripts/describe.py 填充。事实都由脚本算好,模板只管页面结构、表头和样式。}}
-{{! 写法:名字外面套两层花括号是占位符;井号开头的块有内容才保留,脱字符开头的块没有内容才保留,块里的占位符就是这个块自己的内容;感叹号开头的整行是注释,不输出。}}
-{{! 占位符里的文字已经做过 HTML 转义;名字带 rows 的是表格的行(tr 和 td 由脚本生成),表头写在模板里。}}
-{{! 可用的名字:title、one、by、now、sha、version、info_rows、overview、impact_rows、impact_notes、impact_method、focus_rows、verify_note、trigger_rows、caller_rows、no_trigger、expect_rows、command、case_rows、record、untested、req_rows。}}
+{{! 用途:PR/MR 描述网页版(describe.html)的模板,由 scripts/describe.py 填充。}}
+{{! 事实都由脚本算好,模板只管页面结构、表头和样式。}}
+{{! 写法:名字外面套两层花括号是占位符,内容已做过 HTML 转义。}}
+{{! 写法:名字前加井号的块有内容才保留,结尾名字前加斜杠。}}
+{{! 写法:名字前加脱字符的块没有内容才保留。}}
+{{! 写法:块里的占位符就是这个块自己的内容。}}
+{{! 写法:感叹号开头的整行是注释,不输出。}}
+{{! 名字带 rows 的是表格的行,tr 和 td 由脚本生成,表头写在模板里。}}
+{{! title — 页面标题}}
+{{! one — 一句话}}
+{{! by — 一句话的来源}}
+{{! now — 最后更新时间}}
+{{! sha — 基于的提交}}
+{{! version — 插件版本}}
+{{! info_rows — 基本信息的行}}
+{{! change_rows — 改了什么的行,逐条列出锚点和出处(代码块编号)}}
+{{! change_note — 改了什么表格下面的说明}}
+{{! overview — 影响面的总览一行}}
+{{! impact_rows — 影响面的行}}
+{{! impact_notes — 影响面的检查范围和未覆盖}}
+{{! impact_method — 影响面的识别方法和限制}}
+{{! focus_rows — 请重点看的行,作者点名才有}}
+{{! verify — 怎么验证这一节要不要显示}}
+{{! verify_note — 怎么验证标题里的说明}}
+{{! verify_rows — 怎么验证的行,逐条列出锚点和出处}}
+{{! tests — 测试线索要不要显示}}
+{{! case_rows — 新增用例的行}}
+{{! assert_rows — 新增断言的行}}
+{{! command — 项目命令}}
+{{! untested — 新增或签名变化的函数在改动的测试里没出现的提示}}
+{{! record — 作者给的执行记录}}
+{{! req_rows — 需求对照的行,有验收标准才有}}
 <title>{{title}}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -21,17 +49,16 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 <header><h1>{{title}}</h1><p>{{one}} <small>{{by}}</small></p>
 <p class=muted>PR/MR 描述 · crosscheck {{version}} 在本地生成 · 最后更新 {{now}} · 基于提交 <code>{{sha}}</code></p></header>
 <section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>{{info_rows}}</tbody></table></div></section>
-<section><h2>影响面</h2><p>{{overview}}</p>{{#impact_rows}}<div class=t><table><thead><tr><th>层</th><th>变化</th><th>内容</th><th>位置</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div>{{/impact_rows}}{{#impact_notes}}<p>{{impact_notes}}</p>{{/impact_notes}}<p class=muted>{{impact_method}}</p></section>
+{{#change_rows}}
+<section><h2>改了什么</h2><div class=t><table><thead><tr><th>#</th><th>改动</th><th>锚点</th><th>出处(代码块)</th></tr></thead><tbody>{{change_rows}}</tbody></table></div>{{#change_note}}<p class=muted>{{change_note}}</p>{{/change_note}}</section>
+{{/change_rows}}
+<section><h2>影响面</h2>{{#overview}}<p>{{overview}}</p>{{/overview}}{{#impact_rows}}<div class=t><table><thead><tr><th>层</th><th>变化</th><th>内容</th><th>位置</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div>{{/impact_rows}}{{#impact_notes}}<p>{{impact_notes}}</p>{{/impact_notes}}<p class=muted>{{impact_method}}</p></section>
 {{#focus_rows}}
 <section><h2>请重点看</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody>{{focus_rows}}</tbody></table></div></section>
 {{/focus_rows}}
-<section><h2>怎么验证 <small>{{verify_note}}</small></h2>
-<h3>触发</h3>{{#trigger_rows}}<div class=t><table><thead><tr><th>触发方式</th><th>位置</th><th>处理函数</th></tr></thead><tbody>{{trigger_rows}}</tbody></table></div>{{/trigger_rows}}{{#caller_rows}}<div class=t><table><thead><tr><th>函数</th><th>diff 外的调用方</th></tr></thead><tbody>{{caller_rows}}</tbody></table></div>{{/caller_rows}}{{#no_trigger}}<p>{{no_trigger}}</p>{{/no_trigger}}
-{{#expect_rows}}
-<h3>预期</h3><div class=t><table><thead><tr><th>出处</th><th>原文</th><th>位置</th></tr></thead><tbody>{{expect_rows}}</tbody></table></div>
-{{/expect_rows}}
-<h3>怎么跑</h3>{{#command}}<p><code>{{command}}</code> <small>项目命令,未确认已执行</small></p>{{/command}}{{#case_rows}}<div class=t><table><thead><tr><th>新增用例</th><th>位置</th></tr></thead><tbody>{{case_rows}}</tbody></table></div>{{/case_rows}}
-<h3>执行记录</h3><p>{{record}}</p>{{#untested}}<p>测试:{{untested}}</p>{{/untested}}</section>
+{{#verify}}
+<section><h2>怎么验证 <small>{{verify_note}}</small></h2>{{#verify_rows}}<div class=t><table><thead><tr><th>入口 → 能看到什么</th><th>对应改动</th><th>锚点</th><th>出处</th><th>来源</th></tr></thead><tbody>{{verify_rows}}</tbody></table></div>{{/verify_rows}}{{#tests}}<h3>测试线索</h3>{{#case_rows}}<div class=t><table><thead><tr><th>新增用例</th><th>位置</th></tr></thead><tbody>{{case_rows}}</tbody></table></div>{{/case_rows}}{{#assert_rows}}<div class=t><table><thead><tr><th>新增断言</th><th>位置</th></tr></thead><tbody>{{assert_rows}}</tbody></table></div>{{/assert_rows}}{{#command}}<p><code>{{command}}</code> <small>项目命令,未确认已执行</small></p>{{/command}}{{#untested}}<p>{{untested}}</p>{{/untested}}{{/tests}}{{#record}}<h3>执行记录</h3><p>{{record}}</p>{{/record}}</section>
+{{/verify}}
 {{#req_rows}}
 <section><h2>需求对照</h2><div class=t><table><thead><tr><th>验收标准</th><th>改动位置</th></tr></thead><tbody>{{req_rows}}</tbody></table></div></section>
 {{/req_rows}}
