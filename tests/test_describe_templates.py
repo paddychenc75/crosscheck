@@ -581,7 +581,7 @@ class Sections(Templates):
         c = scenarios()["rich_trimmed_with_focus_and_criteria"]
         c.facts["attention"].append(att("resource", "added", "App/Assets.xcassets", "App/Assets.xcassets", files=2))
         rd = self.build(c, "trim")
-        with mock.patch.dict(os.environ, {"CROSSCHECK_HOME": self.home}):
+        with mock.patch.dict(os.environ, {"HOME": os.path.dirname(self.home)}):
             note = describe.Note(rd, self.out)
             f = note.facts_once()
             template = describe.read_template("describe.md")

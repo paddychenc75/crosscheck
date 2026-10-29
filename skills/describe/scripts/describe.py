@@ -8,7 +8,7 @@
 
 DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_check.py 校验(输出 STATUS: / DROPPED:),再写出
 <描述目录>/describe.md(贴进 PR/MR 描述,正文约 30 行,仅作参考,不含负责人固定填写区)和 describe.html(完整版)。
-描述目录是 ${CROSSCHECK_HOME:-~/.crosscheck}/describe/<项目名>/<目标>/,和审查记录(reviews/)分开存放。输出:
+描述目录是 ~/.crosscheck/describe/<项目名>/<目标>/,和审查记录(reviews/)分开存放。输出:
   describe=<describe.md 的路径>  md_link=<file:// 链接>  html=<describe.html 的路径>  link=<file:// 链接>
   NOTE: …  需要转告作者的话(没推送、一句话或验证步骤由 AI 起草等)
 
@@ -707,7 +707,7 @@ def main(argv):
     if not os.path.isfile(os.path.join(d, "meta.txt")):
         sys.exit("describe: %s 不是 collect.sh 输出的材料目录" % d)
     out = output_dir(d, crlib.read_kv(os.path.join(d, "meta.txt")))
-    os.makedirs(out, exist_ok=True)
+    crlib.makedirs(out)
     if opts:
         author = crlib.load_json(os.path.join(out, "author.json"), {}) or {}
         if "tested" in opts:

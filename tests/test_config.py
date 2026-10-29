@@ -62,20 +62,23 @@ class PluginConfig(fixture.ShopRepo):
         self.config("model.finder = mine\n")
         self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "mine")
 
-    def test_config_paths_and_environment_precedence(self):
+    def test_config_paths_follow_home(self):
         self.assertEqual(self.run_config("plugin-path").stdout.strip(),
                          str(Path(fixture.PLUGIN, "config", "defaults.conf")))
         self.assertEqual(self.run_config("path").stdout.strip(), str(Path(self.home, "config")))
+        self.assertEqual(self.run_config("home").stdout.strip(), self.home)
+        self.config("model.finder = home\n")
+        self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "home")
+        # 记录目录固定在 ~/.crosscheck:以前改位置的环境变量不再起作用
         personal = Path(self.tmp, "personal config")
         personal.write_text("model.finder = explicit\n", encoding="utf-8")
-        self.config("model.finder = home\n")
         self.env["CROSSCHECK_CONFIG"] = str(personal)
-        self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "explicit")
-        self.env["CROSSCHECK_CONFIG"] = ""
+        self.env["CROSSCHECK_HOME"] = str(Path(self.tmp, "elsewhere"))
         self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "home")
-        self.env["CROSSCHECK_HOME"] = ""
+        self.assertEqual(self.run_config("path").stdout.strip(), str(Path(self.home, "config")))
         self.env["HOME"] = self.tmp
         self.assertEqual(self.run_config("path").stdout.strip(), str(Path(self.tmp, ".crosscheck", "config")))
+        self.assertEqual(self.run_config("home").stdout.strip(), str(Path(self.tmp, ".crosscheck")))
 
     def test_installed_shared_config_and_symlinked_review(self):
         installed = self.install_plugin()

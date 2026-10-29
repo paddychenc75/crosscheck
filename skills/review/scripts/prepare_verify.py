@@ -102,7 +102,7 @@ for f in sorted(groups):
 if cur:
     batches.append(cur)
 vd = os.path.join(d, "verify")
-os.makedirs(vd, exist_ok=True)
+os.makedirs(vd, exist_ok=True)   # 写记录目录的例外:verify/ 在审查目录(collect-diff.sh 的输出,默认临时目录)下
 for name in os.listdir(vd):
     if name.startswith(("batch-", "result-")):
         os.remove(os.path.join(vd, name))

@@ -52,7 +52,7 @@ if bad:
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
 root = meta.get("repo_root") or os.getcwd()
 runs = os.path.join(d, "runs")
-os.makedirs(runs, exist_ok=True)
+os.makedirs(runs, exist_ok=True)   # 写记录目录的例外:runs/ 在审查目录(collect-diff.sh 的输出,默认临时目录)下
 
 n = 0
 while True:

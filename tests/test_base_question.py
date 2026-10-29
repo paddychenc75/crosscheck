@@ -561,6 +561,6 @@ class RuleStore(fixture.Base):
         origin = self.bare("acme-kit")
         repo = self.make_repo("acme-kit", {"a.txt": "1\n"}, remote=origin)
         self.run_script("collect-diff.sh", "--base-rule", "target", cwd=repo)
-        with mock.patch.dict(os.environ, {"CROSSCHECK_HOME": self.home}):
+        with mock.patch.dict(os.environ, {"HOME": os.path.dirname(self.home)}):
             pdir = crlib.project_dir(crlib.repo_identity(repo))
         self.assertTrue(pdir and os.path.isfile(os.path.join(pdir, "project.json")))

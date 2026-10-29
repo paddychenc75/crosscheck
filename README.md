@@ -286,7 +286,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
         latest · baseline          最近一次 · 增量基准
 ```
 
-`<项目名>` 取自 origin 地址的最后一段,同一项目的各个 worktree 和克隆共用记录;`<对象>` 是 `branch-<分支>`、`mr-<编号>`、`pr-<编号>` 或 `range-<范围>`。`CROSSCHECK_HOME` 可以改存放位置。同时审查多个目标互不影响。
+`<项目名>` 取自 origin 地址的最后一段,同一项目的各个 worktree 和克隆共用记录;`<对象>` 是 `branch-<分支>`、`mr-<编号>`、`pr-<编号>` 或 `range-<范围>`。同时审查多个目标互不影响。
 
 同一个目标再次审查时默认**只看变了的文件**,上次在没变文件里的发现原样带过来,变了的重新核实,分成「新发现」「上次遗留」「已解决」。以下情况全量重审:你说「重新审」;规则、审查设置、你给的目的说明和文档、只看某一方面、测试是否一起看、模型或插件本身变了;这次深度比上次高。
 
@@ -317,7 +317,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 - **插件里的 `config/defaults.conf`**:随插件分发,适合团队统一的设置。它同时是完整的配置模板:所有设置都列在里面,默认全部注释掉,用哪项就去掉那行开头的 `#` 再填值。用自己的插件市场分发时,团队改一次,所有成员装上就生效。
 - **个人的 `~/.crosscheck/config`**:逐项覆盖插件里的。格式相同,可以把 `config/defaults.conf` 复制过去再改。值为空的行和注释行一样,都等于没配置。
 
-所有技能共用插件级 `scripts/config.py`(shell 入口 `scripts/config.sh`),例如 `python3 "<插件目录>/scripts/config.py" get model.finder`。`path` 返回个人配置路径,`plugin-path` 返回团队配置路径。`CROSSCHECK_PLUGIN_CONFIG` 覆盖团队文件位置;`CROSSCHECK_CONFIG` 覆盖个人文件位置,否则个人文件跟随 `CROSSCHECK_HOME`(默认 `~/.crosscheck`)下的 `config`。个人非空值逐项覆盖团队值,空环境变量按未设置处理。迁移不移动或改写个人配置。
+所有技能共用插件级 `scripts/config.py`(shell 入口 `scripts/config.sh`),例如 `python3 "<插件目录>/scripts/config.py" get model.finder`。`path` 返回个人配置路径,`plugin-path` 返回团队配置路径。`CROSSCHECK_PLUGIN_CONFIG` 覆盖团队文件位置;个人文件固定是 `~/.crosscheck/config`。个人非空值逐项覆盖团队值,空环境变量按未设置处理。迁移不移动或改写个人配置。
 
 **四类外部工具**。插件本身不认识任何一家的工具,由你告诉 agent 用什么;每项的值是**一句话的提示词**:用哪个 skill 或命令、怎么用,想让它自动识别链接就写一个链接示例。
 

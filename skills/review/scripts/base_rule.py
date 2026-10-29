@@ -58,7 +58,7 @@ def load(project_dir):
 
 
 def save(project_dir, repo_id, rule):
-    os.makedirs(project_dir, exist_ok=True)
+    crlib.makedirs(project_dir)
     marker = os.path.join(project_dir, ".repo")
     if not os.path.isfile(marker):
         with open(marker, "w", encoding="utf-8") as f:

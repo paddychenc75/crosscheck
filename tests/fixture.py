@@ -1,6 +1,6 @@
 """测试共用的夹具:临时仓库、模拟的 glab、记录目录,以及运行脚本的辅助方法。
 
-每个测试在临时目录里建自己的仓库和记录目录;GitLab 用 tests/bin/glab 模拟,远程仓库用本地裸仓库代替。
+每个测试在临时目录里建自己的仓库和记录目录:子进程的 HOME 指向临时目录,记录目录 self.home 就是其中的 ~/.crosscheck;GitLab 用 tests/bin/glab 模拟,远程仓库用本地裸仓库代替。
 不访问网络,不读写用户自己的 ~/.crosscheck。
 """
 
@@ -29,14 +29,14 @@ def api_key(path):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="cr-test-")
-        self.home = os.path.join(self.tmp, "home")
+        self.home = os.path.join(self.tmp, "home", ".crosscheck")
         self.mock = os.path.join(self.tmp, "mock")
         os.makedirs(os.path.join(self.mock, "api"))
         os.makedirs(self.home)
         os.makedirs(os.path.join(self.tmp, "t"))
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GITLAB", "GLAB", "GH_", "GITHUB", "CROSSCHECK", "CR_"))}
         env.update({
-            "CROSSCHECK_HOME": self.home, "TMPDIR": os.path.join(self.tmp, "t"),
+            "HOME": os.path.dirname(self.home), "TMPDIR": os.path.join(self.tmp, "t"),
             "GIT_TERMINAL_PROMPT": "0", "MOCK_GLAB": self.mock, "LC_ALL": "en_US.UTF-8",
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
         })

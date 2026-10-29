@@ -59,7 +59,7 @@
 #   analysis-facts.json  代码块编号(H1…)与按名字搜到的调用方,reviewer 用(analysis_facts.py)
 #
 # 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
-# ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/ 下,由 save-review.sh 写入),diff.patch 等文件
+# ~/.crosscheck/reviews/<项目名>/<目标>/ 下,由 save-review.sh 写入),diff.patch 等文件
 # 只保留自那次以来 diff 发生变化的文件,并额外写出:
 #   incremental.txt     status<TAB>path    — unchanged / changed / new / removed / dependent
 #                       dependent:文件本身没变,但引用了这次被改动的符号(函数、类型等),一起重审
@@ -152,6 +152,9 @@ case ",$only," in
 esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
+config_sh="$script_dir/../../../scripts/config.sh"
+# 先试写一次记录目录:写不了就在这里说明怎么申请写入权限并退出,不等流程跑到一半
+sh "$config_sh" probe || exit $?
 if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的目录不存在: $repo_arg"; fi
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || die "$(pwd) 不是 git 仓库。审查需要本地仓库:请在仓库目录里运行,或用 --repo <目录> 指定。不知道仓库在哪里时问用户,不要在磁盘上到处找"
@@ -161,7 +164,7 @@ root=$(git rev-parse --show-toplevel)
 if [ -z "$out" ]; then
   out=$(mktemp -d "${TMPDIR:-/tmp}/cr.XXXXXX")
 else
-  mkdir -p "$out"
+  mkdir -p "$out"   # 写记录目录的例外:--out 是调用方指定的审查目录
 fi
 out=$(cd "$out" && pwd)
 raw="$out/raw.patch"
@@ -173,7 +176,7 @@ cd "$root"
 # 项目记录目录:项目的身份优先取 origin 的地址,没有远程时取主工作区的路径;两者在同一仓库的各个 worktree 里
 # 都一样,所以它们共用一份记录。对比基准规则、判断记录、需求来源记录都放在这里。
 repo_id=$(python3 "$script_dir/crlib.py" repo-id)
-reviews_dir="${CROSSCHECK_HOME:-$HOME/.crosscheck}/reviews"
+reviews_dir="$(sh "$config_sh" home)/reviews"
 repo_key=$(basename "$repo_id" | sed 's/[^A-Za-z0-9._-]/_/g')
 # 另一个同名的项目已经占用了这个目录时,加上哈希区分。
 if [ -f "$reviews_dir/$repo_key/.repo" ] && [ "$(head -n 1 "$reviews_dir/$repo_key/.repo")" != "$repo_id" ]; then
@@ -775,7 +778,7 @@ sh "$script_dir/settings.sh" apply "$out" "$root" "$settings_ref" || die "读取
 # 每个文件 diff 的哈希。内容没变则哈希不变,下次审查据此跳过。
 split="$out/split"
 rm -rf "$split" "$out/hashes.txt" "$out/incremental.txt" "$out/diff.full.patch" "$out/files.full.txt" "$out/prev-findings.json"
-mkdir -p "$split"
+mkdir -p "$split"   # 写记录目录的例外:split/ 在审查目录下
 : > "$split/index"
 awk -v dir="$split" '
 function flush(   f) {
@@ -992,7 +995,8 @@ sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 
 # 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
 if [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
    && ! printf '%s' "$context_out" | grep -q '^SOURCES_\(MISSING\|OPTIONAL\):'; then
-  mkdir -p "$store_dir" && printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
+  sh "$config_sh" mkdir "$store_dir" || exit $?
+  printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
 fi
 if [ -n "$prev_pending" ]; then
   printf 'NOTE: 上一次对这个目标的审查(开始于 %s)没有保存,很可能提前结束了,它的子代理结果可能没有核实或报告。这次照常重新审查。\n' "$prev_pending"

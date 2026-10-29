@@ -83,7 +83,7 @@ def load_store(path):
 def save_store(path, data):
     if not path:
         return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    crlib.makedirs(os.path.dirname(path))
     data["updated_at"] = _now()
     crlib.save_json(path, data)
 

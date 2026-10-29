@@ -492,6 +492,12 @@ config = _config_module.config
 config_path = _config_module.config_path
 plugin_config_path = _config_module.plugin_config_path
 home = _config_module.home
+# 写记录目录(~/.crosscheck)一律用这几个:被拒时给出申请写入权限的提示,以 WRITE_DENIED 退出,不抛异常栈。
+WRITE_DENIED = _config_module.WRITE_DENIED
+write_denied = _config_module.write_denied
+record_write = _config_module.record_write
+makedirs = _config_module.makedirs
+probe = _config_module.probe
 
 
 def strip_remote(url):

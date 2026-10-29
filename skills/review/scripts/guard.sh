@@ -134,7 +134,7 @@ if runs save-review.sh; then
 fi
 
 if runs collect-diff.sh; then
-  mkdir -p "$dir" && : > "$marker"
+  mkdir -p "$dir" && : > "$marker"   # 写记录目录的例外:标记在 $TMPDIR/cr-guard 下
   rm -f "$dir/$sid.review" "$dir/$sid.usage"
   transcript=$(get .transcript_path)
   [ -n "$transcript" ] && sh "$script_dir/usage.sh" start "$dir/$sid.usage" "$transcript" >/dev/null 2>&1 || true

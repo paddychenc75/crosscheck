@@ -92,7 +92,8 @@ def restore(reviews, before, out):
 
 
 def main(argv):
-    reviews = os.path.join(crlib.home(), "reviews")
+    crlib.probe()   # 先试写一次记录目录,写不了就说明怎么申请写入权限并退出
+    reviews =os.path.join(crlib.home(), "reviews")
     before = snapshot(reviews)
     non_interactive = "--non-interactive" in argv or os.environ.get("CR_NONINTERACTIVE") == "1"
     # 要问的类别:describe.ask 里写了、并且配了读取工具的;没给答案的才问

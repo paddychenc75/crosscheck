@@ -104,8 +104,11 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 | `LARGE:` | 按协议确认范围;用户已要求全部审时首次即传 `--allow-large`,不能据此升级深度 |
 | `UNCHANGED` / `EMPTY` | check-state 后按协议说明并停止;有待确认基准先处理,空 diff 不等于没有问题 |
 | `NOTE:` / `HINT:` / 平台或拉取错误 | 按协议原样披露、恢复或停止;不得查看凭证或 shell 配置 |
+| 宿主不允许写入 `~/.crosscheck`(退出码 77) | 见下面「记录目录写入被拒」:申请一次写入权限后重跑同一条命令,被拒才停止 |
 
 非交互运行从首次收集即带 `--non-interactive`(或 `CR_NONINTERACTIVE=1`),不等待用户;保留「基准未确认」和资料缺失披露。提前结束时若已有 `state.txt` 必须运行 `check-state.sh`;元数据未完整时不运行依赖它的后续脚本。`WEAKENING:` 留给报告单列。
+
+**记录目录写入被拒。** 任何脚本输出「宿主不允许写入 ~/.crosscheck」(退出码 77)时,这不是普通的脚本报错,不要直接停止:按提示向宿主申请一次写入权限,只针对这条命令、只写 `~/.crosscheck`,理由是「要把审查记录写到 ~/.crosscheck」;获批后重新运行同一条命令,继续流程。用户拒绝或宿主不支持申请时停下(已有 `state.txt` 时先运行 `check-state.sh`),把提示原话告诉用户,请用户在宿主里放行 `~/.crosscheck` 的写入后重试。不要换目录、不要换工具或写法绕开、不要修改任何设置。
 
 `meta.txt` 中 `batches` 大于 1 时,按第 3 步分批审查,并告诉用户改动较大、已分成几批。
 

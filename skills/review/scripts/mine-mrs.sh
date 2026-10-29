@@ -9,7 +9,7 @@
 #   --platform   默认按 origin 的地址判断:含 github.com 用 gh,其余用 glab
 #
 # 只读:只调用 glab api / gh api 的 GET 请求和 git show,不改仓库,也不往平台写任何东西。
-# 缓存在 ${CROSSCHECK_HOME:-~/.crosscheck}/mining/<项目名>/mrs/<编号>.json,MR 没有更新过就不再拉评论。
+# 缓存在 ~/.crosscheck/mining/<项目名>/mrs/<编号>.json,MR 没有更新过就不再拉评论。
 # 缓存只存 MR 标题、作者和人工评论(不存 MR 描述原文)。
 #
 # 每次运行新建工作目录 mining/<项目名>/run-<时间>/,写入:
@@ -38,11 +38,13 @@ done
 case "$days" in ''|*[!0-9]*) die "--days 应为正整数" ;; esac
 case "$limit" in ''|*[!0-9]*) die "--limit 应为正整数" ;; esac
 command -v python3 >/dev/null 2>&1 || die "需要 python3(3.8 或更新)"
+script_dir=$(cd "$(dirname "$0")" && pwd)
+# 先试写一次记录目录:写不了就在这里说明怎么申请写入权限并退出,不等拉完 MR 才失败
+sh "$script_dir/../../../scripts/config.sh" probe || exit $?
 if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的目录不存在: $repo_arg"; fi
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 git 仓库,请用 --repo 指定"
 root=$(git rev-parse --show-toplevel)
 
-script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_id=$(python3 "$script_dir/crlib.py" repo-id)   # 项目的身份;原始的远程地址不会被输出
 # Python 入口先从 origin 解析平台；不得按 repo_id 的子串或 CLI 默认主机选平台。
 

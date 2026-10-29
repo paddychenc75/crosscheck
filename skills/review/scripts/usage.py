@@ -22,7 +22,7 @@ if mode == "start":
     state, transcript = args[1], args[2]
     if not os.path.isfile(transcript):
         sys.exit(0)
-    os.makedirs(os.path.dirname(state), exist_ok=True)
+    os.makedirs(os.path.dirname(state), exist_ok=True)   # 写记录目录的例外:state 在 guard.sh 的 $TMPDIR/cr-guard 下
     write_kv(state, {
         "transcript": transcript,
         "lines": count_lines(transcript),

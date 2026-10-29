@@ -10,7 +10,7 @@
 #        settings.json、rules-index.json、rules-meta.txt、rules-notes.json、sources.json、analysis-facts.json、
 #        completeness.txt,还有 finders/ 和 verify/ 下的回复原件
 #
-# 写入 ${CROSSCHECK_HOME:-~/.crosscheck}/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
+# 写入 ~/.crosscheck/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
 #   latest    最近一次审查
 #   baseline  最近一次覆盖所有维度的审查,增量审查以它为基准(--only 的审查不会成为基准)
 # 输出:
@@ -56,9 +56,12 @@ meta() { sed -n "s/^$1=//p" "$dir/meta.txt" | tail -n 1; }
 store=$(meta store_dir)
 [ -n "$store" ] || die "meta.txt 中没有 store_dir"
 
+config_sh="$(cd "$(dirname "$0")" && pwd)/../../../scripts/config.sh"
+# 先试写一次记录目录:写不了就说明怎么申请写入权限并退出
+sh "$config_sh" probe || exit $?
 stamp=$(date +%Y%m%d-%H%M%S)
 dest="$store/$stamp"
-mkdir -p "$dest"
+sh "$config_sh" mkdir "$dest" || exit $?
 repo_marker="$(dirname "$store")/.repo"
 [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
 cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"

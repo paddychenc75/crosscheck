@@ -52,7 +52,7 @@ pdir = crlib.project_dir(repo_id) or ""
 key = os.path.basename(pdir) if pdir else re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(repo_id))
 base = os.path.join(home, "mining", key)
 cache = os.path.join(base, "mrs")
-os.makedirs(cache, exist_ok=True)
+crlib.makedirs(cache)
 
 now = datetime.datetime.utcnow().replace(microsecond=0)
 since = now - datetime.timedelta(days=days)
@@ -188,7 +188,8 @@ n = 0
 while os.path.exists(work + ("-%d" % n if n else "")):
     n += 1
 work += "-%d" % n if n else ""
-os.makedirs(work)
+with crlib.record_write(work):
+    os.makedirs(work)
 
 def top(path):
     return path.split("/", 1)[0] if "/" in path else "(根目录)"

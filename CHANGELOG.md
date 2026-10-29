@@ -20,6 +20,7 @@
 
 - 审查技能统一使用 `review`,规则维护技能统一使用 `improve`;插件调用为 `/crosscheck:review`、`/crosscheck:improve`(Codex 用 `$` 前缀),拷贝安装对应 `/review`、`/improve`。源码目录、模板引用和三宿主 hook 路径同步,不提供旧名兼容。
 - 收集问答/握手移到 `references/collection-protocol.md`,保存记录并入 `report-format.md`;主体保留触发条件、核心流程及质量门槛。
+- 记录目录固定为 `~/.crosscheck`(个人配置 `~/.crosscheck/config`),没有改位置的环境变量。review、improve、describe 开始前先在 `~/.crosscheck` 下试写一次;宿主不允许写入时,脚本给出目标路径和申请一次写入权限的提示,以退出码 77 结束,不打印异常栈。agent 按提示申请,获批后重新运行同一条命令,被拒或宿主不支持申请就停下,请用户放行后重试;不换目录、不改设置。测试改为给子进程设 `HOME` 隔离记录目录。
 
 **设计页**
 
@@ -64,7 +65,7 @@
 
 **配置**
 
-- 团队配置迁至插件级 `config/defaults.conf`,唯一解析器迁至 `scripts/config.py`,`scripts/config.sh` 为薄转发;review/improve 共用入口。保留 `CROSSCHECK_HOME`、`CROSSCHECK_CONFIG`、`CROSSCHECK_PLUGIN_CONFIG` 的覆盖语义;增量指纹包含共享实现、默认模板和实际配置文件。安装指南与复制测试夹具保留完整共享布局。
+- 团队配置迁至插件级 `config/defaults.conf`,唯一解析器迁至 `scripts/config.py`,`scripts/config.sh` 为薄转发;review/improve 共用入口。`CROSSCHECK_PLUGIN_CONFIG` 覆盖团队配置的位置;增量指纹包含共享实现、默认模板和实际配置文件。安装指南与复制测试夹具保留完整共享布局。
 - 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读)和各技能的 `review.ask`、`describe.ask`,`--source` 的类别为 `requirement` 和 `doc`。
 - `config/defaults.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
 - README 和常用说法改成自然语言的用法,脚本参数只留在 `SKILL.md` 和 README 末尾的「内部参数对照」。

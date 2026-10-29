@@ -379,13 +379,13 @@ def main():
         return 0
 
     for path in changed:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)   # 写记录目录的例外:规则文件写在仓库工作区
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(touched[path]).rstrip("\n") + "\n")
     if wrote:
         for b in wrote:
             plan_text = rules_plan.set_action(plan_text, b, "已写入")
-        with open(plan_path, "w", encoding="utf-8") as f:
+        with crlib.record_write(plan_path), open(plan_path, "w", encoding="utf-8") as f:
             f.write(plan_text)
     if changed:
         note = "NOTE: 只改了工作区,没有 git add 或提交。"
