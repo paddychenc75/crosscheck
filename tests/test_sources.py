@@ -11,7 +11,7 @@ SCRIPTS = fixture.SCRIPTS
 TEAM = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = ticket, doc
+intent.required = requirement, doc
 """
 
 
@@ -30,18 +30,18 @@ class Sources(fixture.ShopRepo):
         kinds = self.settings_of("tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://Tickets.acme.example.com/browse/XX-123,"
                                  "也支持 http://pm.acme.example.com\n"
                                  "tools.doc_reader = 用 acme-kit:doc-reader 读文档\n")
-        self.assertEqual(kinds["ticket"]["match"], ["tickets.acme.example.com", "pm.acme.example.com"])
+        self.assertEqual(kinds["requirement"]["match"], ["tickets.acme.example.com", "pm.acme.example.com"])
         self.assertEqual(kinds["doc"]["match"], [])           # 提示词里没有网址:不自动识别
-        self.assertEqual((kinds["ticket"]["label"], kinds["doc"]["label"]), ("需求单", "需求文档"))
-        self.assertEqual(self.settings_of("")["ticket"]["tool"], "")
+        self.assertEqual((kinds["requirement"]["label"], kinds["doc"]["label"]), ("需求单", "需求文档"))
+        self.assertEqual(self.settings_of("")["requirement"]["tool"], "")
 
     def test_prompt_without_url_does_not_auto_detect_links(self):
         self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\n")
         r, rd = self.collect()
-        ticket = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "ticket")
-        self.assertEqual(ticket["status"], "missing")
+        requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
+        self.assertEqual(requirement["status"], "missing")
         self.assertIn("SOURCES_MISSING: 需求单", r.stdout)
-        r, rd = self.collect("--source", "ticket=https://tickets.acme.example.com/story/42")
+        r, rd = self.collect("--source", "requirement=https://tickets.acme.example.com/story/42")
         self.assertNotIn("SOURCES_MISSING", r.stdout)
 
     def test_missing_required_sources_are_reported_once_per_branch(self):
@@ -49,8 +49,8 @@ class Sources(fixture.ShopRepo):
         r, rd = self.collect()
         self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", r.stdout)
         src = self.load(os.path.join(rd, "sources.json"))
-        ticket = next(x for x in src["items"] if x["kind"] == "ticket")
-        self.assertEqual(ticket["source"], "自动识别")   # 提交说明里的需求单链接(按提示词里网址的域名识别)
+        requirement = next(x for x in src["items"] if x["kind"] == "requirement")
+        self.assertEqual(requirement["source"], "自动识别")   # 提交说明里的需求单链接(按提示词里网址的域名识别)
         self.assertEqual(src["missing"], ["doc"])
         r, _ = self.collect("--source", "doc=skip")
         self.assertNotIn("SOURCES_MISSING", r.stdout)
@@ -60,7 +60,7 @@ class Sources(fixture.ShopRepo):
 
     def test_unasked_is_not_remembered_and_default_requires_ticket_only(self):
         r, _ = self.collect()
-        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(ticket)", r.stdout)   # 没有配置时只要需求单
+        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", r.stdout)   # 没有配置时只要需求单
         self.commit(self.repo, {"b.ts": "b\n"}, "Closes #12")
         r, _ = self.collect()
         self.assertNotIn("SOURCES_MISSING", r.stdout)       # 提交说明里的需求编号也算
@@ -75,7 +75,7 @@ class Sources(fixture.ShopRepo):
         stage = self.run_py("sources.py", "stage").stdout.strip()
         Path(stage, "doc.md").write_text("url: https://docs.acme.example.com/d/abc\ntitle: 订单游标分页 PRD\ntool: acme-kit:doc-reader\n---\n"
                                          "## 验收标准\n- 接口支持 cursor 参数\n", encoding="utf-8")
-        Path(stage, "ticket.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
+        Path(stage, "requirement.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
         r, rd = self.collect("--source", "doc=https://docs.acme.example.com/d/abc", "--source-dir", stage)
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
         self.assertIn("## 需求文档:订单游标分页 PRD", intent)
@@ -96,7 +96,7 @@ class Sources(fixture.ShopRepo):
         self.assertIn("KIND=VALUE", r.stderr)
 
     def test_set_only_accepts_intent_and_source_kinds(self):
-        _, rd = self.collect("--source", "ticket=skip")
+        _, rd = self.collect("--source", "requirement=skip")
         self.run_py("sources.py", "set", rd, "intent", "订单列表改为游标分页")
         self.run_py("sources.py", "set", rd, "doc", "skip")
         for key in ("tested", "focus", "page_url"):
@@ -116,13 +116,13 @@ class NonInteractive(fixture.ShopRepo):
             with self.subTest(args=args):
                 if env:
                     self.env["CR_NONINTERACTIVE"] = env
-                r, rd = self.collect(*([args] if args else []), "--source", "ticket=skip")
+                r, rd = self.collect(*([args] if args else []), "--source", "requirement=skip")
                 self.assertNotIn("SOURCES_MISSING", r.stdout)
                 doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
                 self.assertEqual(doc["status"], "unasked")
         # 没有记进记录:交互运行时仍然会问
         self.env.pop("CR_NONINTERACTIVE")
-        r, _ = self.collect("--source", "ticket=skip")
+        r, _ = self.collect("--source", "requirement=skip")
         self.assertIn("SOURCES_MISSING: 需求文档", r.stdout)
 
 
@@ -160,8 +160,8 @@ class GitHubContext(fixture.Base):
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
         self.assertIn("关联需求 #7:a 要改成 b", intent)
         self.assertIn("a.ts 内容为 b(来自 #7)", intent)
-        ticket = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "ticket")
-        self.assertEqual((ticket["url"], ticket["title"]), ("https://github.com/acme/gh/issues/7", "a 要改成 b"))
+        requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
+        self.assertEqual((requirement["url"], requirement["title"]), ("https://github.com/acme/gh/issues/7", "a 要改成 b"))
         disc = self.load(os.path.join(rd, "discussions.json"))
         self.assertEqual(sorted(x["body"] for x in disc), ["整体可以", "这里要判空"])
         self.assertTrue(all(x["platform"] == "github" for x in disc))

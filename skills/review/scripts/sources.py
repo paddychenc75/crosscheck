@@ -1,19 +1,19 @@
-"""需求来源:需求单(ticket)、需求文档(doc)等链接的识别、记录和读取结果的登记。
+"""需求来源:需求单(requirement)、需求文档(doc)等链接的识别、记录和读取结果的登记。
 
 配置(插件里的 config/defaults.conf 或 ~/.crosscheck/config,按工具的用途命名;值是给 agent 的一句话说明,原样交给 agent,脚本不解析):
-  tools.requirement  = <说明>                 需求管理工具:读需求单(类别 ticket)
+  tools.requirement  = <说明>                 需求管理工具:读需求单(类别 requirement)
   tools.doc_reader   = <说明>                 文档阅读工具:读 PRD、技术方案等文档链接(类别 doc)
-  intent.required    = ticket, doc            每次都要收集(可跳过)的类别;不写时只有 ticket
+  intent.required    = requirement, doc            每次都要收集(可跳过)的类别;不写时只有 requirement
 显示名固定为「需求单」「需求文档」;识别链接用的关键字取自说明里出现的网址的域名,没写网址就只能靠用户给的链接。
 不在 intent.required 里的类别是「可选资料」:每个分支也问一次(SOURCES_OPTIONAL),可以跳过、不算缺,跳过后记录会记住。
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
-  {"ticket": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...}, "intent": "...", "updated_at": "..."}
+  {"requirement": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...}, "intent": "...", "updated_at": "..."}
 
 用法(审查之外由 agent 调用):
   python3 sources.py stage                    新建一个暂存目录,打印路径;读到的文档写在这里
   python3 sources.py show DIR                 打印这次审查(或记录)对应分支的来源记录
-  python3 sources.py set DIR KEY VALUE        记下 intent、需求来源(ticket/doc=链接|skip|none:类型)
+  python3 sources.py set DIR KEY VALUE        记下 intent、需求来源(requirement/doc=链接|skip|none:类型)
 审查时由 collect-context.sh 调用 resolve()。
 """
 import datetime
@@ -26,9 +26,9 @@ import tempfile
 sys.dont_write_bytecode = True
 import crlib
 
-KINDS = ("ticket", "doc")
-KIND_TOOL = {"ticket": "tools.requirement", "doc": "tools.doc_reader"}   # 类别 → 配置里放工具名的键
-DEFAULT_LABEL = {"ticket": "需求单", "doc": "需求文档"}
+KINDS = ("requirement", "doc")
+KIND_TOOL = {"requirement": "tools.requirement", "doc": "tools.doc_reader"}   # 类别 → 配置里放工具名的键
+DEFAULT_LABEL = {"requirement": "需求单", "doc": "需求文档"}
 EXPIRE_DAYS = 90
 HOST = re.compile(r"https?://([A-Za-z0-9.-]+)")
 URL = re.compile(r"https?://[^\s)>\]\"'`<,，。]+")
@@ -46,7 +46,7 @@ def settings(cfg=None):
         # 说明是自然语言,识别链接只用其中出现的网址的域名;没写网址就只能靠用户给的链接
         match = [h.lower().rstrip(".") for h in HOST.findall(tool)]
         kinds[k] = {"tool": tool, "label": DEFAULT_LABEL[k], "match": list(dict.fromkeys(match))}
-    required = [x.strip() for x in cfg.get("intent.required", "ticket").split(",") if x.strip()]
+    required = [x.strip() for x in cfg.get("intent.required", "requirement").split(",") if x.strip()]
     for k in required:
         kinds.setdefault(k, {"tool": "", "label": DEFAULT_LABEL.get(k, k), "match": []})
     return {"kinds": kinds, "required": required}
@@ -151,7 +151,7 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
             entry = dict(store[k], source="记录")
         elif k in auto:
             entry = {"status": "given", "url": auto[k], "source": "自动识别"}
-        elif k == "ticket" and has_issue_ref:
+        elif k == "requirement" and has_issue_ref:
             entry = {"status": "given", "url": (issue or {}).get("url", ""), "title": (issue or {}).get("title", ""),
                      "source": "提交说明或描述里的需求编号"}
         kdocs = [x for x in docs if x["kind"] == k]

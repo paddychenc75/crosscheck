@@ -22,7 +22,7 @@ TICKET = "https://tickets.acme.example.com/story/42"
 CONFIG = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = ticket, doc
+intent.required = requirement, doc
 """
 PR_META = {"mode": "pr", "url": "http://localhost:8080/eng/shop/-/merge_requests/7", "repo_id": "localhost/eng/shop",
            "number": "7", "source_branch": "feature", "target_branch": "main"}
@@ -86,7 +86,7 @@ class Case:
         self.meta = {"mode": "local", "platform": "none", "repo_id": "/work/shop", "head_sha": SHA, "files": "2", "depth": "standard",
                      "source_branch": "feature", "target_branch": "main", "target_key": "branch-feature", "merged": "", "code_host_reason": ""}
         self.facts = base_facts()
-        self.sources = {"ticket": {"status": "given", "url": TICKET, "title": "订单游标分页"}}
+        self.sources = {"requirement": {"status": "given", "url": TICKET, "title": "订单游标分页"}}
         self.intent = "订单列表改为游标分页"
         self.criteria = []
         self.analysis = None
@@ -166,16 +166,16 @@ def scenarios():
 
     @case
     def ticket_unasked_non_interactive(c):
-        c.sources = {"ticket": {"status": "unasked", "source": "非交互运行"}}
+        c.sources = {"requirement": {"status": "unasked", "source": "非交互运行"}}
 
     @case
     def ticket_none_and_docs(c):
-        c.sources = {"ticket": {"status": "none", "type": "hotfix"},
+        c.sources = {"requirement": {"status": "none", "type": "hotfix"},
                      "doc": {"status": "given", "source": "本地文档", "local_files": ["plan.md", "api.md"]}}
 
     @case
     def sources_variants(c):
-        c.sources = {"ticket": {"status": "skip"}, "doc": {"status": "given", "url": "https://docs.acme.example.com/d/abc",
+        c.sources = {"requirement": {"status": "skip"}, "doc": {"status": "given", "url": "https://docs.acme.example.com/d/abc",
                                                             "title": "PRD", "read_error": "没有权限"}}
 
     @case

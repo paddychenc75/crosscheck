@@ -39,7 +39,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules` 中的若干项。默认三项都查 |
 | `--intent "…"` | 「这次是为了修复分页丢数据」 |
 | `--doc <文件>`(可多次) | 「方案在 docs/plan.md」「接口文档在 docs/api.md」。`--plan` 是同一个意思 |
-| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「没有需求文档」「这是 hotfix,没有需求单」→ `ticket=<链接>`、`doc=skip`、`ticket=none:hotfix`。类别只有 `ticket`(需求单,工具见 `tools.requirement`)和 `doc`(需求文档,工具见 `tools.doc_reader`),每次都要收集哪几类见 `intent.required`,默认只有 `ticket` |
+| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「没有需求文档」「这是 hotfix,没有需求单」→ `requirement=<链接>`、`doc=skip`、`requirement=none:hotfix`。类别只有 `requirement`(需求单,工具见 `tools.requirement`)和 `doc`(需求文档,工具见 `tools.doc_reader`),每次都要收集哪几类见 `intent.required`,默认只有 `requirement` |
 | `--verifier-model <模型>` | 「核实换成某某模型」。没说就用配置里的 `model.verifier`,再没有就用当前宿主的模型 |
 | `--with-tests` | 「测试也一起看」 |
 | `--full` | 「重新审」「全量」「忽略之前的」 |

@@ -24,7 +24,7 @@ description: 生成 PR/MR 描述(pull request / merge request description):按�
 | `--base` / `--base-sha` / `--base-target` / `--base-rule` / `--ask-base` | 同 review:「对比 develop」「对比基准是 abc1234」;默认仅本次,明确说记住才用 `--base-rule` |
 | `--intent "…"` | 「这次是为了修复分页丢数据」:作为描述的一句话 |
 | `--doc <文件>`(可多次) | 「方案在 docs/plan.md」 |
-| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「这是 hotfix,没有需求单」「跳过」→ `ticket=<链接>`、`ticket=none:hotfix`、`ticket=skip`;需求文档 `doc=<链接>` |
+| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「这是 hotfix,没有需求单」「跳过」→ `requirement=<链接>`、`requirement=none:hotfix`、`requirement=skip`;需求文档 `doc=<链接>` |
 | `--tested "…"`(给 `describe.sh`,可选) | 用户主动说「本地跑过 jest,手工测了翻页」:原样写进执行记录 |
 | `--focus '<JSON>'`(给 `describe.sh`) | 「请评审人重点看 api/orders.ts:42 的兼容期」→ `[{"where":"api/orders.ts:42","ask":"兼容期够不够"}]`,最多 3 条;只有作者点名才有「请重点看」 |
 
@@ -41,7 +41,7 @@ description: 生成 PR/MR 描述(pull request / merge request description):按�
 
 ### 1. 采集
 
-**先问需求单链接**,每次生成都问一次,与配置 `intent.required` 无关,审查记录里这个分支问过也照问。用户这次已经给了链接(话里带链接,或 `--source ticket=<链接>`)、明说没有需求单(`ticket=none:<原因>`,如 hotfix)、或明说跳过(`ticket=skip`)时不再问。一句话问完:「需求单链接是?可以贴链接,说没有需求单,或跳过。」需求文档不问,用户主动给了才收下(`--doc`、`--source doc=<链接>`)。拿到回答后:给了链接且 `tools.requirement` 写了说明时,按 `<plugin_dir>/skills/review/references/collection-protocol.md` 的「需求这几项」去读取(`sources.py stage` 建暂存目录,读不到就如实写 `error:`),再带 `--source ticket=…` 和 `--source-dir` 运行。
+**先问需求单链接**,每次生成都问一次,与配置 `intent.required` 无关,审查记录里这个分支问过也照问。用户这次已经给了链接(话里带链接,或 `--source requirement=<链接>`)、明说没有需求单(`requirement=none:<原因>`,如 hotfix)、或明说跳过(`requirement=skip`)时不再问。一句话问完:「需求单链接是?可以贴链接,说没有需求单,或跳过。」需求文档不问,用户主动给了才收下(`--doc`、`--source doc=<链接>`)。拿到回答后:给了链接且 `tools.requirement` 写了说明时,按 `<plugin_dir>/skills/review/references/collection-protocol.md` 的「需求这几项」去读取(`sources.py stage` 建暂存目录,读不到就如实写 `error:`),再带 `--source requirement=…` 和 `--source-dir` 运行。
 
 ```
 sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句话>"] [--doc <文件>]... [--source <类别>=<值>]...
@@ -49,7 +49,7 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
    [--base-target | --base-rule target|branch:<分支>] [--ask-base] [--non-interactive]
 ```
 
-它调用 review 的 `collect-diff.sh`(总是全量、不分批),输出原样转出,最后一行是材料目录 `dir`;材料齐全时还写出 `describe-facts.json`(影响面、入口、新增用例、调用方)。没带 `--source ticket=…` 且不是非交互运行时,它输出 `SOURCES_MISSING: 需求单 …`:按上面问用户,再带答案重新运行。运行后它把审查记录里的 `pending` 和来源记录恢复原样,描述不影响 review 之后问不问需求单。
+它调用 review 的 `collect-diff.sh`(总是全量、不分批),输出原样转出,最后一行是材料目录 `dir`;材料齐全时还写出 `describe-facts.json`(影响面、入口、新增用例、调用方)。没带 `--source requirement=…` 且不是非交互运行时,它输出 `SOURCES_MISSING: 需求单 …`:按上面问用户,再带答案重新运行。运行后它把审查记录里的 `pending` 和来源记录恢复原样,描述不影响 review 之后问不问需求单。
 
 非交互运行(`claude -p`、`codex exec`、CI)从第一次就带 `--non-interactive`:不提问、不编造,需求单记为未询问,描述里写「未提供(非交互运行,没有询问)」,退出码照常。
 

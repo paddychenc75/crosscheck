@@ -355,7 +355,7 @@ class OptionalSources(Project):
         self.assertNotIn("SOURCES_OPTIONAL", out)
 
     def test_local_doc_also_satisfies_required_documents(self):
-        self.config("intent.required = ticket, doc\n")
+        self.config("intent.required = requirement, doc\n")
         Path(self.repo, "plan.md").write_text("方案\n", encoding="utf-8")
         out, rd, meta = self.collect("--doc", "plan.md", skip_doc=False)
         self.assertNotRegex(out, "SOURCES_MISSING|SOURCES_OPTIONAL")
@@ -368,7 +368,7 @@ class OptionalSources(Project):
         self.assertEqual(meta["sources_optional"], "")
 
     def test_required_kind_is_not_also_optional(self):
-        self.config("intent.required = ticket, doc\n")
+        self.config("intent.required = requirement, doc\n")
         out, rd, meta = self.collect("--base-rule", "target", skip_doc=False)
         self.assertIn("SOURCES_MISSING: 需求文档", out)
         self.assertNotIn("SOURCES_OPTIONAL", out)

@@ -197,7 +197,7 @@ class Note:
         for k, c in self.conf["kinds"].items():
             it = dict(items.get(k) or {})
             st = it.get("status", "missing")
-            if k != "ticket" and st != "given":
+            if k != "requirement" and st != "given":
                 continue
             if st == "given" and it.get("url"):
                 val = it["url"] + (" 「%s」" % it["title"] if it.get("title") else "")

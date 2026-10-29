@@ -6,8 +6,8 @@
   collect-diff.sh 的输出原样转出,最后一行仍是材料目录;没有要先问用户的提示时,再写 describe-facts.json。
 
 需求来源的问法和 review 不同,由这里决定,与 intent.required、审查记录里问过没有都无关:
-  需求单  每次都问一次:没有 --source ticket=<链接 | skip | none:原因> 就输出 SOURCES_MISSING。非交互运行不问,
-          记为 ticket=unasked(描述里写「未提供(非交互运行,没有询问)」)
+  需求单  每次都问一次:没有 --source requirement=<链接 | skip | none:原因> 就输出 SOURCES_MISSING。非交互运行不问,
+          记为 requirement=unasked(描述里写「未提供(非交互运行,没有询问)」)
   需求文档 不问,用户给了(--source doc=…、--doc、--source-dir)才收下;没给就记为 doc=unasked
   collect-diff.sh 自己输出的 SOURCES_MISSING / SOURCES_OPTIONAL 丢掉,不转出。
 
@@ -30,7 +30,7 @@ import crlib  # noqa: E402
 ASK = ("BASE_UNSET:", "SOURCES_MISSING:", "SOURCES_OPTIONAL:", "NEED_CODE_HOST:", "EMPTY:")
 REVIEW_SOURCES = ("SOURCES_MISSING:", "SOURCES_OPTIONAL:")   # 按 review 的规则问的,describe 另有问法
 REVIEW_ONLY = "NOTE: 上一次对这个目标的审查"   # 说的是没保存的审查,和描述无关
-ASK_TICKET = ("SOURCES_MISSING: 需求单 还没有提供(ticket)。每次生成描述都要问一次:请贴需求单链接;"
+ASK_REQUIREMENT = ("SOURCES_MISSING: 需求单 还没有提供(requirement)。每次生成描述都要问一次:请贴需求单链接;"
               "没有需求单就说一声(hotfix、重构等);也可以跳过。")
 
 
@@ -86,10 +86,10 @@ def main(argv):
     reviews = os.path.join(crlib.home(), "reviews")
     before = snapshot(reviews)
     non_interactive = "--non-interactive" in argv or os.environ.get("CR_NONINTERACTIVE") == "1"
-    ask_ticket = not has_source(argv, "ticket") and not non_interactive
+    ask_requirement = not has_source(argv, "requirement") and not non_interactive
     extra = ["--full", "--allow-large"]
-    if not has_source(argv, "ticket") and non_interactive:
-        extra += ["--source", "ticket=unasked"]
+    if not has_source(argv, "requirement") and non_interactive:
+        extra += ["--source", "requirement=unasked"]
     if not has_source(argv, "doc") and not {"--doc", "--plan", "--source-dir"} & set(argv):
         extra += ["--source", "doc=unasked"]
     r = subprocess.run(["sh", os.path.join(REVIEW_SCRIPTS, "collect-diff.sh")] + argv + extra, stdout=subprocess.PIPE, text=True)
@@ -97,8 +97,8 @@ def main(argv):
     out = lines[-1].strip() if r.returncode == 0 and lines else ""
     if out and not os.path.isfile(os.path.join(out, "meta.txt")):
         out = ""
-    if out and ask_ticket and not any(x.startswith("EMPTY:") for x in lines):
-        lines.insert(-1, ASK_TICKET)
+    if out and ask_requirement and not any(x.startswith("EMPTY:") for x in lines):
+        lines.insert(-1, ASK_REQUIREMENT)
     try:
         restore(reviews, before, out)
     except OSError as e:

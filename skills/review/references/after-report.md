@@ -37,7 +37,7 @@ sh <skill_dir>/scripts/feedback.sh <判断> <id> "<原因>"
 | 要求深挖:「cache.ts 用 deep 再看一遍」 | 只对指定的文件做一次定向审查。审的是当前分支时,用路径作为 target:`collect-diff.sh <路径> --depth deep`(记录单独存放,不影响整个分支的增量)。PR/MR、其他分支或提交范围:`collect-diff.sh <target> --depth deep --full`,查找和核实时只看那几个文件,**不运行 `save-review.sh`**(否则这次会成为整个目标的增量基准,其他文件上的发现就丢了),出结果前照常运行 `check-state.sh`。结果附在原报告后面,已经报过的不重复 |
 | 要求定规则:「以后这种别报了」「以后都要查 X」 | 在 review 里当场加一条,写进对应目录的 `REVIEW.md`(接近 15 条或只对某类文件生效时改放 `.agents/rules/`),写法见下面「定规则」 |
 | 改完代码后:「再看一下」 | 同一目标重新运行 `/review`,自动做增量审查 |
-| 补充需求资料:「需求文档是 <链接>」「这个没有需求单」「这次是为了…」 | 用 `python3 <skill_dir>/scripts/sources.py set <记录目录> <键> <值>` 记下:`intent`(一句话)、需求来源的类别(`ticket`、`doc`,值是链接、`skip` 或 `none:<类型>`;给了新链接且配置了工具时,按 `references/collection-protocol.md` 的需求协议读取内容,下次审查会用上) |
+| 补充需求资料:「需求文档是 <链接>」「这个没有需求单」「这次是为了…」 | 用 `python3 <skill_dir>/scripts/sources.py set <记录目录> <键> <值>` 记下:`intent`(一句话)、需求来源的类别(`requirement`、`doc`,值是链接、`skip` 或 `none:<类型>`;给了新链接且配置了工具时,按 `references/collection-protocol.md` 的需求协议读取内容,下次审查会用上) |
 
 撤回、补充和修复都追加在这次对话里说明;保存过的报告正文不改。需要留档时,在 `<记录目录>/report.md` 末尾追加一节「后续」,写明时间和变化。
 

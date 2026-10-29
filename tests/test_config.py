@@ -16,7 +16,7 @@ class ContextHash(fixture.ShopRepo):
         self.assertIn("## 文档 plan.md", intent)
         self.assertIn("## 文档 api.md", intent)
         h1 = Path(rd, "context-hash.txt").read_text()
-        _, rd2 = self.collect("--doc", "plan.md", "--doc", "api.md", "--source", "ticket=skip")
+        _, rd2 = self.collect("--doc", "plan.md", "--doc", "api.md", "--source", "requirement=skip")
         self.assertEqual(Path(rd2, "context-hash.txt").read_text(), h1)
         Path(self.repo, "api.md").write_text("接口文档 v2\n", encoding="utf-8")
         _, rd3 = self.collect("--doc", "plan.md", "--doc", "api.md")
@@ -50,11 +50,11 @@ class ContextHash(fixture.ShopRepo):
 class PluginConfig(fixture.ShopRepo):
     def test_plugin_config_is_default_and_user_config_overrides(self):
         conf = os.path.join(self.tmp, "defaults.conf")
-        Path(conf).write_text("intent.required = ticket, doc\nmodel.finder = plugin model\n", encoding="utf-8")
+        Path(conf).write_text("intent.required = requirement, doc\nmodel.finder = plugin model\n", encoding="utf-8")
         self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单、需求文档 还没有提供", r.stdout)
-        self.config("intent.required = ticket\n")
+        self.config("intent.required = requirement\n")
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单 还没有提供", r.stdout)
         self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "plugin model")
@@ -134,13 +134,13 @@ class PluginConfig(fixture.ShopRepo):
 
     def test_empty_values_count_as_not_configured(self):
         conf = os.path.join(self.tmp, "defaults.conf")
-        Path(conf).write_text("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nintent.required = ticket, doc\n", encoding="utf-8")
+        Path(conf).write_text("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nintent.required = requirement, doc\n", encoding="utf-8")
         self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
         self.config("tools.requirement =\nintent.required = # 先不写\nmodel.finder =\n")
         self.assertEqual(self.run_config("get", "tools.requirement").stdout.strip(), "用 acme-kit:ticket-reader 读需求单")
-        self.assertEqual(self.run_config("get", "intent.required").stdout.strip(), "ticket, doc")
+        self.assertEqual(self.run_config("get", "intent.required").stdout.strip(), "requirement, doc")
         self.assertEqual(self.run_config("get", "model.finder").stdout, "")
         Path(conf).write_text("intent.required =\n", encoding="utf-8")
         self.config("")
         r, _ = self.collect()
-        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(ticket)", r.stdout)   # 空值等于没配置:只要需求单
+        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", r.stdout)   # 空值等于没配置:只要需求单

@@ -11,7 +11,7 @@
 #   model.finder=<模型>   查找角色用的模型(如更便宜的 sonnet / haiku);不写就用宿主当前的模型
 #   model.verifier=<模型> 核实用的模型,最好和查找用的不同;调用时说「核实换成某某模型」会覆盖它
 #   tools.code_host、tools.requirement、tools.doc_reader   外部工具:写给 agent 的一句话,说明用什么、怎么用
-#   intent.required   审查前必须问到(可跳过)的需求类别(ticket、doc)
+#   intent.required   审查前必须问到(可跳过)的需求类别(requirement、doc)
 #   所有设置、用途和默认行为见 config/defaults.conf
 # 个人配置的位置可以用环境变量 CROSSCHECK_CONFIG 覆盖,未设置时跟随 CROSSCHECK_HOME;
 # 插件配置的位置可以用 CROSSCHECK_PLUGIN_CONFIG 覆盖。解析在插件 scripts/config.py 里,和其他脚本共用一份。

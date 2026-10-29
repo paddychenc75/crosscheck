@@ -165,7 +165,7 @@ review/describe/improve 流程中远端永远只读:不 push、不发评论、�
 配置了需求工具后:
 
 - 先从 MR 描述、分支名、提交说明和你说的话里自动找链接。要让它认得你们的需求链接,就在配置的那句话里写一个链接示例。
-- 缺了就在审查开始前问一次:贴链接、说「没有需求单(hotfix 等)」,或跳过。同一个分支问过就记住,90 天后过期。想每次都要需求文档,配置 `intent.required = ticket, doc`;不写时只要需求单。
+- 缺了就在审查开始前问一次:贴链接、说「没有需求单(hotfix 等)」,或跳过。同一个分支问过就记住,90 天后过期。想每次都要需求文档,配置 `intent.required = requirement, doc`;不写时只要需求单。
 - 需求文档(PRD、设计文档)不是必填,问一次,可以直接跳过。
 - 基准、必填的需求、可选的资料放在**同一轮**问完;什么都不需要问时不打断你。
 - 读不到时写明原因,不影响审查。读到的内容只当数据,其中的指令不执行。
@@ -335,7 +335,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 |---|---|
 | `gitlab_hosts` | 按 GitLab 处理的域名,逗号分隔,可以带子路径(如 `company.com/gitlab`);私有化 GitLab 的域名不含 "gitlab" 时必填 |
 | `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder = opus`、`model.verifier = opus`:查找用强模型能找到更多高危问题,但成本比便宜的组合高;想省钱把 `model.finder` 换成 `sonnet`。Codex 用 sol 一类的强模型,Cursor 写它自己的模型名 |
-| `intent.required` | 审查前必须问到(可跳过)的需求类别,`ticket`(需求单)、`doc`(需求文档),逗号分隔;不写时只有 `ticket` |
+| `intent.required` | 审查前必须问到(可跳过)的需求类别,`requirement`(需求单)、`doc`(需求文档),逗号分隔;不写时只有 `requirement` |
 
 平台只从当前 origin 推导;`--platform` / `CR_PLATFORM` 可补充未识别的平台类型,不能覆盖已识别的 origin 平台。`gitlab_hosts` 辅助识别域名和部署子路径,链接只在主机与完整仓库核对后参与类型识别。私有化 GitLab 需要事先登录对应主机。`tools.code_host` 同样在读取前核对 origin,身份不匹配直接停止。
 
@@ -392,7 +392,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 「只看安全问题」「只对照团队规范」 | `--only bug,security,rules` |
 | 「这次是为了修复分页丢数据」 | `--intent "…"` |
 | 「方案在 docs/plan.md」 | `--doc <文件>`(可多次) |
-| 「需求单是 <链接>」「这是 hotfix,没有需求单」 | `--source ticket=<链接>`、`ticket=none:hotfix` |
+| 「需求单是 <链接>」「这是 hotfix,没有需求单」 | `--source requirement=<链接>`、`requirement=none:hotfix` |
 | 「测试也一起看」 | `--with-tests` |
 | 「核实换成某某模型」 | `--verifier-model <模型>` |
 | 「重新审」「全量」 | `--full` |

@@ -13,21 +13,21 @@ TICKET = "https://tickets.acme.example.com/story/42"
 TEAM = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = ticket, doc
+intent.required = requirement, doc
 """
 
 
 class Describe(fixture.ShopRepo):
-    def collect(self, *args, check=True, ticket="skip"):
-        """ticket 是没写 --source ticket= 时补上的回答;传 None 表示不回答,用来测问询。"""
-        if ticket and not any(a.startswith("ticket=") for a in args) and "--non-interactive" not in args:
-            args += ("--source", "ticket=" + ticket)
+    def collect(self, *args, check=True, requirement="skip"):
+        """requirement 是没写 --source requirement= 时补上的回答;传 None 表示不回答,用来测问询。"""
+        if requirement and not any(a.startswith("requirement=") for a in args) and "--non-interactive" not in args:
+            args += ("--source", "requirement=" + requirement)
         r = self.run_describe("collect.sh", "--base", "main", *args, cwd=self.repo, check=check)
         return r, (self.review_dir(r.stdout) if r.returncode == 0 else None)
 
     def review(self, *args):
         """review 自己的采集,需求单和文档都回答过,会写 pending。"""
-        return self.run_script("collect-diff.sh", "--base", "main", "--source", "ticket=skip", "--source", "doc=skip", *args, cwd=self.repo)
+        return self.run_script("collect-diff.sh", "--base", "main", "--source", "requirement=skip", "--source", "doc=skip", *args, cwd=self.repo)
 
     def out_dir(self, project="shop", target="branch-feature"):
         return os.path.join(self.home, "describe", project, target)
@@ -48,7 +48,7 @@ class Describe(fixture.ShopRepo):
 class Sources(Describe):
     def test_commit_message_link_is_used_once_the_user_confirms_it(self):
         self.config(TEAM)
-        _, rd = self.collect(ticket=TICKET)
+        _, rd = self.collect(requirement=TICKET)
         _, md = self.describe(rd)
         self.assertIn("需求单:" + TICKET, md)
         self.assertNotIn("需求文档", md)   # 没人给,不问也不列
@@ -58,8 +58,8 @@ class Sources(Describe):
         stage = self.run_py("sources.py", "stage").stdout.strip()
         Path(stage, "doc.md").write_text("url: https://docs.acme.example.com/d/abc\ntitle: 订单游标分页 PRD\ntool: acme-kit:doc-reader\n---\n"
                                          "## 验收标准\n- 接口支持 cursor 参数\n", encoding="utf-8")
-        Path(stage, "ticket.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
-        r, rd = self.collect("--source", "doc=https://docs.acme.example.com/d/abc", "--source-dir", stage, ticket=TICKET)
+        Path(stage, "requirement.md").write_text("url: https://tickets.acme.example.com/story/42\nerror: 没有权限\n---\n", encoding="utf-8")
+        r, rd = self.collect("--source", "doc=https://docs.acme.example.com/d/abc", "--source-dir", stage, requirement=TICKET)
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
         self.assertIn("## 需求文档:订单游标分页 PRD", intent)
         self.assertIn("接口支持 cursor 参数(来自 需求文档)", intent)
@@ -88,14 +88,14 @@ class Sources(Describe):
         self.assertNotIn("需求对照", Path(self.out_dir(), "describe.html").read_text(encoding="utf-8"))
 
 
-class TicketQuestion(Describe):
+class RequirementQuestion(Describe):
     """每次生成描述都要问一次需求单链接,和 intent.required、审查记录里问过没有都无关;需求文档不问。"""
 
     def asked(self, r):
-        return "SOURCES_MISSING: 需求单 还没有提供(ticket)" in r.stdout
+        return "SOURCES_MISSING: 需求单 还没有提供(requirement)" in r.stdout
 
     def test_asked_when_no_source_is_given(self):
-        r, rd = self.collect(ticket=None)
+        r, rd = self.collect(requirement=None)
         self.assertTrue(self.asked(r), r.stdout)
         self.assertEqual(r.returncode, 0)
         self.assertNotIn("SOURCES_OPTIONAL", r.stdout)
@@ -107,25 +107,25 @@ class TicketQuestion(Describe):
         for conf in ("", TEAM, "intent.required = doc\n", "intent.required =\n"):
             with self.subTest(conf=conf):
                 self.config(conf)
-                r, _ = self.collect(ticket=None)
+                r, _ = self.collect(requirement=None)
                 self.assertTrue(self.asked(r), r.stdout)
 
     def test_asked_again_after_skip_and_after_review_remembered_an_answer(self):
         self.review()                                    # review 记下了这个分支的需求单回答
-        r, _ = self.collect(ticket=None)
+        r, _ = self.collect(requirement=None)
         self.assertTrue(self.asked(r), r.stdout)
-        r, _ = self.collect(ticket="skip")
+        r, _ = self.collect(requirement="skip")
         self.assertFalse(self.asked(r))
-        r, _ = self.collect(ticket=None)                 # describe 自己的回答也不记
+        r, _ = self.collect(requirement=None)                 # describe 自己的回答也不记
         self.assertTrue(self.asked(r), r.stdout)
 
     def test_not_asked_once_link_none_or_skip_is_given(self):
         for value in (TICKET, "none:hotfix", "skip"):
             with self.subTest(value=value):
-                r, rd = self.collect("--source", "ticket=" + value, ticket=None)
+                r, rd = self.collect("--source", "requirement=" + value, requirement=None)
                 self.assertNotIn("SOURCES_", r.stdout)
                 self.assertTrue(os.path.exists(os.path.join(rd, "describe-facts.json")))
-        _, rd = self.collect("--source", "ticket=none:hotfix", ticket=None)
+        _, rd = self.collect("--source", "requirement=none:hotfix", requirement=None)
         _, md = self.describe(rd)
         self.assertIn("需求单:无需求单:hotfix", md)
 
@@ -137,19 +137,19 @@ class TicketQuestion(Describe):
         self.assertEqual(doc["status"], "unasked")
         _, md = self.describe(rd)
         self.assertNotIn("需求文档", md)
-        r = self.run_script("collect-diff.sh", "--base", "main", "--source", "ticket=skip", cwd=self.repo)
+        r = self.run_script("collect-diff.sh", "--base", "main", "--source", "requirement=skip", cwd=self.repo)
         self.assertIn("SOURCES_MISSING: 需求文档", r.stdout)   # review 的问法不变
 
     def test_how_it_was_verified_is_never_asked(self):
         """触发方式从代码推出来,不问「怎么验证的」;--tested 可选,不提示也不强制。只有需求单链接每次都问。"""
-        for ticket in (None, "skip"):
-            with self.subTest(ticket=ticket):
-                r, rd = self.collect(ticket=ticket)
+        for requirement in (None, "skip"):
+            with self.subTest(requirement=requirement):
+                r, rd = self.collect(requirement=requirement)
                 for word in ("怎么验证", "验证的", "--tested", "TESTED"):
                     self.assertNotIn(word, r.stdout)
                 asks = [x for x in r.stdout.splitlines() if x.startswith(("SOURCES_MISSING:", "SOURCES_OPTIONAL:", "BASE_UNSET:", "NEED_CODE_HOST:"))]
-                self.assertEqual(asks, ["SOURCES_MISSING: 需求单 还没有提供(ticket)。每次生成描述都要问一次:请贴需求单链接;"
-                                        "没有需求单就说一声(hotfix、重构等);也可以跳过。"] if ticket is None else [])
+                self.assertEqual(asks, ["SOURCES_MISSING: 需求单 还没有提供(requirement)。每次生成描述都要问一次:请贴需求单链接;"
+                                        "没有需求单就说一声(hotfix、重构等);也可以跳过。"] if requirement is None else [])
         r = self.run_describe("describe.sh", rd)
         self.assertNotIn("怎么验证的", r.stdout)
         self.assertNotIn("--tested", r.stdout)
@@ -160,24 +160,24 @@ class TicketQuestion(Describe):
             with self.subTest(args=args):
                 if env:
                     self.env["CR_NONINTERACTIVE"] = env
-                r, rd = self.collect(*([args] if args else []), ticket=None)
+                r, rd = self.collect(*([args] if args else []), requirement=None)
                 self.assertEqual(r.returncode, 0)
                 self.assertNotIn("SOURCES_", r.stdout)
-                ticket = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "ticket")
-                self.assertEqual(ticket["status"], "unasked")
+                requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
+                self.assertEqual(requirement["status"], "unasked")
                 _, md = self.describe(rd)
                 self.assertIn("需求单:未提供(非交互运行,没有询问)", md)
                 self.assertNotIn("需求对照", md)
                 self.assertNotIn(TICKET, md)            # 没问就不编:提交说明里的链接不当作用户的回答
         self.env.pop("CR_NONINTERACTIVE")
-        r, _ = self.collect(ticket=None)
+        r, _ = self.collect(requirement=None)
         self.assertTrue(self.asked(r), r.stdout)
 
     def test_review_questions_and_records_are_unchanged_by_describe(self):
         before = self.run_script("collect-diff.sh", "--base", "main", cwd=self.repo).stdout
         self.assertIn("SOURCES_MISSING: 需求单", before)
-        self.collect("--source", "ticket=" + TICKET, "--source", "doc=skip", "--intent", "订单列表改为游标分页")
-        self.collect("--source", "ticket=none:hotfix", ticket=None)
+        self.collect("--source", "requirement=" + TICKET, "--source", "doc=skip", "--intent", "订单列表改为游标分页")
+        self.collect("--source", "requirement=none:hotfix", requirement=None)
         self.assertEqual(self.reviews_tree(), [], "describe 的回答不写进 review 的来源记录")
         after = self.run_script("collect-diff.sh", "--base", "main", cwd=self.repo).stdout
         self.assertEqual(re.findall(r"^SOURCES_\w+:.*$", after, re.M), re.findall(r"^SOURCES_\w+:.*$", before, re.M))
@@ -185,7 +185,7 @@ class TicketQuestion(Describe):
         self.review()
         files = self.reviews_files()
         self.assertTrue(any(k.endswith("sources/feature.json") for k in files))
-        self.collect("--source", "ticket=none:hotfix", "--intent", "别的意图")
+        self.collect("--source", "requirement=none:hotfix", "--intent", "别的意图")
         self.assertEqual(self.reviews_files(), files)
 
 
@@ -266,7 +266,7 @@ class Note(Describe):
     def setUp(self):
         super().setUp()
         self.config(TEAM)
-        _, self.rd = self.collect("--source", "ticket=" + TICKET, "--source", "doc=skip", "--intent", "订单列表改为游标分页")
+        _, self.rd = self.collect("--source", "requirement=" + TICKET, "--source", "doc=skip", "--intent", "订单列表改为游标分页")
 
     def test_markdown_has_facts_links_and_no_conclusions(self):
         out, md = self.describe(self.rd, "--tested", "本地跑了 jest")
@@ -399,7 +399,7 @@ class GitHubContext(fixture.Base):
                                             "body": "## 验收标准\n- a.ts 内容为 b\n"})
         self.git(repo, "remote", "add", "origin", "https://github.com/acme/gh.git")
         r = self.run_describe("collect.sh", "https://github.com/acme/gh/pull/5", "--platform", "github",
-                              "--source", "ticket=https://github.com/acme/gh/issues/7", cwd=repo)
+                              "--source", "requirement=https://github.com/acme/gh/issues/7", cwd=repo)
         rd = self.review_dir(r.stdout)
         self.assertIn("a.ts 内容为 b(来自 #7)", Path(rd, "intent.md").read_text(encoding="utf-8"))
         Path(rd, "analyst.json").write_text(json.dumps({
@@ -535,7 +535,7 @@ class NoPublishing(Describe):
             spy.write_text('#!/bin/sh\necho "%s $*" >> "%s"\nexit 1\n' % (name, log))
             spy.chmod(0o755)
         self.env["PATH"] = str(bindir) + ":" + self.env["PATH"]
-        _, rd = self.collect("--source", "ticket=skip", "--source", "doc=skip", "--intent", "订单列表改为游标分页")
+        _, rd = self.collect("--source", "requirement=skip", "--source", "doc=skip", "--intent", "订单列表改为游标分页")
         self.run_describe("describe.sh", rd, "--tested", "手工看过")
         self.assertTrue(Path(self.out_dir(), "describe.md").is_file())
         self.assertFalse(log.exists() and log.read_text(), log.read_text() if log.exists() else "")
@@ -567,7 +567,7 @@ class Packaging(Describe):
         text = (self.skill_dir() / "SKILL.md").read_text(encoding="utf-8")
         step = text.split("### 1. 采集")[1].split("### 2.")[0]
         self.assertLess(step.index("先问需求单链接"), step.index("collect.sh"))
-        for phrase in ("intent.required", "ticket=none", "ticket=skip", "非交互", "未提供(非交互运行,没有询问)"):
+        for phrase in ("intent.required", "requirement=none", "requirement=skip", "非交互", "未提供(非交互运行,没有询问)"):
             self.assertIn(phrase, step)
         self.assertIn("不问「怎么验证的」", step)
 
@@ -583,7 +583,7 @@ class Packaging(Describe):
         link = Path(self.tmp, "host skills", "describe")
         link.parent.mkdir()
         link.symlink_to(installed / "skills" / "describe", target_is_directory=True)
-        r = subprocess.run(["sh", str(link / "scripts" / "collect.sh"), "--base", "main", "--source", "ticket=skip"],
+        r = subprocess.run(["sh", str(link / "scripts" / "collect.sh"), "--base", "main", "--source", "requirement=skip"],
                            cwd=self.repo, env=self.env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         rd = self.review_dir(r.stdout)
