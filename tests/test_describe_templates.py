@@ -22,7 +22,8 @@ TICKET = "https://tickets.acme.example.com/story/42"
 CONFIG = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = requirement, doc
+review.ask = requirement, doc
+describe.ask = requirement
 """
 PR_META = {"mode": "pr", "url": "http://localhost:8080/eng/shop/-/merge_requests/7", "repo_id": "localhost/eng/shop",
            "number": "7", "source_branch": "feature", "target_branch": "main"}

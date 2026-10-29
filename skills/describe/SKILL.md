@@ -41,7 +41,7 @@ description: 生成 PR/MR 描述(pull request / merge request description):按�
 
 ### 1. 采集
 
-**先问需求单链接**,每次生成都问一次,与配置 `intent.required` 无关,审查记录里这个分支问过也照问。用户这次已经给了链接(话里带链接,或 `--source requirement=<链接>`)、明说没有需求单(`requirement=none:<原因>`,如 hotfix)、或明说跳过(`requirement=skip`)时不再问。一句话问完:「需求单链接是?可以贴链接,说没有需求单,或跳过。」需求文档不问,用户主动给了才收下(`--doc`、`--source doc=<链接>`)。拿到回答后:给了链接且 `tools.requirement` 写了说明时,按 `<plugin_dir>/skills/review/references/collection-protocol.md` 的「需求这几项」去读取(`sources.py stage` 建暂存目录,读不到就如实写 `error:`),再带 `--source requirement=…` 和 `--source-dir` 运行。
+**先问资料链接**:问哪些类别由配置 `describe.ask` 定(默认 `requirement`,即需求单),而且对应的读取工具(`tools.requirement` / `tools.doc_reader`)要配了,没配的类别不问也不提。要问的每次生成都问一次,审查记录里这个分支问过也照问。下面以需求单为例,需求文档同理(`doc=…`)。用户这次已经给了链接(话里带链接,或 `--source requirement=<链接>`)、明说没有需求单(`requirement=none:<原因>`,如 hotfix)、或明说跳过(`requirement=skip`)时不再问。一句话问完:「需求单链接是?可以贴链接,说没有需求单,或跳过。」没在 `describe.ask` 里的类别不问,用户主动给了才收下(`--doc`、`--source doc=<链接>`)。拿到回答后:给了链接且 `tools.requirement` 写了说明时,按 `<plugin_dir>/skills/review/references/collection-protocol.md` 的「需求这几项」去读取(`sources.py stage` 建暂存目录,读不到就如实写 `error:`),再带 `--source requirement=…` 和 `--source-dir` 运行。
 
 ```
 sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句话>"] [--doc <文件>]... [--source <类别>=<值>]...
@@ -49,7 +49,7 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
    [--base-target | --base-rule target|branch:<分支>] [--ask-base] [--non-interactive]
 ```
 
-它调用 review 的 `collect-diff.sh`(总是全量、不分批),输出原样转出,最后一行是材料目录 `dir`;材料齐全时还写出 `describe-facts.json`(影响面、入口、新增用例、调用方)。没带 `--source requirement=…` 且不是非交互运行时,它输出 `SOURCES_MISSING: 需求单 …`:按上面问用户,再带答案重新运行。运行后它把审查记录里的 `pending` 和来源记录恢复原样,描述不影响 review 之后问不问需求单。
+它调用 review 的 `collect-diff.sh`(总是全量、不分批),输出原样转出,最后一行是材料目录 `dir`;材料齐全时还写出 `describe-facts.json`(影响面、入口、新增用例、调用方)。要问的类别没带 `--source <类别>=…` 且不是非交互运行时,它输出 `SOURCES_MISSING: 需求单 …`(或 `需求文档 …`):按上面问用户,再带答案重新运行。运行后它把审查记录里的 `pending` 和来源记录恢复原样,描述不影响 review 之后问不问需求单。
 
 非交互运行(`claude -p`、`codex exec`、CI)从第一次就带 `--non-interactive`:不提问、不编造,需求单记为未询问,描述里写「未提供(非交互运行,没有询问)」,退出码照常。
 

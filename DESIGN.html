@@ -964,7 +964,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
           <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
-          <li><b>描述单独成技能，只在本地生成：</b>review 只回答“有没有问题”，描述回答“这次改了什么、影响哪些地方、怎么验证”，读者和时机都不同，所以拆成 <code>/describe</code>，review 不带描述。描述把影响面放在一句话之后（接口、迁移、配置、函数签名四层，删除优先，没发现就写“未发现”），怎么验证整段由脚本从代码推出并标注“由代码推断，未执行”，预期没有出处就不写，不问作者“怎么验证的”。描述只列事实和链接、不下结论，不发布、不改平台上的描述，由作者自己复制粘贴；采集直接调用 review 的脚本（origin 绑定、只读、基准问答一致），描述目录不放在 <code>reviews/</code> 下，采集后恢复“进行中”标记和需求来源记录，所以两者互不依赖、互不影响。每次生成都问一次需求单链接，和 review 的 <code>intent.required</code> 无关。</li>
+          <li><b>描述单独成技能，只在本地生成：</b>review 只回答“有没有问题”，描述回答“这次改了什么、影响哪些地方、怎么验证”，读者和时机都不同，所以拆成 <code>/describe</code>，review 不带描述。描述把影响面放在一句话之后（接口、迁移、配置、函数签名四层，删除优先，没发现就写“未发现”），怎么验证整段由脚本从代码推出并标注“由代码推断，未执行”，预期没有出处就不写，不问作者“怎么验证的”。描述只列事实和链接、不下结论，不发布、不改平台上的描述，由作者自己复制粘贴；采集直接调用 review 的脚本（origin 绑定、只读、基准问答一致），描述目录不放在 <code>reviews/</code> 下，采集后恢复“进行中”标记和需求来源记录，所以两者互不依赖、互不影响。开始前问哪些资料由 <code>describe.ask</code> 定（默认需求单），要配了对应的读取工具才问，每次生成都问一次，和 review 的 <code>review.ask</code> 互不影响。</li>
           <li><b>脚本、角色、编排三层：</b>脚本做有唯一答案的事（取 diff、算行范围、装配规则、校验、过滤排序、增量、调平台 API），角色做需要判断的事，<code>SKILL.md</code> 只负责把你的话翻译成选项、调度角色、按格式出报告。过滤、排序、增量、编号原来写在 <code>SKILL.md</code> 里让 agent 执行，现在都在脚本里，结果可复现、能写测试。</li>
           <li><b>脚本入口是 sh，实现是 python3：</b>每个 <code>.sh</code> 只检查参数后交给同名的 <code>.py</code> 模块，一个模块只做一件事，公共函数只在 <code>crlib.py</code> 有一份。核心流程需要 python3 3.8+（只用标准库），没有时 <code>collect-diff.sh</code> 一开始就停下并提示安装；规则装配、依据校验、汇总都涉及 JSON 和文本处理，用 awk 和 sed 拼既难读也容易出错。<code>git</code> 必需，<code>gh</code> / <code>glab</code> 只在对应功能里才需要。</li>
           <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，PR/MR 描述在 <code>skills/describe/</code> 下（采集直接调用 review 的脚本，不依赖审查结果），规则维护在 <code>skills/improve/</code> 下，三者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
@@ -998,7 +998,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>用户可以指定：</b><code>--base</code> 指定分支，<code>--base-sha</code> 指定提交（短哈希也行，必须是 head 的祖先，优先于任何自动计算）。都只对这一次生效，不改项目的记录。</li>
         <li><b>空 diff 一定提示：</b>MR 或用户指定的基准算出 0 个文件时输出 NOTE，说基准可能不对，不当成“0 条发现”。</li>
         <li><b>能确定就直接审，不确定才问：</b>当次明确基准优先，其次是用户明确保存的项目规则。没有这些时，PR / MR 使用目标分支，本地从分支创建和切换记录寻找可验证的切出来源，取来源分支远端最新版本算 diff。Git 不永久保存来源，记录缺失、过期或有歧义才问；不拿 upstream 或最近共同祖先当来源证据。</li>
-        <li><b>默认不记住：</b>回答基准问题默认仅本次使用，顺带提示“是否记住为这个项目的默认规则？默认不记住”。明确要求才保存“跟随每个 MR 目标分支”或“固定对比分支 X”，不保存提交哈希，自动推断也不保存。换基准默认不改旧规则。必要的基准、需求与可选资料合并一轮问。</li>
+        <li><b>默认不记住：</b>回答基准问题默认仅本次使用，顺带提示“是否记住为这个项目的默认规则？默认不记住”。明确要求才保存“跟随每个 MR 目标分支”或“固定对比分支 X”，不保存提交哈希，自动推断也不保存。换基准默认不改旧规则。基准与要问的资料（<code>review.ask</code>，配了读取工具的类别）合并一轮问。</li>
         <li><b>计算失败先恢复基准：</b>分支缺失、没有共同祖先或无法推断合入前版本时，输出 BASE_FAILED 并停止，交互中让用户选有效分支或提交再继续。非交互缺少来源时可用推荐项并标“基准未确认”，实际计算失败仍停止，不生成误导报告。</li>
       </ul>
 
@@ -1544,7 +1544,7 @@ paths: ["src/orders/**"]
 ├── analysis-facts.json
 └── final.json  findings.json  rejected.json  report.md
 
-插件/config/defaults.conf   团队统一的配置（外部工具、需求收集），随插件分发
+插件/config/defaults.conf   团队统一的配置（外部工具、各技能开始前的提问），随插件分发
 插件/scripts/config.py       全部技能共用的配置读取入口（config.sh 薄转发）
 插件/skills/review/templates/        report.md
 插件/skills/describe/templates/ describe.md  describe.html

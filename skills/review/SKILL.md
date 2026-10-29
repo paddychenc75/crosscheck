@@ -39,7 +39,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules` 中的若干项。默认三项都查 |
 | `--intent "…"` | 「这次是为了修复分页丢数据」 |
 | `--doc <文件>`(可多次) | 「方案在 docs/plan.md」「接口文档在 docs/api.md」。`--plan` 是同一个意思 |
-| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「没有需求文档」「这是 hotfix,没有需求单」→ `requirement=<链接>`、`doc=skip`、`requirement=none:hotfix`。类别只有 `requirement`(需求单,工具见 `tools.requirement`)和 `doc`(需求文档,工具见 `tools.doc_reader`),每次都要收集哪几类见 `intent.required`,默认只有 `requirement` |
+| `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「没有需求文档」「这是 hotfix,没有需求单」→ `requirement=<链接>`、`doc=skip`、`requirement=none:hotfix`。类别只有 `requirement`(需求单,工具见 `tools.requirement`)和 `doc`(需求文档,工具见 `tools.doc_reader`),开始前问哪几类见 `review.ask`,默认只有 `doc`;类别要配了对应读取工具才会问 |
 | `--verifier-model <模型>` | 「核实换成某某模型」。没说就用配置里的 `model.verifier`,再没有就用当前宿主的模型 |
 | `--with-tests` | 「测试也一起看」 |
 | `--full` | 「重新审」「全量」「忽略之前的」 |
@@ -98,7 +98,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <li
 
 | 输出/条件 | 下一步 |
 |---|---|
-| `BASE_UNSET:` / `SOURCES_MISSING:` / `SOURCES_OPTIONAL:` | 先 check-state,只把实际缺项合并一轮确认;默认仅本次,明确记住才保存基准规则。重跑保留本轮回答 |
+| `BASE_UNSET:` / `SOURCES_MISSING:` | 先 check-state,只把实际缺项合并一轮确认;默认仅本次,明确记住才保存基准规则。重跑保留本轮回答 |
 | `NEED_CODE_HOST:` | 按协议只读取得信息、写暂存 JSON、带原参数重跑;失败不得换平台或绕过 origin 绑定 |
 | `BASE_FAILED:` | 不得当 EMPTY 或生成报告;交互取得正确基准后重跑,非交互说明原因并停止 |
 | `LARGE:` | 按协议确认范围;用户已要求全部审时首次即传 `--allow-large`,不能据此升级深度 |

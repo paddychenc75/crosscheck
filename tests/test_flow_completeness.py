@@ -17,7 +17,7 @@ class FlowCompleteness(fixture.ProjectFixture):
         self.rd, _ = self.collect("feature")
 
     def collect(self, *args):
-        # 基准和可选资料都回答过了,才算真正开始审查(没回答时在问用户,不留进行中标记)
+        # 基准和需求资料都回答过了,才算真正开始审查(没回答时在问用户,不留进行中标记)
         return super().collect(*args, "--base-rule", "target", "--source", "doc=skip")
 
     def finders(self, *names):

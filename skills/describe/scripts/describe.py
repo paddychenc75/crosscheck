@@ -136,7 +136,8 @@ class Note:
         self.src = crlib.load_json(os.path.join(d, "sources.json"), {}) or {}
         self.intent = (crlib.read_text(os.path.join(d, "intent-arg.txt")) or "").strip()
         self.author = crlib.load_json(os.path.join(out, "author.json"), {}) or {}
-        self.conf = srcmod.settings()
+        self.conf = srcmod.settings(skill="describe")
+        self.asked = self.conf["required"]
         self.notes = []
         self.hunks = {h["id"]: h for h in self.facts.get("hunks", []) if isinstance(h, dict) and h.get("id")}
         self.entry = self.facts.get("entrypoints") or {}
@@ -191,13 +192,13 @@ class Note:
 
     # ---------- 基本信息 ----------
     def sources(self):
-        """需求单总是列出(没给就写未提供及原因);需求文档只在用户给了时列出。"""
+        """要问的类别(describe.ask 里写了、且配了读取工具)总是列出,没给就写未提供及原因;其他类别只在用户给了时列出。"""
         out = []
         items = {x.get("kind"): x for x in self.src.get("items", [])}
         for k, c in self.conf["kinds"].items():
             it = dict(items.get(k) or {})
             st = it.get("status", "missing")
-            if k != "requirement" and st != "given":
+            if k not in self.asked and st != "given":
                 continue
             if st == "given" and it.get("url"):
                 val = it["url"] + (" 「%s」" % it["title"] if it.get("title") else "")

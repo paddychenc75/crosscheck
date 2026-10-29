@@ -309,7 +309,7 @@ class TestGitLab(Base):
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo, check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("gitlab_hosts", r.stderr)
-        self.config("gitlab_hosts=code.example.com\n")
+        self.config("gitlab_hosts=code.example.com\ntools.requirement = 用 acme-kit:ticket-reader 读需求单\n")
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
         rd = self.review_dir(r.stdout)
         meta = self.kv(os.path.join(rd, "meta.txt"))

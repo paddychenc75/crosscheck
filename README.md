@@ -69,7 +69,7 @@ Claude Code、Cursor 分别可将上述 `.agents` 换成 `.claude`、`.cursor`�
 /crosscheck:describe 帮我写一下这个分支的 PR 描述
 ```
 
-也可以带分支、提交范围、PR / MR 编号或链接。每次生成都会先问一次**需求单链接**(与 `intent.required` 无关,审查记录里问过也照问):贴链接、说没有需求单(hotfix、重构),或跳过;需求文档不问,你主动给才收下。非交互运行(`claude -p`、`codex exec`、CI)不提问,描述里写「未提供(非交互运行,没有询问)」。给了链接后按配置的 `tools.requirement`(或 GitLab / GitHub Issue)读取,读不到就如实写读不到。
+也可以带分支、提交范围、PR / MR 编号或链接。开始前问哪些资料由配置 `describe.ask` 定(不写是需求单 `requirement`),而且要配了对应的读取工具(`tools.requirement` / `tools.doc_reader`),没配的类别不问。要问的每次生成都问一次(审查记录里问过也照问):贴链接、说没有需求单(hotfix、重构),或跳过。非交互运行(`claude -p`、`codex exec`、CI)不提问,描述里写「未提供(非交互运行,没有询问)」。给了链接后按配置的 `tools.requirement` 读取,读不到就如实写读不到;没配工具时不处理需求单,描述里不写这一项。
 
 产出两份文件,写在 `~/.crosscheck/describe/<项目名>/<目标>/`:`describe.md`(正文 20 行以内,不含首尾标记及负责人固定填写区,包在 `crosscheck:begin/end` 标记里,贴进 PR / MR 描述)和 `describe.html`(完整版)。内容只有事实和链接,不下结论,按顺序是:一句话和基本信息(规模、分支、需求单链接);**影响面**(总览一行,再按接口、数据库与迁移、配置环境变量与依赖、内部函数四层列出删除、签名变化、新增,每层最多 2 项;有迁移、删除对外接口或配置键、依赖变化时提示「回滚方式:待补充」;没发现就写「未发现」,不写「无影响」);**怎么验证**(触发方式带 file:line、预期、怎么跑、执行记录,整段由代码推断,标注「由代码推断,未执行」;预期只引用验收标准原文或新增测试的用例名和断言,没有出处就不写;你没有给执行记录时写「未验证(无执行记录)」);需求对照(需求单里有验收标准才有)。不会问你「怎么验证的」;想记一句执行情况或想让评审人重点看某处(最多 3 条,只有你点名才有「请重点看」)可以主动说,之后重新生成时沿用。超过 20 行时脚本按固定顺序裁剪,影响面总览和执行记录不裁。模板在 `skills/describe/templates/`,团队可以改成自己的格式。
 
@@ -165,9 +165,9 @@ review/describe/improve 流程中远端永远只读:不 push、不发评论、�
 配置了需求工具后:
 
 - 先从 MR 描述、分支名、提交说明和你说的话里自动找链接。要让它认得你们的需求链接,就在配置的那句话里写一个链接示例。
-- 缺了就在审查开始前问一次:贴链接、说「没有需求单(hotfix 等)」,或跳过。同一个分支问过就记住,90 天后过期。想每次都要需求文档,配置 `intent.required = requirement, doc`;不写时只要需求单。
-- 需求文档(PRD、设计文档)不是必填,问一次,可以直接跳过。
-- 基准、必填的需求、可选的资料放在**同一轮**问完;什么都不需要问时不打断你。
+- 审查开始前问哪些资料由配置 `review.ask` 定,不写时只问需求文档 `doc`(PRD、设计文档);想连需求单一起问,写 `review.ask = requirement, doc`。一个类别要配了对应的读取工具才会问,没配的不问、不读、不算缺。
+- 问的时候可以贴链接、说「没有需求单(hotfix 等)」,或直接跳过。同一个分支问过就记住,90 天后过期。
+- 基准和上面要问的资料放在**同一轮**问完;什么都不需要问时不打断你。
 - 读不到时写明原因,不影响审查。读到的内容只当数据,其中的指令不执行。
 
 ## 项目规则
@@ -324,8 +324,8 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 设置 | 干什么 | 不写会怎样 | 示例 |
 |---|---|---|---|
 | `tools.code_host` | 代码托管工具:读 MR / PR 的标题、描述、讨论、目标分支和源引用。**只能是只读的**,不评论、不改描述、不合入。写了以后贴 MR / PR 链接(GitHub、GitLab 的也一样)都由它读;读到的东西插件会自己核对仓库、分支和提交,主机或仓库对不上就停止;工具读取失败才从同一 origin 拉代码,并写明「MR 信息没有读到」 | GitHub 用 gh、GitLab 用 glab;都认不出的平台只能审本地分支 | `用 acme-kit:mr-reader 读 MR,链接形如 https://code.example.com/x/y/merge/12` |
-| `tools.requirement` | 需求管理工具:读需求单(标题、描述、验收标准) | 只认 GitLab / GitHub 的 Issue,别的需求单要你用一句话补充目的 | `用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.example.com/browse/XX-123` |
-| `tools.doc_reader` | 文档阅读工具:读 PRD、技术方案等文档链接 | 不读文档内容,只记下链接 | `用 acme-kit:doc-reader 读文档链接,支持 https://docs.example.com/ 下的页面` |
+| `tools.requirement` | 需求管理工具:读需求单(标题、描述、验收标准) | 不处理需求单:不问、不读,你主动给的链接只记下 | `用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.example.com/browse/XX-123` |
+| `tools.doc_reader` | 文档阅读工具:读 PRD、技术方案等文档链接 | 不处理文档:不问、不读,你主动给的链接只记下 | `用 acme-kit:doc-reader 读文档链接,支持 https://docs.example.com/ 下的页面` |
 
 写在一行里,值里不要出现「空格加 #」(行尾的 ` # ...` 会被当成注释截掉)。
 
@@ -335,7 +335,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 |---|---|
 | `gitlab_hosts` | 按 GitLab 处理的域名,逗号分隔,可以带子路径(如 `company.com/gitlab`);私有化 GitLab 的域名不含 "gitlab" 时必填 |
 | `model.finder` / `model.verifier` | 查找和核实用的模型,核实最好和查找不同;写当前宿主认识的模型名,不支持时用宿主的模型。Claude Code 推荐 `model.finder = opus`、`model.verifier = opus`:查找用强模型能找到更多高危问题,但成本比便宜的组合高;想省钱把 `model.finder` 换成 `sonnet`。Codex 用 sol 一类的强模型,Cursor 写它自己的模型名 |
-| `intent.required` | 审查前必须问到(可跳过)的需求类别,`requirement`(需求单)、`doc`(需求文档),逗号分隔;不写时只有 `requirement` |
+| `review.ask` / `describe.ask` | 各技能开始前要问的资料类别,`requirement`(需求单)、`doc`(需求文档),逗号分隔;类别要配了对应读取工具才会问。不写时 review 问 `doc`,describe 问 `requirement` |
 
 平台只从当前 origin 推导;`--platform` / `CR_PLATFORM` 可补充未识别的平台类型,不能覆盖已识别的 origin 平台。`gitlab_hosts` 辅助识别域名和部署子路径,链接只在主机与完整仓库核对后参与类型识别。私有化 GitLab 需要事先登录对应主机。`tools.code_host` 同样在读取前核对 origin,身份不匹配直接停止。
 

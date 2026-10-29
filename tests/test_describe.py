@@ -10,14 +10,18 @@ import fixture
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TICKET = "https://tickets.acme.example.com/story/42"
-TEAM = """
+TOOLS = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = requirement, doc
 """
+TEAM = TOOLS + "review.ask = requirement, doc\ndescribe.ask = requirement\n"
 
 
 class Describe(fixture.ShopRepo):
+    def setUp(self):
+        super().setUp()
+        self.config(TEAM)   # 配了两个读取工具;review 要问需求单和文档,describe 只问需求单
+
     def collect(self, *args, check=True, requirement="skip"):
         """requirement 是没写 --source requirement= 时补上的回答;传 None 表示不回答,用来测问询。"""
         if requirement and not any(a.startswith("requirement=") for a in args) and "--non-interactive" not in args:
@@ -89,7 +93,7 @@ class Sources(Describe):
 
 
 class RequirementQuestion(Describe):
-    """每次生成描述都要问一次需求单链接,和 intent.required、审查记录里问过没有都无关;需求文档不问。"""
+    """要问的类别由 describe.ask 定(默认需求单),配了读取工具才问,每次生成都问一次,和审查记录里问过没有无关。"""
 
     def asked(self, r):
         return "SOURCES_MISSING: 需求单 还没有提供(requirement)" in r.stdout
@@ -98,13 +102,12 @@ class RequirementQuestion(Describe):
         r, rd = self.collect(requirement=None)
         self.assertTrue(self.asked(r), r.stdout)
         self.assertEqual(r.returncode, 0)
-        self.assertNotIn("SOURCES_OPTIONAL", r.stdout)
         self.assertNotIn("describe_facts:", r.stdout)
         self.assertFalse(os.path.exists(os.path.join(rd, "describe-facts.json")))
         self.assertEqual(self.reviews_tree(), [])
 
-    def test_asked_even_when_a_link_is_in_the_commit_message_or_config_does_not_require_it(self):
-        for conf in ("", TEAM, "intent.required = doc\n", "intent.required =\n"):
+    def test_asked_even_when_a_link_is_in_the_commit_message_or_review_does_not_ask_for_it(self):
+        for conf in (TOOLS, TEAM, TOOLS + "review.ask = doc\n", TOOLS + "review.ask =\n"):
             with self.subTest(conf=conf):
                 self.config(conf)
                 r, _ = self.collect(requirement=None)
@@ -129,16 +132,44 @@ class RequirementQuestion(Describe):
         _, md = self.describe(rd)
         self.assertIn("需求单:无需求单:hotfix", md)
 
-    def test_document_is_never_asked(self):
-        self.config(TEAM)                               # intent.required 里有 doc:review 会问,describe 不问
-        r, rd = self.collect()
+    def test_document_is_not_asked_unless_describe_ask_lists_it(self):
+        r, rd = self.collect()                          # review.ask 里有 doc:review 会问,describe.ask 没有:describe 不问
         self.assertNotIn("SOURCES_", r.stdout)
         doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
-        self.assertEqual(doc["status"], "unasked")
+        self.assertEqual(doc["status"], "missing")
         _, md = self.describe(rd)
         self.assertNotIn("需求文档", md)
         r = self.run_script("collect-diff.sh", "--base", "main", "--source", "requirement=skip", cwd=self.repo)
         self.assertIn("SOURCES_MISSING: 需求文档", r.stdout)   # review 的问法不变
+
+    def test_no_question_without_the_tool(self):
+        self.config("describe.ask = requirement, doc\ntools.doc_reader = 用 acme-kit:doc-reader 读文档链接\n")   # 没配 tools.requirement
+        r, rd = self.collect(requirement=None)
+        self.assertNotIn("需求单", r.stdout)
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", r.stdout)       # 配了工具的 doc 照问
+        r, rd = self.collect("--source", "doc=skip", requirement=None)
+        self.assertNotIn("SOURCES_", r.stdout)               # 需求单没配工具:不问
+        self.assertTrue(os.path.exists(os.path.join(rd, "describe-facts.json")))
+        _, md = self.describe(rd)
+        self.assertNotIn("需求单", md)                        # 描述里也不写这一项
+        self.config("describe.ask = requirement, doc\n")      # 两个工具都没配:什么都不问
+        r, _ = self.collect(requirement=None)
+        self.assertNotIn("SOURCES_", r.stdout)
+
+    def test_describe_ask_can_add_documents(self):
+        self.config(TOOLS + "describe.ask = requirement, doc\n")
+        r, rd = self.collect(requirement=None)
+        self.assertIn("SOURCES_MISSING: 需求单", r.stdout)
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)。每次生成描述都要问一次", r.stdout)
+        r, rd = self.collect("--source", "doc=skip", requirement=None)
+        self.assertNotIn("SOURCES_MISSING: 需求文档", r.stdout)
+        Path(self.repo, "plan.md").write_text("方案\n", encoding="utf-8")
+        r, rd = self.collect("--doc", "plan.md", requirement="skip")
+        self.assertNotIn("SOURCES_", r.stdout)               # 本地文档也算给过了
+        r, rd = self.collect("--non-interactive", requirement=None)
+        self.assertNotIn("SOURCES_", r.stdout)
+        sources = self.load(os.path.join(rd, "sources.json"))["items"]
+        self.assertEqual({x["kind"]: x["status"] for x in sources}, {"requirement": "unasked", "doc": "unasked"})
 
     def test_how_it_was_verified_is_never_asked(self):
         """触发方式从代码推出来,不问「怎么验证的」;--tested 可选,不提示也不强制。只有需求单链接每次都问。"""
@@ -147,7 +178,7 @@ class RequirementQuestion(Describe):
                 r, rd = self.collect(requirement=requirement)
                 for word in ("怎么验证", "验证的", "--tested", "TESTED"):
                     self.assertNotIn(word, r.stdout)
-                asks = [x for x in r.stdout.splitlines() if x.startswith(("SOURCES_MISSING:", "SOURCES_OPTIONAL:", "BASE_UNSET:", "NEED_CODE_HOST:"))]
+                asks = [x for x in r.stdout.splitlines() if x.startswith(("SOURCES_MISSING:", "BASE_UNSET:", "NEED_CODE_HOST:"))]
                 self.assertEqual(asks, ["SOURCES_MISSING: 需求单 还没有提供(requirement)。每次生成描述都要问一次:请贴需求单链接;"
                                         "没有需求单就说一声(hotfix、重构等);也可以跳过。"] if requirement is None else [])
         r = self.run_describe("describe.sh", rd)
@@ -175,7 +206,7 @@ class RequirementQuestion(Describe):
 
     def test_review_questions_and_records_are_unchanged_by_describe(self):
         before = self.run_script("collect-diff.sh", "--base", "main", cwd=self.repo).stdout
-        self.assertIn("SOURCES_MISSING: 需求单", before)
+        self.assertIn("SOURCES_MISSING: 需求文档", before)   # 提交说明里的需求单链接被自动识别,review 只缺文档
         self.collect("--source", "requirement=" + TICKET, "--source", "doc=skip", "--intent", "订单列表改为游标分页")
         self.collect("--source", "requirement=none:hotfix", requirement=None)
         self.assertEqual(self.reviews_tree(), [], "describe 的回答不写进 review 的来源记录")
@@ -381,6 +412,7 @@ class GitHubContext(fixture.Base):
         self.env["MOCK_GH"] = self.ghmock
         self.env["PATH"] = os.path.join(HERE, "bin-gh") + ":" + self.env["PATH"]
         self.env["CR_FETCH"] = "0"
+        self.config(TOOLS + "describe.ask = requirement\n")   # 配了 tools.requirement,才会去读关联的 Issue
 
     def api(self, path, data):
         Path(self.ghmock, "api", fixture.api_key(path) + ".json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -566,8 +598,8 @@ class Packaging(Describe):
     def test_skill_asks_the_ticket_link_first(self):
         text = (self.skill_dir() / "SKILL.md").read_text(encoding="utf-8")
         step = text.split("### 1. 采集")[1].split("### 2.")[0]
-        self.assertLess(step.index("先问需求单链接"), step.index("collect.sh"))
-        for phrase in ("intent.required", "requirement=none", "requirement=skip", "非交互", "未提供(非交互运行,没有询问)"):
+        self.assertLess(step.index("先问资料链接"), step.index("collect.sh"))
+        for phrase in ("describe.ask", "requirement=none", "requirement=skip", "非交互", "未提供(非交互运行,没有询问)"):
             self.assertIn(phrase, step)
         self.assertIn("不问「怎么验证的」", step)
 

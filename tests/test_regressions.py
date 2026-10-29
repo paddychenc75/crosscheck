@@ -30,7 +30,7 @@ class PipelineRegressions(fixture.ProjectFixture):
 class ContextRegressions(fixture.Base):
     def test_range_collects_issue_and_preserves_commit_body(self):
         self.use_mock_glab()
-        self.config('gitlab_hosts=code.example.test:8929\n')
+        self.config('gitlab_hosts=code.example.test:8929\ntools.requirement = 用 acme-kit:ticket-reader 读需求单\n')
         repo = self.make_repo('shop', {'a.ts': 'old\n'}, remote='http://code.example.test:8929/eng/shop.git')
         base = self.git(repo, 'rev-parse', 'HEAD')
         head = self.commit(repo, {'a.ts': 'new\n'}, 'fix pagination\n\nCloses #1\n保留这段正文')
@@ -44,6 +44,7 @@ class ContextRegressions(fixture.Base):
         self.assertNotIn('需要 glab 登录', r.stdout)
 
     def test_unknown_platform_reports_limitation_not_login(self):
+        self.config('tools.requirement = 用 acme-kit:ticket-reader 读需求单\n')
         repo = self.make_repo('plain', {'a': 'old\n'})
         base = self.git(repo, 'rev-parse', 'HEAD')
         head = self.commit(repo, {'a': 'new\n'}, 'change\n\nCloses #1')

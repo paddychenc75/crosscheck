@@ -10,7 +10,7 @@
 - **新模板:影响面在前,怎么验证由代码推断**:`describe.md` 依次是一句话和基本信息、影响面、请重点看(仅作者用 `--focus` 点名才有)、怎么验证、需求对照(仅需求单里有验收标准才有),正文上限 20 行(不含首尾标记及负责人固定填写区)。影响面第一行是总览(删除、迁移、接口、配置、函数签名变化的数量),下面按接口、数据库与迁移、配置环境变量与依赖、内部函数分层,每层最多 2 项,有迁移、删除对外接口或配置键、依赖变化时写「回滚方式:待补充」,没发现就写「未发现」、不写「无影响」。怎么验证整段由脚本从代码推出,标注「由代码推断,未执行」:触发方式(路由、命令行、定时任务、事件、配置开关和 diff 外的调用方,带 file:line)、预期(只引用验收标准原文或新增测试的用例名和断言,没有出处不写)、怎么跑(`package.json` 的 `scripts.test` 或 Makefile 的 `test` 目标,标注未确认执行)、执行记录(作者给了 `--tested` 就原样引用,否则「未验证(无执行记录)」,不问「怎么验证的」)。入口识别在新增的 `skills/describe/scripts/entrypoints.py`。去掉阅读顺序、可跳过、需注意、审查量和自动列出的「可能值得重点看」,analyst 只保留一句话和需求对照,不再分组。
 - **只在本地生成,不发布**:产出 `describe.md`(正文 20 行以内,不含首尾标记及负责人固定填写区)和 `describe.html`,写在 `~/.crosscheck/describe/<项目名>/<目标>/`,由用户自己复制粘贴;不修改托管平台上的描述、评论或状态,没有 `tools.mr_description_publisher` 之类的发布配置,也没有 `page_url`。`--tested`、`--focus` 给 `describe.sh`,记在描述目录的 `author.json` 里。
 - 采集直接调用 review 的 `collect-diff.sh`(总是 `--full --allow-large`),origin 绑定、只读和基准问答沿用;描述专用的事实(影响面里的迁移、配置、环境变量、依赖,入口、新增用例、调用方)由 `skills/describe/scripts/describe_facts.py` 在 review 的 `analysis_facts.py` 之上补出,写 `describe-facts.json`。review 的脚本、`analysis-facts.json` 输出和上下文哈希范围都不变:`analysis_facts.py` 仍只服务审查(代码块编号 H1… 与调用方搜索),`sources.py` 的 `set` 仍只有 `intent` 与 `requirement`/`doc`。
-- **每次生成都问一次需求单链接**,与 `intent.required`、审查记录里是否问过无关;用户已给链接、说明没有需求单(`requirement=none:原因`)或明确跳过(`requirement=skip`)才不再问;需求文档不问。非交互运行不提问,描述里写「未提供(非交互运行,没有询问)」,退出码照常。
+- **开始前问哪些资料由 `describe.ask` 定**(不写是 `requirement`,即需求单;要加需求文档写 `describe.ask = requirement, doc`),对应的读取工具(`tools.requirement` / `tools.doc_reader`)要配了才问,没配的类别不问、不记、描述里也不写。要问的每次生成都问一次,与审查记录里是否问过无关;用户已给链接、说明没有需求单(`requirement=none:原因`)或明确跳过(`requirement=skip`)才不再问。非交互运行不提问,描述里写「未提供(非交互运行,没有询问)」,退出码照常。
 - **与 review 互不影响**:描述目录不在 `reviews/` 下,review 的增量逻辑看不到它;采集结束后把 `pending` 标记和 `sources/<分支>.json` 恢复成运行前的样子,review 之后问不问需求单、是否提示「上一次没有保存」都不受影响。两者不依赖对方的产出,没审查过也能生成描述。
 - 保留原有质量约束:事实可追溯到 diff 或需求材料;analyst 的引文必须在需求材料里找得到,含结论性用语的句子整句删掉;没有验收标准时不出现需求对照;怎么验证标注「由代码推断,未执行」,不退化成测试文件清单;材料里写给 reviewer 或 agent 的指令一律不执行。
 - 审查部分的改动(无描述):`analysis_facts.py` 只服务审查,去掉需注意、可跳过、审查量和相关测试清单,不再读 `skipped.patch`;审查上下文哈希 `MR_NOTE_ONLY` 改名 `NOT_REVIEW_INPUT`,只剩 `mine-*` 与 `rules-write*`,`analysis_facts.py`、`sources.py` 此前影响报告却未计入哈希,现在计入;`analysis_facts.py` 运行失败不再静默(输出 `NOTE:` 并记为流程缺项);quick 深度全程由主线程自己执行,要独立查找和核实用 standard。
@@ -49,7 +49,7 @@
 
 **需求来源**
 
-- 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`requirement`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
+- 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`review.ask` 写 review 开始前要问的类别(`requirement`、`doc`,不写是 `doc`),类别要配了对应读取工具才会问,没配的整类不问、不读、不算缺(不再读提交说明里 `#123` 之类的 Issue 编号)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
 - 新增 `--source`、`--source-dir`、`--doc`(可多次,`--plan` 同义)。
 - GitHub PR 读取关联 issue(含验收标准)和 PR 评论、review,与 GitLab 对齐。
 
@@ -58,14 +58,14 @@
 - 新增可选配置 `tools.code_host`:一句给 agent 的提示词,说明用哪个只读工具读 MR / PR。配置后链接形式的 MR / PR(GitHub、GitLab 的链接也一样)由它读取标题、描述、讨论、目标分支和源引用,写成固定格式的 `code-host.json`(两段式:`NEED_CODE_HOST` → `--code-host-dir`)。编号、仓库、平台、网址从链接解析,仓库要和 origin 对得上,分支名过 `git check-ref-format`,head 以只读 fetch 到的为准(和 agent 给的不一致就不用),基准由脚本算,不取 agent 的;讨论作者只存哈希、去掉机器人,标 `source=code_host`,其「已答复」「已解决」不让发现不报。核对不过或 `status=failed` 时退回 git 拉取,并在 NOTE 和报告里写明「MR 信息没有读到」。不写时照旧用 gh / glab(决策 26)。
 - 对比基准默认一律用 origin 上最新的目标分支:所有路径(当前分支、其他分支、git 回退、`tools.code_host`)先拉取再算 merge-base,拉取失败才用本地已有的并输出 NOTE;报告的 SCOPE 行写明基准来自远端最新、本地缓存、平台给出还是用户指定(决策 21)。
 - 基准能自动确定就直接审,不确定才问(DESIGN.html):当次明确选择优先,其次是明确保存的项目规则;PR/MR 使用已知目标分支,本地用分支创建 reflog 及必要的同一时刻 HEAD 切换记录识别来源,验证祖先关系后取远端最新版本。不用 upstream 或最近分支猜来源,记录缺失/歧义才 `BASE_UNSET`。默认仅本次,询问时提示是否记住;只有明确 `--base-rule target|branch:<分支>` 才保存,自动识别不保存。新增 `--base-target` 表示本次使用目标/默认分支;`--ask-base` 重新选择默认不改旧记录。无共同祖先、分支缺失或无法推断合入前版本时 `BASE_FAILED` 非零停止并给恢复指引;非交互无法确认来源时标「基准未确认」,计算失败仍停止。
-- 基准、必填的需求来源、可选的需求资料(默认的需求文档:PRD、设计文档链接,新增提示行 `SOURCES_OPTIONAL:`)放在同一轮问完;可选的可以跳过、不算缺失,同一分支跳过后不再问;什么都不需要问时不打断用户。
+- 基准和要问的需求资料(`review.ask` 里写了、且配了读取工具的类别)放在同一轮问完;资料可以跳过、不算缺失,同一分支跳过后不再问;什么都不需要问时不打断用户。没有「顺便问一次」的可选资料。
 - 新增 `--base-sha <提交>`(「对比基准是 abc1234」):短哈希也行,必须是 head 的祖先,优先于任何自动计算,对本地分支、提交范围、PR/MR 都生效;它变了算作全量重审。
 - 已合入的 MR / PR 能正确审查:用 merge commit 合入时在目标分支的 first-parent 链上找到合入提交,用它的第一个父提交算基准(`crlib.pick_base`),squash / rebase 合入照常;找不到合入提交时输出 BASE_FAILED 并停止,不给出空 diff。报告开头写明「这个 MR 已合入」并提示描述已无法影响合入,`--fix` 不改代码。MR 的 diff 为空时一律输出 NOTE,不当成「0 条发现」。
 
 **配置**
 
 - 团队配置迁至插件级 `config/defaults.conf`,唯一解析器迁至 `scripts/config.py`,`scripts/config.sh` 为薄转发;review/improve 共用入口。保留 `CROSSCHECK_HOME`、`CROSSCHECK_CONFIG`、`CROSSCHECK_PLUGIN_CONFIG` 的覆盖语义;增量指纹包含共享实现、默认模板和实际配置文件。安装指南与复制测试夹具保留完整共享布局。
-- 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读)和 `intent.required`,`--source` 的类别为 `requirement` 和 `doc`。
+- 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读)和各技能的 `review.ask`、`describe.ask`,`--source` 的类别为 `requirement` 和 `doc`。
 - `config/defaults.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
 - README 和常用说法改成自然语言的用法,脚本参数只留在 `SKILL.md` 和 README 末尾的「内部参数对照」。
 

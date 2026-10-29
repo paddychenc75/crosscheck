@@ -50,11 +50,12 @@ class ContextHash(fixture.ShopRepo):
 class PluginConfig(fixture.ShopRepo):
     def test_plugin_config_is_default_and_user_config_overrides(self):
         conf = os.path.join(self.tmp, "defaults.conf")
-        Path(conf).write_text("intent.required = requirement, doc\nmodel.finder = plugin model\n", encoding="utf-8")
+        Path(conf).write_text(("tools.requirement = 用 acme-kit:ticket-reader 读需求单\ntools.doc_reader = 用 acme-kit:doc-reader 读文档链接\n"
+                                    "review.ask = requirement, doc\nmodel.finder = plugin model\n"), encoding="utf-8")
         self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单、需求文档 还没有提供", r.stdout)
-        self.config("intent.required = requirement\n")
+        self.config("review.ask = requirement\n")
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING: 需求单 还没有提供", r.stdout)
         self.assertEqual(self.run_config("get", "model.finder").stdout.strip(), "plugin model")
@@ -111,7 +112,7 @@ class PluginConfig(fixture.ShopRepo):
 
     SETTINGS = ("gitlab_hosts", "model.finder", "model.verifier",
                 "tools.code_host", "tools.requirement",
-                "tools.doc_reader", "intent.required")
+                "tools.doc_reader", "review.ask", "describe.ask")
 
     def shipped_conf(self):
         return Path(fixture.PLUGIN, "config", "defaults.conf").read_text(encoding="utf-8")
@@ -134,13 +135,13 @@ class PluginConfig(fixture.ShopRepo):
 
     def test_empty_values_count_as_not_configured(self):
         conf = os.path.join(self.tmp, "defaults.conf")
-        Path(conf).write_text("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nintent.required = requirement, doc\n", encoding="utf-8")
+        Path(conf).write_text("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nreview.ask = requirement, doc\n", encoding="utf-8")
         self.env["CROSSCHECK_PLUGIN_CONFIG"] = conf
-        self.config("tools.requirement =\nintent.required = # 先不写\nmodel.finder =\n")
+        self.config("tools.requirement =\nreview.ask = # 先不写\nmodel.finder =\n")
         self.assertEqual(self.run_config("get", "tools.requirement").stdout.strip(), "用 acme-kit:ticket-reader 读需求单")
-        self.assertEqual(self.run_config("get", "intent.required").stdout.strip(), "requirement, doc")
+        self.assertEqual(self.run_config("get", "review.ask").stdout.strip(), "requirement, doc")
         self.assertEqual(self.run_config("get", "model.finder").stdout, "")
-        Path(conf).write_text("intent.required =\n", encoding="utf-8")
+        Path(conf).write_text("tools.doc_reader = 用 acme-kit:doc-reader 读文档链接\nreview.ask =\n", encoding="utf-8")
         self.config("")
         r, _ = self.collect()
-        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", r.stdout)   # 空值等于没配置:只要需求单
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", r.stdout)   # 空值等于没配置:review 用默认的 doc

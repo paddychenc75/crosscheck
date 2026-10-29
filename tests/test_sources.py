@@ -11,7 +11,7 @@ SCRIPTS = fixture.SCRIPTS
 TEAM = """
 tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42
 tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面
-intent.required = requirement, doc
+review.ask = requirement, doc
 """
 
 
@@ -36,7 +36,7 @@ class Sources(fixture.ShopRepo):
         self.assertEqual(self.settings_of("")["requirement"]["tool"], "")
 
     def test_prompt_without_url_does_not_auto_detect_links(self):
-        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\n")
+        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nreview.ask = requirement\n")
         r, rd = self.collect()
         requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
         self.assertEqual(requirement["status"], "missing")
@@ -58,17 +58,32 @@ class Sources(fixture.ShopRepo):
         self.assertNotIn("SOURCES_MISSING", r.stdout)
         self.assertEqual(next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")["source"], "记录")
 
-    def test_unasked_is_not_remembered_and_default_requires_ticket_only(self):
+    def test_ask_needs_the_listed_kind_and_its_tool(self):
+        tools = ("tools.requirement = 用 acme-kit:ticket-reader 读需求单\n"
+                 "tools.doc_reader = 用 acme-kit:doc-reader 读文档链接\n")
         r, _ = self.collect()
-        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", r.stdout)   # 没有配置时只要需求单
+        self.assertNotIn("SOURCES_MISSING", r.stdout)       # 没配任何读取工具:什么都不问
+        self.config(tools)
+        r, _ = self.collect()
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", r.stdout)   # review 不写 review.ask 时只问 doc
+        self.assertNotIn("需求单", r.stdout)
+        self.config("tools.doc_reader = 用 acme-kit:doc-reader 读文档链接\nreview.ask = requirement\n")
+        r, _ = self.collect()
+        self.assertNotIn("SOURCES_MISSING", r.stdout)       # 要问需求单,但没配 tools.requirement:不问
+        self.config(tools + "review.ask = requirement\n")
+        r, _ = self.collect()
+        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", r.stdout)
         self.commit(self.repo, {"b.ts": "b\n"}, "Closes #12")
         r, _ = self.collect()
         self.assertNotIn("SOURCES_MISSING", r.stdout)       # 提交说明里的需求编号也算
-        self.config("intent.required = doc\n")
+        self.config(tools + "review.ask = doc\n")
         r, _ = self.collect("--source", "doc=unasked")
-        self.assertNotIn("SOURCES_MISSING", r.stdout)
+        self.assertNotIn("SOURCES_MISSING", r.stdout)       # unasked 不记住
         r, _ = self.collect()
         self.assertIn("SOURCES_MISSING", r.stdout)
+        self.config(tools + "review.ask = none\n")
+        r, _ = self.collect()
+        self.assertNotIn("SOURCES_MISSING", r.stdout)       # 写了不认识的名字:忽略,不报错
 
     def test_staged_documents_join_intent_and_title(self):
         self.config(TEAM)
@@ -139,7 +154,7 @@ class GitHubContext(fixture.Base):
         key = fixture.api_key(path)
         Path(self.ghmock, "api", key + ".json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-    def test_issue_and_comments_are_read_and_bots_skipped(self):
+    def pr_with_issue(self):
         repo = self.make_repo("gh", {"a.ts": "a\n"})
         base = self.git(repo, "rev-parse", "HEAD")
         self.git(repo, "switch", "-qc", "f")
@@ -155,6 +170,11 @@ class GitHubContext(fixture.Base):
         self.api("repos/acme/gh/issues/5/comments?per_page=100", [{"user": {"login": "ci[bot]", "type": "Bot"}, "body": "build ok", "id": 2}])
         self.api("repos/acme/gh/pulls/5/reviews?per_page=100", [{"user": {"login": "bob", "type": "User"}, "body": "整体可以", "id": 3}])
         self.git(repo, "remote", "add", "origin", "https://github.com/acme/gh.git")
+        return repo
+
+    def test_issue_and_comments_are_read_and_bots_skipped(self):
+        repo = self.pr_with_issue()
+        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\n")
         r = self.run_script("collect-diff.sh", "https://github.com/acme/gh/pull/5", "--platform", "github", cwd=repo)
         rd = self.review_dir(r.stdout)
         intent = Path(rd, "intent.md").read_text(encoding="utf-8")
@@ -165,6 +185,15 @@ class GitHubContext(fixture.Base):
         disc = self.load(os.path.join(rd, "discussions.json"))
         self.assertEqual(sorted(x["body"] for x in disc), ["整体可以", "这里要判空"])
         self.assertTrue(all(x["platform"] == "github" for x in disc))
+
+    def test_issue_is_not_read_without_the_requirement_tool(self):
+        repo = self.pr_with_issue()                          # 没配 tools.requirement:不处理需求单,编号也不去读
+        r = self.run_script("collect-diff.sh", "https://github.com/acme/gh/pull/5", "--platform", "github", cwd=repo)
+        rd = self.review_dir(r.stdout)
+        self.assertNotIn("关联需求", Path(rd, "intent.md").read_text(encoding="utf-8"))
+        requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
+        self.assertEqual(requirement["status"], "missing")
+        self.assertNotIn("SOURCES_MISSING", r.stdout)
 
     def test_renamed_repo_keeps_the_url_the_user_gave(self):
         # 仓库改名后平台返回新地址;输入是网址时,meta 的 url 要和用户给的一致,链接才不会指向新名字

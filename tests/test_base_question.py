@@ -12,11 +12,17 @@ import base_rule  # noqa: E402
 import crlib  # noqa: E402
 
 
+TOOLS = ("tools.requirement = 用 acme-kit:ticket-reader 读需求单,链接形如 https://tickets.acme.example.com/story/42\n"
+         "tools.doc_reader = 用 acme-kit:doc-reader 读文档链接,支持 https://docs.acme.example.com/ 下的页面\n")
+ASK_BOTH = TOOLS + "review.ask = requirement, doc\n"
+
+
 class Project(fixture.Base):
     """origin 上有 main、develop;feature 从 main 拉出,dev-feature 从 develop 拉出。"""
 
     def setUp(self):
         super().setUp()
+        self.config(ASK_BOTH)   # 配了两个读取工具,review 开始前要问需求单和需求文档
         origin = self.bare("acme-kit")
         self.repo = self.make_repo("acme-kit", {"a.txt": "1\n"}, remote=origin)
         self.git(self.repo, "push", "-q", "origin", "main")
@@ -309,69 +315,72 @@ class NonInteractive(Project):
 
 
 class OneRound(Project):
-    """基准、必填需求、可选需求资料在同一次运行里一起报出来。"""
+    """基准和要问的需求资料在同一次运行里一起报出来。"""
 
     def test_everything_missing_is_reported_together(self):
         self.git(self.repo, "checkout", "-q", "feature")
         self.git(self.repo, "commit", "-q", "--amend", "-m", "no refs here")
         out, rd, meta = self.collect(skip_doc=False)
-        lines = [x.split(":")[0] for x in out.splitlines() if x.startswith(("BASE_UNSET:", "SOURCES_MISSING:", "SOURCES_OPTIONAL:"))]
-        self.assertEqual(sorted(lines), ["BASE_UNSET", "SOURCES_MISSING", "SOURCES_OPTIONAL"])
-        self.assertIn("SOURCES_MISSING: 需求单", out)
-        self.assertIn("SOURCES_OPTIONAL: 可选的需求文档", out)
+        lines = [x.split(":")[0] for x in out.splitlines() if x.startswith(("BASE_UNSET:", "SOURCES_MISSING:"))]
+        self.assertEqual(sorted(lines), ["BASE_UNSET", "SOURCES_MISSING"])
+        self.assertIn("SOURCES_MISSING: 需求单、需求文档 还没有提供", out)
         self.assertEqual(self.pending(), [])
 
     def test_nothing_to_ask_does_not_interrupt(self):
         self.collect("--base-rule", "target", "--source", "doc=skip")
         out, rd, meta = self.collect()
-        self.assertNotRegex(out, "BASE_UNSET|SOURCES_MISSING|SOURCES_OPTIONAL")
+        self.assertNotRegex(out, "BASE_UNSET|SOURCES_MISSING")
         self.assertEqual(len(self.pending()), 1)
 
 
-class OptionalSources(Project):
-    def test_optional_material_is_asked_once_per_branch_and_skip_is_remembered(self):
+class AskedSources(Project):
+    """review.ask 里写了、并且配了读取工具的类别才会问;问过(包括跳过)同一个分支不再问。"""
+
+    def setUp(self):
+        super().setUp()
+        self.config(TOOLS + "review.ask = doc\n")
+
+    def test_asked_material_is_asked_once_per_branch_and_skip_is_remembered(self):
         out, rd, meta = self.collect("--base-rule", "target", skip_doc=False)
-        self.assertNotIn("SOURCES_MISSING", out)
-        self.assertIn("SOURCES_OPTIONAL: 可选的需求文档还没有提供(doc);可以跳过,不算缺", out)
-        self.assertEqual(meta["sources_optional"], "doc")
+        self.assertIn("SOURCES_MISSING: 需求文档 还没有提供(doc)", out)
+        self.assertEqual(meta["sources_missing"], "doc")
         sources = self.load(os.path.join(rd, "sources.json"))
-        self.assertEqual((sources["missing"], sources["optional"]), ([], ["doc"]))
+        self.assertEqual(sources["missing"], ["doc"])
         out, rd, meta = self.collect("--source", "doc=skip")
-        self.assertNotIn("SOURCES_OPTIONAL", out)
+        self.assertNotIn("SOURCES_MISSING", out)
         out, rd, meta = self.collect(skip_doc=False)
-        self.assertNotIn("SOURCES_OPTIONAL", out)
+        self.assertNotIn("SOURCES_MISSING", out)
         self.git(self.repo, "checkout", "-qb", "feature-2", "feature")      # 另一个分支再问一次
         out, rd, meta = self.collect(skip_doc=False)
-        self.assertIn("SOURCES_OPTIONAL", out)
+        self.assertIn("SOURCES_MISSING", out)
 
     def test_a_link_given_is_remembered_too(self):
         self.collect("--base-rule", "target", "--source", "doc=https://docs.example.com/d/1")
         out, rd, meta = self.collect(skip_doc=False)
-        self.assertNotIn("SOURCES_OPTIONAL", out)
+        self.assertNotIn("SOURCES_MISSING", out)
 
     def test_local_doc_file_counts_as_given(self):
         Path(self.repo, "plan.md").write_text("方案\n", encoding="utf-8")
         out, rd, meta = self.collect("--doc", "plan.md", skip_doc=False)
-        self.assertNotIn("SOURCES_OPTIONAL", out)
-
-    def test_local_doc_also_satisfies_required_documents(self):
-        self.config("intent.required = requirement, doc\n")
-        Path(self.repo, "plan.md").write_text("方案\n", encoding="utf-8")
-        out, rd, meta = self.collect("--doc", "plan.md", skip_doc=False)
-        self.assertNotRegex(out, "SOURCES_MISSING|SOURCES_OPTIONAL")
+        self.assertNotIn("SOURCES_MISSING", out)
         item = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
         self.assertEqual(item["status"], "given")
 
     def test_not_asked_without_a_person(self):
         out, rd, meta = self.collect("--non-interactive", skip_doc=False)
-        self.assertNotIn("SOURCES_OPTIONAL", out)
-        self.assertEqual(meta["sources_optional"], "")
+        self.assertNotIn("SOURCES_MISSING", out)
+        self.assertEqual(meta["sources_missing"], "")
 
-    def test_required_kind_is_not_also_optional(self):
-        self.config("intent.required = requirement, doc\n")
+    def test_kind_without_its_tool_is_not_asked(self):
+        self.config("review.ask = requirement, doc\n")                       # 两个工具都没配
         out, rd, meta = self.collect("--base-rule", "target", skip_doc=False)
-        self.assertIn("SOURCES_MISSING: 需求文档", out)
-        self.assertNotIn("SOURCES_OPTIONAL", out)
+        self.assertNotIn("SOURCES_MISSING", out)
+        self.assertEqual(meta["sources_missing"], "")
+        self.config("tools.requirement = 用 acme-kit:ticket-reader 读需求单\nreview.ask = requirement, doc\n")   # 只配了需求单
+        self.git(self.repo, "commit", "-q", "--amend", "-m", "no refs here")
+        out, rd, meta = self.collect(skip_doc=False)
+        self.assertIn("SOURCES_MISSING: 需求单 还没有提供(requirement)", out)
+        self.assertNotIn("需求文档", out)
 
 
 class SourceInference(Project):
@@ -453,10 +462,10 @@ class SelectionScope(Project):
     def test_target_answer_is_one_off_and_does_not_repeat_during_source_followup(self):
         out, _, meta = self.collect("--base-target", skip_doc=False)
         self.assertNotIn("BASE_UNSET", out)
-        self.assertIn("SOURCES_OPTIONAL", out)
+        self.assertIn("SOURCES_MISSING: 需求文档", out)
         self.assertEqual(meta["base_state"], "explicit")
         out, _, _ = self.collect("--base-target", "--source", "doc=skip")
-        self.assertNotRegex(out, "BASE_UNSET|SOURCES_OPTIONAL")
+        self.assertNotRegex(out, "BASE_UNSET|SOURCES_MISSING")
         self.assertIsNone(self.record())
         self.assertIn("BASE_UNSET", self.collect()[0], "下一次独立审查仍没有项目规则")
 

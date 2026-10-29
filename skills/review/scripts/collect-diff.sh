@@ -24,7 +24,7 @@
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 requirement(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
 #                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
-#   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):缺的必填需求来源记为 unasked,不输出 SOURCES_MISSING
+#   --non-interactive  非交互运行(或环境变量 CR_NONINTERACTIVE=1):本该问的资料(review.ask 里配了工具的类别)记为 unasked,不输出 SOURCES_MISSING
 #   --code-host-dir DIR  agent 用配置的 tools.code_host 读到的 MR / PR 信息(code_host.py request 建的目录,内有 code-host.json)
 #   --only LIST  bug、security、rules 中的若干项;默认三项都查
 #   --verifier-model  用户指定的核实模型,只记录,由编排者在启动 verifier 时使用
@@ -833,7 +833,7 @@ printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
-grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|sources_optional|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 
 # 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。

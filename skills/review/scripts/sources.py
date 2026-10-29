@@ -3,9 +3,11 @@
 配置(插件里的 config/defaults.conf 或 ~/.crosscheck/config,按工具的用途命名;值是给 agent 的一句话说明,原样交给 agent,脚本不解析):
   tools.requirement  = <说明>                 需求管理工具:读需求单(类别 requirement)
   tools.doc_reader   = <说明>                 文档阅读工具:读 PRD、技术方案等文档链接(类别 doc)
-  intent.required    = requirement, doc            每次都要收集(可跳过)的类别;不写时只有 requirement
+  review.ask         = doc                    review 开始前要问用户的类别(可跳过);不写时是 doc
+  describe.ask       = requirement            describe 开始前要问用户的类别;不写时是 requirement
+一个类别要同时满足两条才会问:写在当前技能的 .ask 里,并且配了对应的读取工具;没配工具的类别不问、不识别、不读,也不算缺。
+当前技能由环境变量 CR_ASK_SKILL 指定(describe 的 collect.py 设置),没有时是 review。
 显示名固定为「需求单」「需求文档」;识别链接用的关键字取自说明里出现的网址的域名,没写网址就只能靠用户给的链接。
-不在 intent.required 里的类别是「可选资料」:每个分支也问一次(SOURCES_OPTIONAL),可以跳过、不算缺,跳过后记录会记住。
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
   {"requirement": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...}, "intent": "...", "updated_at": "..."}
@@ -29,6 +31,7 @@ import crlib
 KINDS = ("requirement", "doc")
 KIND_TOOL = {"requirement": "tools.requirement", "doc": "tools.doc_reader"}   # 类别 → 配置里放工具名的键
 DEFAULT_LABEL = {"requirement": "需求单", "doc": "需求文档"}
+DEFAULT_ASK = {"review": "doc", "describe": "requirement"}   # 各技能开始前默认要问的类别
 EXPIRE_DAYS = 90
 HOST = re.compile(r"https?://([A-Za-z0-9.-]+)")
 URL = re.compile(r"https?://[^\s)>\]\"'`<,，。]+")
@@ -38,17 +41,22 @@ def _now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def settings(cfg=None):
+def current_skill():
+    return os.environ.get("CR_ASK_SKILL") or "review"
+
+
+def settings(cfg=None, skill=None):
     cfg = crlib.config() if cfg is None else cfg
+    skill = skill or current_skill()
     kinds = {}
     for k in KINDS:
         tool = cfg.get(KIND_TOOL[k], "").strip()
         # 说明是自然语言,识别链接只用其中出现的网址的域名;没写网址就只能靠用户给的链接
         match = [h.lower().rstrip(".") for h in HOST.findall(tool)]
         kinds[k] = {"tool": tool, "label": DEFAULT_LABEL[k], "match": list(dict.fromkeys(match))}
-    required = [x.strip() for x in cfg.get("intent.required", "requirement").split(",") if x.strip()]
-    for k in required:
-        kinds.setdefault(k, {"tool": "", "label": DEFAULT_LABEL.get(k, k), "match": []})
+    asked = [x.strip() for x in cfg.get("%s.ask" % skill, DEFAULT_ASK.get(skill, "")).split(",") if x.strip()]
+    # 没配读取工具的类别整类跳过;写了别的名字也不会报错,只是不会被问
+    required = [k for k in dict.fromkeys(asked) if k in kinds and kinds[k]["tool"]]
     return {"kinds": kinds, "required": required}
 
 
@@ -132,14 +140,14 @@ def detect(text, conf):
 
 def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=None, issue=None, has_doc_files=False):
     """合并参数、记录、暂存的文档和自动识别,写 sources.json,返回 (缺的必填类别, 文档列表, 配置)。
-    不是必填的类别(如默认的需求文档)也问一次,可以跳过,不算缺:放在 conf["optional"] 里,跳过后记录会记住。
+    只有 conf["required"] 里的类别(当前技能要问、且配了读取工具)缺了才算缺;其他类别不问。
     用 --doc 给了本地文档的,需求文档算已经给了。"""
     conf = settings(cfg)
     path = store_path(meta)
     store = load_store(path)
     auto = detect(text, conf)
     docs = read_staged(stage_dir)
-    out, missing, optional, changed = [], [], [], False
+    out, missing, changed = [], [], False
     for k, c in conf["kinds"].items():
         entry = None
         if k in args:
@@ -172,16 +180,12 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
                 entry = {"status": "unasked", "source": "非交互运行"}   # 没人可问:不算缺,也不记进记录
             else:
                 missing.append(k)
-        elif entry is None and os.environ.get("CR_NONINTERACTIVE") != "1":
-            optional.append(k)
         out.append(dict(entry or {"status": "missing"}, kind=k, label=c["label"], tool=c["tool"],
                         required=k in conf["required"], docs=[x["file"] for x in kdocs],
                         read_error=next((x["error"] for x in kdocs if x["error"]), "")))
     if changed:
         save_store(path, store)
-    conf["optional"] = optional
-    crlib.save_json(os.path.join(review_dir, "sources.json"),
-                    {"items": out, "missing": missing, "optional": optional, "store": path})
+    crlib.save_json(os.path.join(review_dir, "sources.json"), {"items": out, "missing": missing, "store": path})
     return missing, docs, conf
 
 
