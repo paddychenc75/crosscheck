@@ -566,6 +566,14 @@ class Isolation(Describe):
         self.collect("--intent", "订单列表改为游标分页")
         self.assertEqual(self.reviews_tree(), [])
 
+    def test_cleanup_never_removes_the_record_root(self):
+        """全新的记录目录里没有 reviews/:清理这次新建的目录时只能删到 reviews/,不能把记录目录本身删掉。"""
+        os.remove(os.path.join(self.home, "config"))
+        self.assertEqual(os.listdir(self.home), [])
+        r, rd = self.collect("--intent", "订单列表改为游标分页")
+        self.assertNotIn("没能恢复审查记录", r.stdout)
+        self.assertTrue(os.path.isdir(self.home))
+
     def test_review_after_describe_is_a_first_full_review(self):
         self.collect("--intent", "订单列表改为游标分页")
         r = self.review()

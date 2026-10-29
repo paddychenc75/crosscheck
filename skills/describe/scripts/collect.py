@@ -57,7 +57,8 @@ def snapshot(reviews):
                     files[p] = f.read()
             except OSError:
                 pass
-    return files, set(glob.glob(os.path.join(glob.escape(reviews), "*"))) | set(glob.glob(os.path.join(glob.escape(reviews), "*", "*")))
+    dirs = set(glob.glob(os.path.join(glob.escape(reviews), "*"))) | set(glob.glob(os.path.join(glob.escape(reviews), "*", "*")))
+    return files, dirs | {os.path.dirname(reviews)}   # 记录目录本身不算这次新建的,清理到 reviews/ 为止
 
 
 def prune(path, dirs):
@@ -93,7 +94,7 @@ def restore(reviews, before, out):
 
 def main(argv):
     crlib.probe()   # 先试写一次记录目录,写不了就说明怎么申请写入权限并退出
-    reviews =os.path.join(crlib.home(), "reviews")
+    reviews = os.path.join(crlib.home(), "reviews")
     before = snapshot(reviews)
     non_interactive = "--non-interactive" in argv or os.environ.get("CR_NONINTERACTIVE") == "1"
     # 要问的类别:describe.ask 里写了、并且配了读取工具的;没给答案的才问
