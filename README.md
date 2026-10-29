@@ -4,7 +4,7 @@
 
 核心思路是**宁缺毋滥**:先尽量把可疑的地方找出来,每条候选再由一个没看过推理过程的 verifier 独立核实、给出依据并打分,低于 80 分的不展示。没有问题时就说没有问题。
 
-一次审查产出一份 CR 报告:给开发者自己看、照着修,内容是核实过的问题、修复建议和依据,逐条独立核实。插件只做审查,不生成 PR / MR 描述。
+一次审查产出一份 CR 报告:给开发者自己看、照着修,内容是核实过的问题、修复建议和依据,逐条独立核实。`review` 只做审查;PR / MR 描述由独立的 `describe` 技能在本地生成(只列事实和链接,不下结论,不发布,由你自己复制粘贴)。
 
 除了找 bug 和安全问题,它还能对照需求单检查有没有做到需求、对照团队写下的规则检查规范,并记住你对每条发现的判断,同一段代码不再重复报同样的误报。另有一个**规则维护**命令(`improve`):从最近的 MR 评论里沉淀候选规则让你挑、检查现有规则、起草或整理 `REVIEW.md`。
 
@@ -25,6 +25,7 @@ Codex 里是 `$crosscheck:review ...`,Cursor 里是 `/review ...`。不需要记
 | 功能 | Claude Code | Codex | Cursor | 能否用自然语言 |
 |---|---|---|---|---|
 | 审查(review) | `/crosscheck:review`(拷贝安装时 `/review`) | `$crosscheck:review`(拷贝安装时 `$review`) | `/review` | 可以,直接说「review 一下」 |
+| PR/MR 描述(describe) | `/crosscheck:describe`(拷贝安装时 `/describe`) | `$crosscheck:describe`(拷贝安装时 `$describe`) | `/describe` | 可以,直接说「写一下 PR 描述」 |
 | 规则维护(improve) | `/crosscheck:improve`(拷贝安装时 `/improve`) | `$crosscheck:improve`(拷贝安装时 `$improve`) | `/improve` | 不可以,只能用命令 |
 
 说「review 帮助」会列出常用说法。在 Codex 里,插件自带的 hook 要先运行 `/hooks` 审阅并信任才会生效,否则 token 用量统计不工作(审查本身不受影响);升级插件后要重新信任。
@@ -33,7 +34,7 @@ Codex 里是 `$crosscheck:review ...`,Cursor 里是 `/review ...`。不需要记
 
 推荐从 person-marketplace 安装完整插件,具体命令见市场仓库 README 的安装指南。已有本地源码时,Claude Code 可用 `claude --plugin-dir "<crosscheck插件根目录>"` 加载。
 
-直接安装 SKILL.md 时也要保留共享目录,不能只复制 review 或 improve。将下列内容整体复制到宿主配置目录下的专用目录(例如 `<宿主配置目录>/crosscheck/`),再将其中两个技能目录以符号链接放进该宿主的 `skills/` 目录,或让宿主直接发现这两个目录:
+直接安装 SKILL.md 时也要保留共享目录,不能只复制 review、describe 或 improve(describe 的采集直接用 review 的脚本)。将下列内容整体复制到宿主配置目录下的专用目录(例如 `<宿主配置目录>/crosscheck/`),再将其中三个技能目录以符号链接放进该宿主的 `skills/` 目录,或让宿主直接发现这三个目录:
 
 ```text
 crosscheck/
@@ -42,6 +43,7 @@ crosscheck/
 ├── scripts/config.sh
 └── skills/
     ├── review/     (完整目录)
+    ├── describe/   (完整目录)
     └── improve/    (完整目录)
 ```
 
@@ -50,13 +52,28 @@ crosscheck/
 ```sh
 crosscheck_source="/absolute/path/to/crosscheck"
 mkdir -p .agents/skills
-# .agents/crosscheck、.agents/skills/review 和 improve 均不存在时使用
+# .agents/crosscheck、.agents/skills/review、describe 和 improve 均不存在时使用
 cp -R "$crosscheck_source" .agents/crosscheck
 ln -s ../crosscheck/skills/review .agents/skills/review
+ln -s ../crosscheck/skills/describe .agents/skills/describe
 ln -s ../crosscheck/skills/improve .agents/skills/improve
 ```
 
 Claude Code、Cursor 分别可将上述 `.agents` 换成 `.claude`、`.cursor`。符号链接解析后仍保留完整插件结构;若宿主不发现链接,将 `config/`、`scripts/` 和 `skills/` 的内容合并到宿主配置目录,保持相同相对布局。直接拷贝不会自动注册插件 hook,需要 token 用量统计时优先用插件安装。插件方式的 hook 路径仍为 `skills/review/scripts/guard.sh`。
+
+## PR/MR 描述(describe)
+
+给评审人看的改动说明,在要提 PR / MR 的分支上直接说:
+
+```
+/crosscheck:describe 帮我写一下这个分支的 PR 描述
+```
+
+也可以带分支、提交范围、PR / MR 编号或链接。每次生成都会先问一次**需求单链接**(与 `intent.required` 无关,审查记录里问过也照问):贴链接、说没有需求单(hotfix、重构),或跳过;需求文档不问,你主动给才收下。非交互运行(`claude -p`、`codex exec`、CI)不提问,描述里写「未提供(非交互运行,没有询问)」。给了链接后按配置的 `tools.requirement`(或 GitLab / GitHub Issue)读取,读不到就如实写读不到。
+
+产出两份文件,写在 `~/.crosscheck/describe/<项目名>/<目标>/`:`describe.md`(正文 20 行以内,不含首尾标记及负责人固定填写区,包在 `crosscheck:begin/end` 标记里,贴进 PR / MR 描述)和 `describe.html`(完整版)。内容只有事实和链接,不下结论,按顺序是:一句话和基本信息(规模、分支、需求单链接);**影响面**(总览一行,再按接口、数据库与迁移、配置环境变量与依赖、内部函数四层列出删除、签名变化、新增,每层最多 2 项;有迁移、删除对外接口或配置键、依赖变化时提示「回滚方式:待补充」;没发现就写「未发现」,不写「无影响」);**怎么验证**(触发方式带 file:line、预期、怎么跑、执行记录,整段由代码推断,标注「由代码推断,未执行」;预期只引用验收标准原文或新增测试的用例名和断言,没有出处就不写;你没有给执行记录时写「未验证(无执行记录)」);需求对照(需求单里有验收标准才有)。不会问你「怎么验证的」;想记一句执行情况或想让评审人重点看某处(最多 3 条,只有你点名才有「请重点看」)可以主动说,之后重新生成时沿用。超过 20 行时脚本按固定顺序裁剪,影响面总览和执行记录不裁。模板在 `skills/describe/templates/`,团队可以改成自己的格式。
+
+**只在本地生成,不发布**:不创建、不修改托管平台上的 PR / MR 描述、评论或状态,不提供发布配置,复制粘贴由你自己来。它直接用 review 的采集脚本(origin 绑定、只读、基准问答都一样),但不依赖审查结果,没审查过也能用;描述目录和审查记录(`reviews/`)分开存放,不会被审查的增量逻辑当成上一次审查,采集时写的「进行中」标记和需求来源记录也会恢复原样,所以 review 之后问不问需求单不受它影响。
 
 ## 托管目标和命令边界
 
@@ -64,7 +81,7 @@ Claude Code、Cursor 分别可将上述 `.agents` 换成 `.claude`、`.cursor`�
 
 支持 HTTPS、GitLab HTTP、SSH URL 和 SCP 风格地址(GitHub HTTP origin 停止平台读取);SSH 端口仅作 Git 传输端口,Web/API 默认 HTTPS,HTTP(S) origin 保留协议及非默认端口。GitLab 部署子路径写在 `gitlab_hosts` 中,例如 `git.example:8443/gitlab`;该配置仅用于识别平台和剥离子路径,不是第二套授权白名单。SSH 别名与 Web 域名不一致、SSH 克隆地址没有包含 Web 子路径等无法从 origin 唯一推导的情况会拒绝平台读取,请使用能对应实际 Web 地址的 origin。
 
-review/improve 流程中远端永远只读:不 push、不发评论、不改或合入 MR/PR。用户明确授权的本地 fix、规则 plan/apply 保留;fetch 可以更新本地对象和 origin 跟踪引用。SKILL frontmatter 的 `allowed-tools` 仅对少数 Git 读取命令给出免批准授权,不是拒绝其余命令的安全边界,其他命令仍依赖流程指令及宿主权限。没有增加拦截 hook 或修改全局配置,CR 之外的工具使用不受影响。Codex/Cursor 对该字段的支持依宿主而定。
+review/describe/improve 流程中远端永远只读:不 push、不发评论、不改或合入 MR/PR。用户明确授权的本地 fix、规则 plan/apply 保留;fetch 可以更新本地对象和 origin 跟踪引用。SKILL frontmatter 的 `allowed-tools` 仅对少数 Git 读取命令给出免批准授权,不是拒绝其余命令的安全边界,其他命令仍依赖流程指令及宿主权限。没有增加拦截 hook 或修改全局配置,CR 之外的工具使用不受影响。Codex/Cursor 对该字段的支持依宿主而定。
 
 这些检查约束脚本选择的逻辑目标,不声称提供网络沙箱:Git 的 SSH 配置、代理、HTTP 重定向、CLI 自身配置及外部 MCP 的实际网络行为仍由对应程序/宿主管理。`tools.code_host` 只应在脚本返回 NEED_CODE_HOST 后按已核对链接读取,返回后还会再次核对当前 origin。
 
@@ -348,7 +365,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 - **运行记录只防幻觉**:声称跑过的命令要有记录,但记录本身不防刻意伪造。
 - **规则冲突只靠提示**:两条规则互相矛盾时由审查角色判断并提示,脚本不检测。
 - **规则沉淀在 GitHub 上能拿到的少**:只翻最近更新的 1000 个已关闭 PR,很活跃的仓库可能拿不全;GitHub 上「讨论已解决」「评论后代码是否改了」多数判断不出来,准入清单里这一项会显示「?」并放行,所以候选要你自己再看一遍。
-- **同时审查同一个目标**:两次审查共用「进行中」标记,可能误报「上一次没有保存」,审查结果不受影响。
+- **同时审查同一个目标**:两次审查共用「进行中」标记,可能误报「上一次没有保存」,审查结果不受影响。describe 采集期间(几秒)会临时写入并恢复这个标记和来源记录,与同一目标正在进行的审查同时运行时,可能互相覆盖。
 - **真实环境验证不足**:私有化 GitLab 子路径部署、GitHub 的 issue 和评论读取主要用模拟的 `glab` / `gh` 测过;判断记录只在本机。`tools.code_host` 只用本地仓库模拟过。
 - **代码托管工具靠约定只读**:`tools.code_host` 由 agent 执行,插件看不出远端的 MR 有没有被改过,只能靠配置和说明里「只读」的约束;读到的标题、描述和讨论也只是 agent 转述的,插件只核对得了仓库、分支和提交。
 
@@ -383,5 +400,7 @@ Claude Code、Cursor 写代码时不会自动读 `.agents/rules/`,需要的话�
 | 指定平台 | `--platform github\|gitlab` |
 | 非交互运行(不询问基准和缺的需求来源) | `--non-interactive` |
 | 给需求文档链接 | `--source doc=<链接>`、`doc=skip` |
+
+`describe` 的采集脚本是 `skills/describe/scripts/collect.sh`,参数同上的基准、`--intent`、`--doc`、`--source`、`--non-interactive`(总是全量,没有 `--depth`、`--only`);生成用 `describe.sh <目录> [--tested "…"] [--focus '<JSON>']`。
 
 </details>

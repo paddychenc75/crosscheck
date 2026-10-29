@@ -17,6 +17,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
 SCRIPTS = os.path.join(PLUGIN, "skills", "review", "scripts")
+DESCRIBE_SCRIPTS = os.path.join(PLUGIN, "skills", "describe", "scripts")
 SHARED_SCRIPTS = os.path.join(PLUGIN, "scripts")
 MOCK_BIN = os.path.join(HERE, "bin")
 
@@ -117,6 +118,14 @@ os.execv(real, [real] + args)
         r = subprocess.run(["python3", os.path.join(SCRIPTS, name)] + list(args), env=self.env, capture_output=True, text=True)
         if check and r.returncode != 0:
             self.fail("%s 失败:\n%s\n%s" % (name, r.stdout, r.stderr))
+        return r
+
+    def run_describe(self, name, *args, cwd=None, check=True, scripts=DESCRIBE_SCRIPTS):
+        """运行 describe 技能的脚本:.sh 用 sh,.py 用 python3。"""
+        cmd = ["sh" if name.endswith(".sh") else "python3", os.path.join(scripts, name)] + list(args)
+        r = subprocess.run(cmd, cwd=cwd or self.tmp, env=self.env, capture_output=True, text=True)
+        if check and r.returncode != 0:
+            self.fail("%s 失败(%d):\n%s\n%s" % (name, r.returncode, r.stdout, r.stderr))
         return r
 
     def run_pipeline(self, rd, candidates, scores):

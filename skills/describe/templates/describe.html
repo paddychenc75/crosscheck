@@ -1,0 +1,39 @@
+{{! PR/MR 描述网页版(describe.html)的模板,由 scripts/describe.py 填充。事实都由脚本算好,模板只管页面结构、表头和样式。}}
+{{! 写法:名字外面套两层花括号是占位符;井号开头的块有内容才保留,脱字符开头的块没有内容才保留,块里的占位符就是这个块自己的内容;感叹号开头的整行是注释,不输出。}}
+{{! 占位符里的文字已经做过 HTML 转义;名字带 rows 的是表格的行(tr 和 td 由脚本生成),表头写在模板里。}}
+{{! 可用的名字:title、one、by、now、sha、version、info_rows、overview、impact_rows、impact_notes、impact_method、focus_rows、verify_note、trigger_rows、caller_rows、no_trigger、expect_rows、command、case_rows、record、untested、req_rows。}}
+<title>{{title}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#fbfaf7;--fg:#1f2328;--muted:#5d6570;--line:#e3e0d8;--card:#ffffff;--accent:#2f5d8a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e6e8eb;--muted:#9aa3ad;--line:#2b3138;--card:#1c2026;--accent:#7fb0e0;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;
+ padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:980px;margin:0 auto;display:grid;gap:18px}
+h1{font-size:22px;margin:0;text-wrap:balance}h2{font-size:16px;margin:0 0 8px}h3{font-size:14px;margin:12px 0 6px;color:var(--muted)}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.muted,small{color:var(--muted)}a{color:var(--accent)}code{font:13px ui-monospace,Menlo,monospace}
+.t{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+</style>
+<main>
+<header><h1>{{title}}</h1><p>{{one}} <small>{{by}}</small></p>
+<p class=muted>PR/MR 描述 · crosscheck {{version}} 在本地生成 · 最后更新 {{now}} · 基于提交 <code>{{sha}}</code></p></header>
+<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>{{info_rows}}</tbody></table></div></section>
+<section><h2>影响面</h2><p>{{overview}}</p>{{#impact_rows}}<div class=t><table><thead><tr><th>层</th><th>变化</th><th>内容</th><th>位置</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div>{{/impact_rows}}{{#impact_notes}}<p>{{impact_notes}}</p>{{/impact_notes}}<p class=muted>{{impact_method}}</p></section>
+{{#focus_rows}}
+<section><h2>请重点看</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody>{{focus_rows}}</tbody></table></div></section>
+{{/focus_rows}}
+<section><h2>怎么验证 <small>{{verify_note}}</small></h2>
+<h3>触发</h3>{{#trigger_rows}}<div class=t><table><thead><tr><th>触发方式</th><th>位置</th><th>处理函数</th></tr></thead><tbody>{{trigger_rows}}</tbody></table></div>{{/trigger_rows}}{{#caller_rows}}<div class=t><table><thead><tr><th>函数</th><th>diff 外的调用方</th></tr></thead><tbody>{{caller_rows}}</tbody></table></div>{{/caller_rows}}{{#no_trigger}}<p>{{no_trigger}}</p>{{/no_trigger}}
+{{#expect_rows}}
+<h3>预期</h3><div class=t><table><thead><tr><th>出处</th><th>原文</th><th>位置</th></tr></thead><tbody>{{expect_rows}}</tbody></table></div>
+{{/expect_rows}}
+<h3>怎么跑</h3>{{#command}}<p><code>{{command}}</code> <small>项目命令,未确认已执行</small></p>{{/command}}{{#case_rows}}<div class=t><table><thead><tr><th>新增用例</th><th>位置</th></tr></thead><tbody>{{case_rows}}</tbody></table></div>{{/case_rows}}
+<h3>执行记录</h3><p>{{record}}</p>{{#untested}}<p>测试:{{untested}}</p>{{/untested}}</section>
+{{#req_rows}}
+<section><h2>需求对照</h2><div class=t><table><thead><tr><th>验收标准</th><th>改动位置</th></tr></thead><tbody>{{req_rows}}</tbody></table></div></section>
+{{/req_rows}}
+<section><h2>CR负责人:</h2><p>@xx</p></section>
+</main>

@@ -35,6 +35,7 @@
 
 | 想做的 | 可以这样说 |
 |---|---|
+| 写 PR / MR 描述 | 不属于审查:说「写一下 PR 描述」「生成 MR 描述」,或用命令 `/crosscheck:describe`(Codex 里 `$crosscheck:describe`,拷贝安装时 `$describe`)。它是独立技能,只在本地生成 `describe.md`、`describe.html`,不发布、不改平台上的描述;每次都会先问需求单链接。review 不生成描述 |
 | 规则维护 | 用命令 `/crosscheck:improve`(Codex 里 `$crosscheck:improve`,拷贝安装时 `$improve`):不带参数会先列出三件事让你选,带「沉淀」是从 MR 评论里沉淀规则,带「检查」是检查现有规则,带「整理 REVIEW.md」是起草或整理 REVIEW.md。不能用自然语言触发 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
 

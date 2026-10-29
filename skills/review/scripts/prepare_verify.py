@@ -8,7 +8,8 @@ per = max(1, int(sys.argv[2]))
 cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
 PREV_VERDICT = ("confidence", "verdict", "evidence", "ruled_out", "no", "status", "history_match", "previously",
                 "suppressed_by", "reject_reason", "also_lines", "carried_unchanged", "compat", "cid", "verification", "mark", "repro", "pass",
-                "history_context", "history_decision", "suppression_reason", "source_refs", "candidate_ids", "merge_reason")
+                "history_context", "history_decision", "suppression_reason", "source_refs", "candidate_ids", "merge_reason",
+                "root_cause", "evidence_snapshot")
 MERGED = re.compile(r"\(共 \d+ 处,其余在第 [^)]* 行\)$")
 notes = crlib.load_json(os.path.join(d, "rules-notes.json"), [])
 # 原件只在 finders/ 保存。source_refs 用文件名#数组下标定位,不另造原始候选存储。
@@ -50,13 +51,19 @@ for ref, row in raw.items():
         cands.append(dict(row, source_refs=[ref]))
 # 历史处理判断也要重新核实调用环境,不能因本文件没变就直接抑制。
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
-judged_ids = {h.get("id") for h in crlib.load_json(os.path.join(d, "history.json"), [])
-              if h.get("verdict") in ("invalid", "wontfix")}
+history = crlib.load_json(os.path.join(d, "history.json"), [])
 if meta.get("review_scope") == "incremental":
+    status = {}
+    for line in (crlib.read_text(os.path.join(d, "incremental.txt")) or "").splitlines():
+        if "\t" in line:
+            state, path = line.split("\t", 1)
+            status[path] = state
+    source = crlib.code_source(meta)
     present = {c.get("id") for c in cands if c.get("from_prev")}
     for old in crlib.load_json(os.path.join(d, "prev-findings.json"), []):
-        if old.get("id") in judged_ids - present:
-            cands.append(dict(old, from_prev=True))
+        reason = crlib.recheck_reason(old, status, history, source)
+        if reason and old.get("id") not in present:
+            cands.append(dict(old, from_prev=True, recheck_reason=reason))
 keep = []
 for c in cands:
     s = str(c.get("summary", ""))

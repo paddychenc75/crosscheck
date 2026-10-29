@@ -109,9 +109,8 @@ for r in results:
         verification_errors.append("核实分数缺失或无效: " + str(r.get("cid")))
 previous_candidates = {c.get("id") for c in cands if c.get("from_prev")}
 history_entries = crlib.load_json(os.path.join(d, "history.json"), [])
-judged_ids = {h.get("id") for h in history_entries if h.get("verdict") in ("invalid", "wontfix")}
 for old in prev:
-    if (status.get(old.get("file")) in ("changed", "dependent") or old.get("id") in judged_ids) and old.get("id") not in previous_candidates:
+    if crlib.recheck_reason(old, status, history_entries, src) and old.get("id") not in previous_candidates:
         verification_errors.append("遗漏待重新核实的历史发现: " + str(old.get("id")))
 error_file = os.path.join(d, "verification-errors.json")
 if verification_errors:
@@ -299,6 +298,14 @@ for c in cands:
                     "severity": item.get("severity", "")})
         pre_ids.add(item.get("id"))
         continue
+    if item.get("root_cause"):
+        root = crlib.root_cause_key(item)
+        ev = item.get("evidence") or []
+        if not root or not any(isinstance(e, dict) and e.get("file") == root[0]
+                               and crlib.parse_lines(e.get("lines", e.get("line"))) == crlib.parse_lines(root[1])
+                               and crlib.parse_lines(root[1]) is not None for e in ev):
+            item.pop("root_cause", None)
+    item["evidence_snapshot"] = crlib.evidence_snapshot(item, src)
     if conf >= THRESHOLD:
         passed.append(item)
     else:
@@ -332,6 +339,12 @@ for x in passed:
 carried.extend(again)
 
 def same(a, b):
+    # 同根因必须由本轮双方核实者提供相同结构和实际引用;不能拿旧核实结论合并。
+    root = crlib.root_cause_key(a)
+    if (root and root == crlib.root_cause_key(b) and not a.get("carried_unchanged")
+            and not b.get("carried_unchanged") and a.get("category") == b.get("category")
+            and a.get("rule_file") == b.get("rule_file") and a.get("rule_quote") == b.get("rule_quote")):
+        return True
     # 只能证明重复表达,不能靠位置相近/摘要相似证明同根因。
     keys = ("file", "line", "category", "severity", "summary", "failure_scenario", "suggestion", "compat", "rule_file", "rule_quote", "also_at")
     return all(a.get(k) == b.get(k) for k in keys)
@@ -339,6 +352,15 @@ def same(a, b):
 def merge_trace(target, other):
     for key in ("candidate_ids", "source_refs", "found_by"):
         target[key] = list(dict.fromkeys(list(target.get(key) or []) + list(other.get(key) or [])))
+    for key in ("failure_scenario", "verdict"):
+        if other.get(key) and other[key] != target.get(key):
+            target[key] = str(target.get(key) or "") + "\n" + other[key]
+    for e in other.get("evidence", []):
+        if e not in target.setdefault("evidence", []):
+            target["evidence"].append(e)
+    target["evidence_snapshot"] = crlib.evidence_snapshot(target, src)
+    if crlib.SEV_ORDER.get(other.get("severity"), 3) < crlib.SEV_ORDER.get(target.get("severity"), 3):
+        target["severity"] = other["severity"]
 dedup = []
 for x in new:
     hit = next((c for c in carried if same(c, x)), None)
@@ -357,6 +379,16 @@ for x in sorted(new, key=lambda y: -to_int(y.get("confidence"))):
     else:
         merge_trace(hit, x)
 new = dedup
+
+# 多条历史发现也可能是同一根因;仅合并本轮重核确认的条目。
+dedup = []
+for x in carried:
+    hit = next((o for o in dedup if same(o, x)), None)
+    if hit is None:
+        dedup.append(x)
+    else:
+        merge_trace(hit, x)
+carried = dedup
 
 order = lambda x: (crlib.SEV_ORDER.get(x.get("severity"), 3), -to_int(x.get("confidence")), x.get("file", ""), to_int(x.get("line")))
 for x in new: x["status"] = "new"

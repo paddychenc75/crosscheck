@@ -77,8 +77,9 @@ def main(argv):
     tdir, f = list(hits.values())[0]
     entry = {
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "verdict": verdict, "reason": reason,
-        "id": f.get("id"), "key": crlib.finding_key(f), "file": f.get("file"), "line": f.get("line"), "category": f.get("category"),
+        "id": f.get("id"), "key": crlib.feedback_key(f), "file": f.get("file"), "line": f.get("line"), "category": f.get("category"),
         "severity": f.get("severity"), "confidence": f.get("confidence"), "summary": f.get("summary"),
+        "root_cause": f.get("root_cause"),
         "failure_scenario": f.get("failure_scenario", ""),
         "code_line": f.get("code_line", ""), "context_hash": f.get("context_hash", ""), "target": os.path.basename(tdir),
         "rule_file": f.get("rule_file", ""), "rule_quote": f.get("rule_quote", ""), "author": crlib.author_hash(repo), "project": repo_id,

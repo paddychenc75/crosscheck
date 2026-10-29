@@ -69,6 +69,7 @@ verifier 保留候选的全部字段(包括 `cid`),修正有偏差的 `line`、`
 
 | 字段 | 规则 |
 |---|---|
+| `root_cause` | 确认缺陷时填写 `{file, lines, mechanism, constraint, fix}`,均为非空字符串。锚定错误表达式/状态转换、被破坏的具体约束和局部修复,不含本次输入或摘要;根因位置须有同范围 evidence 引用。本轮独立核实的结构完全相同才可跨主位置合并,保留双方场景、证据和来源。不同根因或无法确认时保持独立。 |
 | `confidence` | 0–100 的整数,按 `scoring-rubric.md` 打分。 |
 | `verdict` | 一句话:检查了什么、看到了什么,足以支撑这个分数。 |
 | `evidence` | 依据:核实时读过、能支撑结论的代码位置,`[{"file": "...", "lines": "38-47", "note": "改动处"}]`。脚本会核对这些位置在被审查的那一版里真实存在(引用审查材料时写文件名即可,如 `{"file": "intent.md", "lines": "验收标准 2"}`);没给依据或引用不存在的,分数封顶见 `scoring-rubric.md`。 |
@@ -90,7 +91,8 @@ verifier 保留候选的全部字段(包括 `cid`),修正有偏差的 `line`、`
 | `pass_hits` | 被几个查找角色或几遍同时查到(编排者合并时填写,不传给 verifier)。 |
 | `cid` | 候选编号,`prepare-verify.sh` 分配,verifier 原样保留。最终条目用 `candidate_ids` 保留合并前 cid,可追到核实批次/回复。 |
 | `source_refs` / `merge_reason` | 编排者用 `finders/<文件>.json#<从0开始的下标>` 指向原始候选;多条语义合并需简述共同根因及局部修复依据。prepare 校验引用并补回遗漏原件、保留所有场景/待核实点;脚本仅核验映射与留痕,不证明语义等价。原始回复不另复制一份。 |
-| `from_prev` | 增量时,上次的发现在变了的文件里,需要重新核实。 |
+| `from_prev` / `recheck_reason` | 增量旧发现及重核原因:主文件/符号依赖变化、证据快照变化、历史反馈或缺少旧依赖记录。prepare 自动补入,aggregate 复查遗漏。 |
+| `evidence_snapshot` | aggregate 按主文件和 evidence 中可读仓库文件记录整文件 SHA-256。任一变化或旧记录缺失时保守重核,不凭主文件 unchanged 直接沿用。核实者必须完整列出依赖文件;未引用的依赖不在快照覆盖内。 |
 | `id`、`since`、`no` | `aggregate.sh` 分配:固定编号、首次报告的时间、报告里的序号。 |
 | `mark` | 脚本填写:已复现(`reproduced` 且有记录及 `observation`)、运行反证(`refuted`,不展示为确认)、已执行·结果未定(读代码判断),或读代码推断。 |
 | `repro` | `aggregate.sh` 从运行记录里取:运行编号、命令、退出码、测试数、日志末尾 5 行。verifier 不填。 |

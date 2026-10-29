@@ -66,8 +66,68 @@ def short_hash(s, n=8):
 
 
 def finding_key(f):
-    """跨审查识别同一条发现:有 id 用 id,否则用 文件|维度|首次出现|摘要。"""
+    """记录与状态迁移沿用报告身份。"""
     return f.get("id") or "|".join(str(f.get(k, "")) for k in ("file", "category", "since", "summary"))
+
+
+def feedback_key(f):
+    """已确认根因的反馈跨报告稳定;旧记录保留原来的身份键。"""
+    root = root_cause_key(f)
+    if root:
+        return "root:" + hashlib.sha256(json.dumps([f.get("category"), f.get("rule_file"), f.get("rule_quote"), root], ensure_ascii=False).encode("utf-8")).hexdigest()
+    return finding_key(f)
+
+
+def root_cause_key(f):
+    """核实者确认的错误位置、行为约束及局部修复;摘要不参与。"""
+    r = f.get("root_cause")
+    fields = ("file", "lines", "mechanism", "constraint", "fix")
+    if not isinstance(r, dict) or any(not isinstance(r.get(k), str) or not r[k].strip() for k in fields):
+        return None
+    return tuple(r[k].strip() for k in fields)
+
+
+def history_related(f, h):
+    """只找重核线索,不证明历史前提仍然适用。兼容没有稳定根因的旧记录。"""
+    if f.get("id") and f.get("id") == h.get("id"):
+        return True
+    root = root_cause_key(f)
+    if root and root == root_cause_key(h):
+        return True
+    return bool(f.get("file") == h.get("file") and f.get("category") == h.get("category")
+                and f.get("code_line") and norm(f["code_line"]) == norm(h.get("code_line", ""))
+                and f.get("context_hash") and f["context_hash"] == h.get("context_hash"))
+
+
+def evidence_snapshot(f, source):
+    """复用 evidence 的文件集合,整文件哈希覆盖行移动和调用输入变化。"""
+    paths = {f.get("file")}
+    evidence = f.get("evidence")
+    for e in evidence if isinstance(evidence, list) else []:
+        if isinstance(e, dict):
+            paths.add(e.get("file") or f.get("file"))
+    result = {}
+    for path in sorted(p for p in paths if isinstance(p, str) and p):
+        text = source.read(path) if source else None
+        if text is not None:
+            result[path] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return result
+
+
+def recheck_reason(f, status, history, source):
+    if status.get(f.get("file")) in (None, "removed"):
+        return ""
+    if status.get(f.get("file")) in ("changed", "dependent"):
+        return "主文件或符号依赖变化"
+    if any(history_related(f, h) for h in history if h.get("verdict") in ("invalid", "wontfix")):
+        return "历史反馈需重新核对当前前提"
+    snapshot = f.get("evidence_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot or f.get("file") not in snapshot:
+        return "旧发现缺少证据依赖快照,保守重核"
+    current = evidence_snapshot(f, source)
+    if snapshot != current:
+        return "引用证据或调用方文件变化"
+    return ""
 
 
 # ---------- glob ----------

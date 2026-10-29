@@ -38,6 +38,7 @@ def history(rdir, out):
             "rule_file": e.get("rule_file", ""), "rule_quote": e.get("rule_quote", ""),
             "file": e.get("file"), "category": e.get("category"), "summary": e.get("summary"), "recorded_line": e.get("line"),
             "failure_scenario": e.get("failure_scenario", ""), "confidence": e.get("confidence"),
+            "root_cause": e.get("root_cause"), "context_hash": e.get("context_hash", ""),
             "code_line": e.get("code_line", ""), "same_code": bool(where), "line_now": where[0] if where else None, "id": e.get("id"),
         })
     crlib.save_json(out, result)

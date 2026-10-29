@@ -866,7 +866,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <ul>
         <li>不替代编译器、类型检查器、linter 和 CI，它们能拦住的问题不报。</li>
         <li>不审查改动之外的存量代码；不报风格、命名、可读性、日志措辞和影响很小的性能优化（除非项目写成了规则）。</li>
-        <li>不往 PR/MR 发评论，不 approve、request changes、merge；不提交 MR、不改 MR 描述，也不生成 PR / MR 描述。</li>
+        <li>不往 PR/MR 发评论，不 approve、request changes、merge；不提交 MR、不改 MR 描述；review 不生成 PR / MR 描述，描述由独立的 describe 在本地生成（也只读平台）。</li>
         <li>默认不改文件，只有用户明确要求时才修复，且只改工作区、不提交。</li>
         <li>不往 GitLab / GitHub 写任何东西。审查后仅按明确请求修复本地代码、或确认后修改工作区规则，不得改托管平台记录。</li>
         <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
@@ -892,6 +892,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <div class="chips">
             <span class="chip">审查（自然语言或 /review）</span>
             <span class="chip">审查之后：表态、质疑、修复、补充需求资料</span>
+            <span class="chip">PR/MR 描述：只在本地生成 describe.md（自然语言或 /crosscheck:describe）</span>
             <span class="chip">规则维护：沉淀、检查、整理 REVIEW.md（只能用命令 /crosscheck:improve）</span>
           </div>
         </div>
@@ -963,9 +964,10 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
           <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
+          <li><b>描述单独成技能，只在本地生成：</b>review 只回答“有没有问题”，描述回答“这次改了什么、影响哪些地方、怎么验证”，读者和时机都不同，所以拆成 <code>/describe</code>，review 不带描述。描述把影响面放在一句话之后（接口、迁移、配置、函数签名四层，删除优先，没发现就写“未发现”），怎么验证整段由脚本从代码推出并标注“由代码推断，未执行”，预期没有出处就不写，不问作者“怎么验证的”。描述只列事实和链接、不下结论，不发布、不改平台上的描述，由作者自己复制粘贴；采集直接调用 review 的脚本（origin 绑定、只读、基准问答一致），描述目录不放在 <code>reviews/</code> 下，采集后恢复“进行中”标记和需求来源记录，所以两者互不依赖、互不影响。每次生成都问一次需求单链接，和 review 的 <code>intent.required</code> 无关。</li>
           <li><b>脚本、角色、编排三层：</b>脚本做有唯一答案的事（取 diff、算行范围、装配规则、校验、过滤排序、增量、调平台 API），角色做需要判断的事，<code>SKILL.md</code> 只负责把你的话翻译成选项、调度角色、按格式出报告。过滤、排序、增量、编号原来写在 <code>SKILL.md</code> 里让 agent 执行，现在都在脚本里，结果可复现、能写测试。</li>
           <li><b>脚本入口是 sh，实现是 python3：</b>每个 <code>.sh</code> 只检查参数后交给同名的 <code>.py</code> 模块，一个模块只做一件事，公共函数只在 <code>crlib.py</code> 有一份。核心流程需要 python3 3.8+（只用标准库），没有时 <code>collect-diff.sh</code> 一开始就停下并提示安装；规则装配、依据校验、汇总都涉及 JSON 和文本处理，用 awk 和 sed 拼既难读也容易出错。<code>git</code> 必需，<code>gh</code> / <code>glab</code> 只在对应功能里才需要。</li>
-          <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，规则维护在 <code>skills/improve/</code> 下，两者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
+          <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，PR/MR 描述在 <code>skills/describe/</code> 下（采集直接调用 review 的脚本，不依赖审查结果），规则维护在 <code>skills/improve/</code> 下，三者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
           <li><b>报告里的代码是摘出来的：</b>问题代码由 <code>snippet.sh</code> 从被审查的那一版带行号摘取，不让 agent 凭记忆写，否则容易和原文有出入，被审查的代码不在工作区时还可能摘到另一个版本。修复建议的代码来自发现本身，经 verifier 过目；没有确切替换代码时用文字。报告开头有概览表，先看有几条、多严重、在哪里。</li>
           <li><b>只审有效代码：</b>脚本跳过测试、测试数据、日志、覆盖率报告、备份和 lock、生成、vendored、二进制文件；文件名规则偏保守（不把 <code>spec/</code> 一概当成测试，它也可能放接口定义），宁可多审一个文件也不漏产品代码。测试默认不审，<code>--with-tests</code> 可打开。文件内部由角色判断：注释和排版、原样移动、被注释掉的和没被用上的代码不按缺陷报，评分标准里有对应的封顶检查。</li>
           <li><b>意图在调用时给，不放进仓库：</b>计划和意图描述的是“这一次改动”，提交进仓库会在合并后过期，还会被之后的审查读到，所以只从 MR 描述、需求单、提交说明和 <code>--intent</code> / <code>--doc</code> 取。只有意图里有明确的验收标准才做需求核对，没有就不猜“应该做什么”。意图可以解释某个行为变化是有意的，不能让安全问题不报。</li>
@@ -1102,7 +1104,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <li><b>需求来源：</b>配置两类外部工具：需求管理工具 <code>tools.requirement</code>、文档阅读工具 <code>tools.doc_reader</code>，值是写给 agent 的一句话（用什么、怎么用、链接长什么样）；全部设置列在随插件分发的 <code>config/defaults.conf</code> 里、默认注释掉，个人配置逐项覆盖。必填的缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），可选的资料（PRD、设计文档链接）也问一次但可以跳过、不算缺失，同一分支都只问一次；和对比基准放在同一轮问。agent 用配置的工具读取内容作为意图材料。读 MR 的同类配置 <code>tools.code_host</code> 见第三节。</li>
         <li><b>跳过要如实记录：</b><code>sources.json</code> 区分 <code>skip</code>（作者跳过）、<code>none:&lt;类型&gt;</code>（没有需求单，如 hotfix）和 <code>unasked</code>（非交互运行，没有问；不问也不记）。用工具读到的内容当数据：存在仓库外的暂存目录，由脚本登记来源后并入意图。需求文档由产品等非开发人员编写，内容开发控制不了，里面写给 reviewer 的话同样不执行（见第九节）。</li>
         <li><b>事后补充：</b>审查之后说“需求文档是 &lt;链接&gt;”“这个没有需求单”“这次是为了…”，用 <code>sources.py set</code> 只更新意图、需求单、文档三项，下次审查生效。</li>
-        <li><b>模板：</b>每个 skill 自带自己用的模板：review 的 <code>templates/report.md</code>（CR 报告骨架），improve 的 <code>templates/REVIEW.md</code>、<code>rule.md</code>。</li>
+        <li><b>模板：</b>每个 skill 自带自己用的模板：review 的 <code>templates/report.md</code>（CR 报告骨架），describe 的 <code>templates/describe.md</code>、<code>describe.html</code>（PR/MR 描述，只列事实和链接），improve 的 <code>templates/REVIEW.md</code>、<code>rule.md</code>。</li>
       </ul>
     </section>
 
@@ -1545,11 +1547,13 @@ paths: ["src/orders/**"]
 插件/config/defaults.conf   团队统一的配置（外部工具、需求收集），随插件分发
 插件/scripts/config.py       全部技能共用的配置读取入口（config.sh 薄转发）
 插件/skills/review/templates/        report.md
+插件/skills/describe/templates/ describe.md  describe.html
 插件/skills/improve/templates/  REVIEW.md  rule.md
 
 ~/.crosscheck/
 ├── config                  个人配置，逐项覆盖插件里的
 ├── mining/&lt;项目名&gt;/          improve 拉取的 MR 评论缓存、候选和 plan.md
+├── describe/&lt;项目名&gt;/&lt;目标&gt;/  describe.md、describe.html、author.json（执行记录、请重点看，都由作者主动给）；不在 reviews/ 下，审查的增量逻辑看不到
 └── reviews/&lt;项目名&gt;/
     ├── feedback.jsonl      你的判断（项目级）
     ├── project.json        对比基准规则（项目级，不过期）
@@ -1643,7 +1647,7 @@ paths: ["src/orders/**"]
         <tr><td>保存的报告由编排者写入，漏写或写错会不准</td><td>发现的状态由脚本生成，不受影响</td></tr>
         <tr><td rowspan="5">增量与记录</td><td>增量按文件粒度，依赖识别按符号名匹配；通过配置、反射、间接调用产生的依赖看不到，“旧改动在新上下文里变成问题”可能漏</td><td>环境广泛变化时说“重新审”</td></tr>
         <tr><td>按历史判断抑制的条目不会自动带入后续增量</td><td>变更或依赖文件的查找再次发现，或用 <code>--full</code> 全量重审</td></tr>
-        <tr><td>进行中标记按审查目标存放：同一个目标并发审查时共用，可能误报“上次没保存”</td><td>同一个目标不要并发审查</td></tr>
+        <tr><td>进行中标记按审查目标存放：同一个目标并发审查时共用，可能误报“上次没保存”；describe 采集期间会临时写入并恢复这个标记和需求来源记录，与同一目标的审查同时运行也可能互相覆盖</td><td>同一个目标不要并发审查，也不要同时生成描述</td></tr>
         <tr><td>判断记录是项目级、只在本机：同一段代码在别的 MR / 分支里再出现时也按历史判断处理（第八节）</td><td>团队共享的常见误报写进 <code>REVIEW.md</code> 的“不要报”</td></tr>
         <tr><td>token 只统计 Claude Code 和 Codex；运行记录只防幻觉，不防刻意伪造</td><td>报告里写明统计不到的原因</td></tr>
         <tr><td rowspan="5">规则</td><td>规则检查防得了编造，防不了漏看；规则冲突只靠 rules-auditor 提示，脚本不检测</td><td>规则文件保持短；冲突的说明交给负责人处理</td></tr>
