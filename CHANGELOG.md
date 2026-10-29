@@ -2,58 +2,74 @@
 
 ## [0.3.0] - 未发布(试验性)
 
-一次审查产出两份东西:给开发者自己修的 CR 报告,和给 MR 评审人看的 MR 说明。依据是团队问卷:52% 的人卡在「改动太大、难以判断影响」,15% 缺需求背景,15% 缺验证手段(见 DESIGN.md 决策 22–26)。
+一次审查产出一份给开发者自己修的 CR 报告。依据是团队问卷:52% 的人卡在「改动太大、难以判断影响」,15% 缺需求背景,15% 缺验证手段(见 DESIGN.html)。
 
-**MR 说明**
+**移除 MR 说明生成与发布**
 
-- 新增 MR 说明(`mr-note.sh` → `mr.md`、`mr.html`):基本信息和需求链接、一句话、请重点看、阅读顺序、可跳过、影响面、需注意、可能相关的测试、CR 情况,30 行以内,包在 `crosscheck:begin/end` 标记里。只有事实和链接,不下结论。
-- 事实由脚本生成(`analysis_facts.py`):改了哪些函数、接口(识别 TS/JS、Go、Python、Java/Kotlin,其他语言退到函数上下文或文件级)、配置键(只看改动行)及签名变化,本仓库里的调用方(文本匹配,标明能力边界),迁移、配置、环境变量、依赖变化,生成代码、纯格式化、纯重命名、lock 文件,代码块编号和审查量。
-- 新角色 `analyst` 起草一句话和分组,`analysis_check.py` 核对引文、编号和禁用词,对不上的删掉。
-- CR 情况:已修复数量;未修复的严重和重要问题附作者的判断和理由,未表态的也列出;写明基于哪个提交,之后又有提交时标出。表态、`--fix`、重新审查后重新生成。
-- 代码位置在提交推送后带上 GitLab / GitHub 行链接;给出 `glab mr create/update`、`gh pr create/edit` 命令,由开发者自己执行,插件不提交 MR。
-- 配置 `tools.doc_publisher` 后可生成网页版,同意一次后随 CR 报告更新同一个页面。
+- 整个插件不再生成 PR / MR 描述(MR 说明):review 只做审查,产出 CR 报告;不设 `/describe`。删除 `mr_note.py`、`mr-note.sh`、`mr.md`、`mr.html` 模板、`analyst` 角色与 `analysis_check.py`、`--tested`,以及 `tools.mr_description_publisher` 和一切发布路径。
+- `analysis_facts.py` 保留,只服务审查(代码块编号 H1… 与调用方搜索):去掉需注意、可跳过、审查量和相关测试清单,不再读 `skipped.patch`。`sources.py` 保留需求单/需求文档收集,`set` 只剩 `intent` 与 `ticket`/`doc`。
+- 审查上下文哈希:`MR_NOTE_ONLY` 改名 `NOT_REVIEW_INPUT`,只剩 `mine-*` 与 `rules-write*`;`analysis_facts.py`、`sources.py` 此前影响报告却未计入哈希,现在计入。
+- `analysis_facts.py` 运行失败不再静默:输出 `NOTE:` 并记为流程缺项(`completeness.txt`、`incomplete=`)。
+- quick 深度全程由主线程自己执行(第 1–3 遍和核实),不启动任何子代理,也不把流程或其中某一步交给子代理;要独立查找和核实用 standard。
+- 原有的与 MR 说明无关的配置、环境变量、安装布局和哈希测试从 `test_mr_note.py` 迁入 `test_config.py`,需求来源与 GitHub 上下文测试迁入 `test_sources.py`。
+
+**主体精简与发布边界**
+
+- 审查技能统一使用 `review`,规则维护技能统一使用 `improve`;插件调用为 `/crosscheck:review`、`/crosscheck:improve`(Codex 用 `$` 前缀),拷贝安装对应 `/review`、`/improve`。源码目录、模板引用和三宿主 hook 路径同步,不提供旧名兼容。
+- 收集问答/握手移到 `references/collection-protocol.md`,保存记录并入 `report-format.md`;主体保留触发条件、核心流程及质量门槛。
 
 **设计页**
 
-- `CR-DESIGN.html` 的深浅色切换改为标题右上角的紧凑太阳/月亮图标按钮,移除独立占位行;保留主题记忆、悬停提示与键盘操作。
-- 流程图把“查找候选”和 analyst 的“MR 说明”分组,两者仍在同一阶段并行,候选连线只从查找组进入 verifier。执行日志桌面填满卡片剩余高度,移除固定高度导致的底部空白;窄屏按内容展开,折叠仅保留标题。纠正缓存成本、厂商角色数量及 80 分阈值的依据,不新增 reviewer 或投票。
+- `DESIGN.html` 的深浅色切换改为标题右上角的紧凑太阳/月亮图标按钮,移除独立占位行;保留主题记忆、悬停提示与键盘操作。
+- 设计页只保留 `DESIGN.html` 一份(原 `CR-DESIGN.html` 改名,`DESIGN.md` 删除并把没覆盖的内容并入,新增「已知限制」一节);README 只讲用法。审查角色改成一张表;「CR 规则」一节补了好规则的标准和样例,以及沉淀规则、整理 `REVIEW.md` 两套动画演示。
+- 流程图的候选连线只从查找组进入 verifier。执行日志桌面填满卡片剩余高度,移除固定高度导致的底部空白;窄屏按内容展开,折叠仅保留标题。纠正缓存成本、厂商角色数量及 80 分阈值的依据,不新增 reviewer 或投票。
+
+**托管目标与命令约束**
+
+- 审查、历史评论沉淀、辅助 API 使用统一 origin 解析;应用 Git URL 重写,平台调用显式绑定主机与项目,链接主机/仓库不匹配在网络请求前停止。code_host 的 request/resolve 均校验,失败只允许同 origin 的 Git 回退。
+- 保留 HTTP(S) 协议、端口及 GitLab 部署子路径,SSH 传输端口不误作 API 端口;无 origin 允许本地审查,停止平台读取。gitlab_hosts 仅识别 GitLab/子路径。
+- review/improve frontmatter 仅给具体 Git 读取命令免批准授权,正文限定远端只读并保留明确授权的本地 fix/apply;不新增 hook 或全局权限,不宣称强制工具隔离或网络沙箱。
 
 **审查结果可靠性**
 
+- 修复 GitHub 过期行内评论使用 `original_line` 时取错代码版本的问题:配套使用 `original_commit_id`,缺少对应提交时保留未知,避免误判评论后的代码改动。
+- 明确 standard、全量和全部改动之间的参数转换,避免自行升级深度。
+- 提交范围的 `--fix` 限制移到修复入口:即使范围的 head 就是当前 HEAD,也不修改工作区,只给修复建议。
 - 运行记录与复现结论分开:只有记录、`reproduced` 和实际观察说明齐备才标已复现;`refuted` 否决该场景,`inconclusive` 保留日志且不冒称复现,可凭充分代码证据判断。80 分为操作性证据评分,不是正确概率。
 - 历史不修决定与事实置信度分开保存,抑制前核对当前场景、调用环境与前提;本轮确认成立的发现不因过去判为不成立而直接消失,已抑制不算已解决。
 - 原始候选复用 `finders/` 保存,增加来源映射与合并理由,补回未映射候选及原始场景/待核项;自动去重仅接受关键字段等价,不再靠附近位置和相似摘要判断同根因。保存候选、历史和运行记录以便追查。
-- reviewer 回复同时声明覆盖情况;每批 15 条是查找预算,达到时通过现有 INCOMPLETE 标记说明覆盖可能受限,不编造未交条数,与展示上限分开。CR 报告、MR 说明及本地记录保留限制。
+- reviewer 回复同时声明覆盖情况;每批 15 条是查找预算,达到时通过现有 INCOMPLETE 标记说明覆盖可能受限,不编造未交条数,与展示上限分开。CR 报告及本地记录保留限制。
 
 **模板**
 
-- 每个 skill 自带自己用的模板:`skills/cr/templates/` 放 `report.md`(CR 报告的骨架)、`mr.md`、`mr.html`(MR 说明),`skills/cr-rules/templates/` 放 `REVIEW.md`(从 cr 挪过来)和 `rule.md`(一条规则的样例);`report-format.md` 只留填写规则。MR 说明的结构从 `mr_note.py` 抽成模板,团队可以在自己的插件市场里改 `skills/cr/templates/mr.md` 适配自己的 MR 格式;影响面、阅读顺序、链接、CR 情况等事实仍由脚本算好再填。输出和抽成模板之前逐字一致,`tests/test_mr_templates.py` 用存下来的样例核对(DESIGN.md 决策 27)。
+- 每个 skill 自带自己用的模板:`skills/review/templates/` 放 `report.md`(CR 报告的骨架),`skills/improve/templates/` 放 `REVIEW.md`(从 review 挪过来)和 `rule.md`(一条规则的样例);`report-format.md` 只留填写规则(DESIGN.html)。
 
 **需求来源**
 
-- 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等)、`tools.doc_publisher`(文档发布,发布 MR 说明网页),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`ticket`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
-- 新增 `--source`、`--source-dir`、`--doc`(可多次,`--plan` 同义)、`--tested`。
+- 配置按工具的用途写一句话说明(用什么工具、怎么用,原样交给 agent):`tools.requirement`(需求管理,读需求单)、`tools.doc_reader`(文档阅读,读 PRD、技术方案等),值写成一句给 agent 的提示词(链接识别取自其中网址的域名);`intent.required` 写每次都要收集的类别(`ticket`、`doc`)。缺了在审查开始前问一次(贴链接 / 没有需求单 / 跳过),同一分支记住,90 天过期;agent 用配置的工具读取内容并入意图。
+- 新增 `--source`、`--source-dir`、`--doc`(可多次,`--plan` 同义)。
 - GitHub PR 读取关联 issue(含验收标准)和 PR 评论、review,与 GitLab 对齐。
 
 **代码托管工具与对比基准**
 
-- 新增可选配置 `tools.code_host`:一句给 agent 的提示词,说明用哪个只读工具读 MR / PR。配置后链接形式的 MR / PR(GitHub、GitLab 的链接也一样)由它读取标题、描述、讨论、目标分支和源引用,写成固定格式的 `code-host.json`(两段式:`NEED_CODE_HOST` → `--code-host-dir`)。编号、仓库、平台、网址从链接解析,仓库要和 origin 对得上,分支名过 `git check-ref-format`,head 以只读 fetch 到的为准(和 agent 给的不一致就不用),基准由脚本算,不取 agent 的;讨论作者只存哈希、去掉机器人,标 `source=code_host`,其「已答复」「已解决」不让发现不报。核对不过或 `status=failed` 时退回 git 拉取,并在 NOTE、报告和 MR 说明里写明「MR 信息没有读到」。不写时照旧用 gh / glab(决策 26)。
+- 新增可选配置 `tools.code_host`:一句给 agent 的提示词,说明用哪个只读工具读 MR / PR。配置后链接形式的 MR / PR(GitHub、GitLab 的链接也一样)由它读取标题、描述、讨论、目标分支和源引用,写成固定格式的 `code-host.json`(两段式:`NEED_CODE_HOST` → `--code-host-dir`)。编号、仓库、平台、网址从链接解析,仓库要和 origin 对得上,分支名过 `git check-ref-format`,head 以只读 fetch 到的为准(和 agent 给的不一致就不用),基准由脚本算,不取 agent 的;讨论作者只存哈希、去掉机器人,标 `source=code_host`,其「已答复」「已解决」不让发现不报。核对不过或 `status=failed` 时退回 git 拉取,并在 NOTE 和报告里写明「MR 信息没有读到」。不写时照旧用 gh / glab(决策 26)。
 - 对比基准默认一律用 origin 上最新的目标分支:所有路径(当前分支、其他分支、git 回退、`tools.code_host`)先拉取再算 merge-base,拉取失败才用本地已有的并输出 NOTE;报告的 SCOPE 行写明基准来自远端最新、本地缓存、平台给出还是用户指定(决策 21)。
-- 基准能自动确定就直接审,不确定才问(DESIGN.md 决策 28):当次明确选择优先,其次是明确保存的项目规则;PR/MR 使用已知目标分支,本地用分支创建 reflog 及必要的同一时刻 HEAD 切换记录识别来源,验证祖先关系后取远端最新版本。不用 upstream 或最近分支猜来源,记录缺失/歧义才 `BASE_UNSET`。默认仅本次,询问时提示是否记住;只有明确 `--base-rule target|branch:<分支>` 才保存,自动识别不保存。新增 `--base-target` 表示本次使用目标/默认分支;`--ask-base` 重新选择默认不改旧记录。无共同祖先、分支缺失或无法推断合入前版本时 `BASE_FAILED` 非零停止并给恢复指引;非交互无法确认来源时标「基准未确认」,计算失败仍停止。
+- 基准能自动确定就直接审,不确定才问(DESIGN.html):当次明确选择优先,其次是明确保存的项目规则;PR/MR 使用已知目标分支,本地用分支创建 reflog 及必要的同一时刻 HEAD 切换记录识别来源,验证祖先关系后取远端最新版本。不用 upstream 或最近分支猜来源,记录缺失/歧义才 `BASE_UNSET`。默认仅本次,询问时提示是否记住;只有明确 `--base-rule target|branch:<分支>` 才保存,自动识别不保存。新增 `--base-target` 表示本次使用目标/默认分支;`--ask-base` 重新选择默认不改旧记录。无共同祖先、分支缺失或无法推断合入前版本时 `BASE_FAILED` 非零停止并给恢复指引;非交互无法确认来源时标「基准未确认」,计算失败仍停止。
 - 基准、必填的需求来源、可选的需求资料(默认的需求文档:PRD、设计文档链接,新增提示行 `SOURCES_OPTIONAL:`)放在同一轮问完;可选的可以跳过、不算缺失,同一分支跳过后不再问;什么都不需要问时不打断用户。
 - 新增 `--base-sha <提交>`(「对比基准是 abc1234」):短哈希也行,必须是 head 的祖先,优先于任何自动计算,对本地分支、提交范围、PR/MR 都生效;它变了算作全量重审。
-- 已合入的 MR / PR 能正确审查:用 merge commit 合入时在目标分支的 first-parent 链上找到合入提交,用它的第一个父提交算基准(`crlib.pick_base`),squash / rebase 合入照常;找不到合入提交时输出 BASE_FAILED 并停止,不给出空 diff。报告开头写明「这个 MR 已合入」,MR 说明照常生成并提示描述已无法影响合入,`--fix` 不改代码。MR 的 diff 为空时一律输出 NOTE,不当成「0 条发现」。
+- 已合入的 MR / PR 能正确审查:用 merge commit 合入时在目标分支的 first-parent 链上找到合入提交,用它的第一个父提交算基准(`crlib.pick_base`),squash / rebase 合入照常;找不到合入提交时输出 BASE_FAILED 并停止,不给出空 diff。报告开头写明「这个 MR 已合入」并提示描述已无法影响合入,`--fix` 不改代码。MR 的 diff 为空时一律输出 NOTE,不当成「0 条发现」。
 
 **配置**
 
+- 团队配置迁至插件级 `config/defaults.conf`,唯一解析器迁至 `scripts/config.py`,`scripts/config.sh` 为薄转发;review/improve 共用入口。保留 `CROSSCHECK_HOME`、`CROSSCHECK_CONFIG`、`CROSSCHECK_PLUGIN_CONFIG` 的覆盖语义;增量指纹包含共享实现、默认模板和实际配置文件。安装指南与复制测试夹具保留完整共享布局。
 - 配置键改名:按外部工具的用途分为 `tools.*`(需求管理、文档阅读、文档发布)和 `intent.required`,`--source` 的类别为 `ticket` 和 `doc`。
-- `skills/cr/crosscheck.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
+- `config/defaults.conf` 成为唯一的完整模板:所有设置都列出、默认全部注释掉,个人配置 `~/.crosscheck/config` 格式相同、可直接复制过去;`templates/config.example` 删除。值为空的行视为没配置。
 - README 和常用说法改成自然语言的用法,脚本参数只留在 `SKILL.md` 和 README 末尾的「内部参数对照」。
 
 **收敛**
 
-- 工程化收敛,脚本从约 7100 行降到约 6000 行,每个机制要么对应问卷里的痛点或精确率,要么有业界做法支撑(DESIGN.md 决策 20):
-  - 去掉采纳收集:`adoption.sh`、`judge` 角色,以及 MR 说明末尾的反馈问题和使用统计。
+- 工程化收敛,脚本从约 7100 行降到约 6000 行,每个机制要么对应问卷里的痛点或精确率,要么有业界做法支撑(DESIGN.html):
+  - 去掉采纳收集:`adoption.sh`、`judge` 角色,以及使用统计。
   - 去掉 `stats.sh` 汇总统计,判断记录和 `rejected.json` 照常保存。
   - 去掉风险分级和「建议用 deep」(`risk.txt`、`risk_paths`、`SUGGEST`);`REVIEW.md` 头部只剩 `skip`、`limits`,平台判断去掉 `REVIEW.md` 的 `platform`。
   - 去掉同根因合并展示(`display-groups.json`、`report.json`、`report_groups.py`)。
@@ -73,8 +89,10 @@
 
 **规则**
 
-- 新增规则维护命令 `cr-rules`,管三件事:沉淀、检查现有规则、起草或整理根目录 `REVIEW.md`(原来 cr 里的「检查一下我们的规则」并入这里)。沉淀从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里沉淀规则。脚本核对证据(原文摘录、至少 2 个 MR、评论后确实改了代码或讨论已解决)、写法(必须/禁止、严重级别、不要报边界)和去重,按出现次数和评审人数排序列出候选和准入检查结果;选中的写进 `.agents/rules/<主题>.md`。只能用命令调用(`/crosscheck:cr-rules`、`$cr-rules`),不由自然语言触发;只有 cr 可以自然语言触发。替换了原来靠 agent 手动总结规则的做法。
+- 新增规则维护命令 `improve`,管三件事:沉淀、检查现有规则、起草或整理根目录 `REVIEW.md`(原来 review 里的「检查一下我们的规则」并入这里)。沉淀从最近一个季度已合并 MR 的人工评论和 crosscheck 判断记录里沉淀规则。脚本核对证据(原文摘录、至少 2 个 MR、评论后确实改了代码或讨论已解决)、写法(必须/禁止、严重级别、不要报边界)和去重,按出现次数和评审人数排序列出候选和准入检查结果;选中的写进 `.agents/rules/<主题>.md`。只能用命令调用(`/crosscheck:improve`、`$improve`),不由自然语言触发;只有 review 可以自然语言触发。替换了原来靠 agent 手动总结规则的做法。
 - 审查规则来源新增 `.agents/rules/`(frontmatter `paths` 或 `globs` 定范围,支持「不要报」一节)。
+- `improve` 沉淀改成先生成 `plan.md` 计划:每条候选有「去向」(`.agents/rules/<主题>.md`,或某目录 `REVIEW.md` 的「每次都要检查」「不要报」)和「动作」(默认待定);你和 agent 对话修改,`rules-write.py --check` 预演,确定后 `--apply` 才写入,任一块有错整批不写;脚本对 `REVIEW.md` 只在指定章节追加一行并带来源注释。删除 `--pick`、`--edit`。`REVIEW.md` 模板按官方写法收紧,放哪按数量和范围分(核心短清单进 `REVIEW.md`,成批、按路径限定的进 `.agents/rules`)。
+- `improve` 不带参数先列出三件事让你选,说「沉淀」或带时间范围才开始;只能用命令调用,不由自然语言触发。当场定的规则写进对应目录的 `REVIEW.md`(先查重、带来源注释、范围写窄),批量沉淀的写进 `.agents/rules/<主题>.md`;沉淀的准入清单改为候选自检必须填全、判断记录结论要与类别一致,写入时去重、只往带标记的文件追加。根目录 `REVIEW.md` 头部没写完整时会提示设置没有生效。
 - 规则维护的「整理 REVIEW.md」只处理 `skip`、`limits` 两项头部设置。
 
 **只读、流程完整性和模型**
@@ -86,21 +104,19 @@
 
 **评测后的修复**
 
-- 用公开 PR 做了三轮评测(8 个有已知 bug 的 PR 加 4 个干净对照)。第二轮发现宿主模型常常跳过子代理、自己读一遍就出结论,也不保存记录;SKILL.md 改为「流程不能省」:standard 和 deep 只要宿主能启动子代理就必须启动,改动只有一两行也一样;保存记录和 MR 说明不能跳过,除非用户明确说不保存。
+- 用公开 PR 做了三轮评测(8 个有已知 bug 的 PR 加 4 个干净对照)。第二轮发现宿主模型常常跳过子代理、自己读一遍就出结论,也不保存记录;SKILL.md 改为「流程不能省」:standard 和 deep 只要宿主能启动子代理就必须启动,改动只有一两行也一样;保存记录不能跳过,除非用户明确说不保存。
 - 子代理回复里说自己还有后台任务的,算没有返回;非交互运行能选时用前台方式启动子代理,避免会话提前结束、没有报告。
 - 0 条发现的报告也用统一结构,不写没经过核实的判断。
 - reviewer 只负责找、不负责判:不再读误报清单,拿不准是否触发、base 是否已有、别处是否有守卫的照常提交,交给 verifier。评测里查找阶段漏掉的比核实否决的多得多。
 - reviewer 对每块有效改动过一遍检查点:去掉或缩小的保护、读-改-写并发、包装层绕回自己、违反写明的约定、新实现处理空输入不一致、搬移或重命名时丢掉的行为。
-- MR 说明和 CR 报告一样给出本地版本链接(`mr.md`、`mr.html`,`mr-note.sh` 新增 `md_link=`);配置了 `tools.doc_publisher` 时自动发布网页版,不再询问。开发者可以复制内容进 MR 描述,或直接贴网页链接。
 - 修复宿主把命令写成 `{ sh save-review.sh …; } 2>&1 | grep …` 时 hook 认不出来、token 没统计。
 - 修复 `log/`、`logs/` 目录里的源代码被当成日志跳过(如 Go 的 `pkg/plugins/log/`),现在只跳过其中不是源代码的文件。
 - 评分标准新增例外:本次改动破坏了接口写明的约定或去掉了原有保护(锁、事务、过滤条件、校验、await)的,不按「现在没人这样调用」否决,严重程度最高「重要」;reviewer 也要提交这类倒退。
-- 讨论里已经有人提出、代码仍没改的发现保留下来,报告和 MR 说明里标「讨论中已有人提出」(`raised_in_discussion`)。
+- 讨论里已经有人提出、代码仍没改的发现保留下来,报告里标「讨论中已有人提出」(`raised_in_discussion`)。
 - 新增 `--non-interactive`(或环境变量 `CR_NONINTERACTIVE=1`):不问需求来源,也不记「没问过」为跳过。
 - 恢复 Codex 的 token 统计(含子代理);修复核对仓库状态时删掉审查标记、导致 token 没统计的问题。
 - 上次的发现重新核实时以这次的结果为准,不成立的记为已解决。
-- 修复 PR 模式下没有代码行链接、本地 GitLab 带端口的链接,以及 MR 说明的重复内容。
-- 修复仓库改名或转移后链接指向新地址:输入是网址时,`meta.txt` 的 `url` 以用户给的地址为准(GitHub 和 GitLab),代码行链接和 MR 说明不再指向平台返回的新名字。
+- 修复仓库改名或转移后链接指向新地址:输入是网址时,`meta.txt` 的 `url` 以用户给的地址为准(GitHub 和 GitLab),不再指向平台返回的新名字。
 - 同一根因、同一改法出现在多处时只报一条,其余位置写进新字段 `also_at`,报告的「其他位置」列出;verifier 逐处核对,不在改动行上的位置由 `aggregate.py` 去掉。
 - 严重程度按后果类型定义(数据丢失或错误写入、崩溃或未处理的异常、约定违反导致现有调用方崩溃、安全边界被破坏属于严重),verifier 不再因影响范围窄或后果尚未出现而降级;「破坏约定」的上限只适用于现有调用方还没出错的情况。
 
@@ -109,18 +125,17 @@
 - 进行中标记:`collect-diff.sh` 真正开始审查时在记录目录写 `pending`,`save-review.sh` 保存成功后删除;下次审查同一目标时发现标记还在,输出 `NOTE`,提示上一次没有保存、很可能提前结束,这次照常重新审查。问需求来源、对比基准、改动过大的那几次不写标记。
 - `SKILL.md` 要求非交互运行(`claude -p`、`codex exec`、CI)前台启动子代理,等每个子代理的最终 JSON 都回来再进入下一步;子代理全部返回之前不写报告、不保存记录。
 - 实际模型:`usage.py` 从会话记录里读实际出现的模型名(Claude Code 读回复里的 `model`,Codex 读 `turn_context`;只取名字),写成 `usage_models`;消耗行新增「实际模型」。配置的 `model.finder` / `model.verifier` 没有出现在记录里时(不区分大小写,按子串对),报告末尾加一行「模型与配置不一致」,`save-review.sh` 同时输出 `model_note=`。
-- MR 说明在保存时直接写进记录目录(`mr.md`、`mr.html`),`mr-note.sh` 传记录目录或 `review_dir` 都落在同一处;缺了其中任何一个算流程不完整(`incomplete=`)。
 
 **核实口径**
 
 - `aggregate.py` 合并同一根因的重复发现:位置有交集,或同一文件里相距 5 行以内,且摘要相似度不低于 0.85 才合并,留下分高的一条,另一条的位置并进 `also_at`。宁可漏合并也不误合并;规则发现不走这里。
-- 原有问题(`pre_existing`):verifier 核实缺陷真实存在、但 base 里已以同样结果存在的,标 `pre_existing: true`,不再打 0 分;过了 80 分门槛后单列在报告「改动代码里的原有问题」一节(`report-lines.sh` 的 `PREEXIST:` 行),不计入发现数、不进概览表和 MR 说明。被本次改动变得更容易触发或范围变大的,仍算本次引入。借鉴 Anthropic 内部代码审查实践里的 Pre-existing 标签。
+- 原有问题(`pre_existing`):verifier 核实缺陷真实存在、但 base 里已以同样结果存在的,标 `pre_existing: true`,不再打 0 分;过了 80 分门槛后单列在报告「改动代码里的原有问题」一节(`report-lines.sh` 的 `PREEXIST:` 行),不计入发现数、不进概览表。被本次改动变得更容易触发或范围变大的,仍算本次引入。借鉴 Anthropic 内部代码审查实践里的 Pre-existing 标签。
 - 严重程度统一按后果类型定级:正常输入稳定触发的 500 或未处理异常是严重;`finding-schema.md` 加了几条虚构的对照例子;措辞轻重、个人觉得不严重也不是降级的理由,verifier 只在后果类型判断错时调整级别。
-- `REVIEW.md` 模板新增「出问题长什么样」一节,由代码负责人写这块代码失败时是什么样(文档写错事实、配置接错路由或开关、迁移不可回滚),只用来说明后果类型,不用于挑风格、命名上的小毛病。`cr-rules` 起草或整理 `REVIEW.md` 时会提醒补这一节。借鉴 Anthropic 文章里 REVIEW.md 写「what failure looks like」的做法。
+- `REVIEW.md` 模板新增「出问题长什么样」一节,由代码负责人写这块代码失败时是什么样(文档写错事实、配置接错路由或开关、迁移不可回滚),只用来说明后果类型,不用于挑风格、命名上的小毛病。`improve` 起草或整理 `REVIEW.md` 时会提醒补这一节。借鉴 Anthropic 文章里 REVIEW.md 写「what failure looks like」的做法。
 
 ## [0.2.0] - 未发布(试验性)
 
-意图、依据校验、脚本化汇总、项目级判断和采纳率。开发过程中加过的一批机制,端到端跑下来问题多出在机制之间的衔接点,而业界没有人这样做,发布前收敛掉了(见 DESIGN.md 决策 20)。核心审查流程需要 python3(3.8+)。
+意图、依据校验、脚本化汇总、项目级判断和采纳率。开发过程中加过的一批机制,端到端跑下来问题多出在机制之间的衔接点,而业界没有人这样做,发布前收敛掉了(见 DESIGN.html)。核心审查流程需要 python3(3.8+)。
 
 **审查流程**
 
@@ -170,9 +185,9 @@
 - 没有 python3 时一开始就用中文提示安装;GitLab / GitHub 拉取失败时列出试过哪些路径(没装、没登录还是读不到);提示里的时间改成中文日期。
 - 修正几处文档和代码不一致:SKILL.md 的深度参数写成 `--depth quick|deep`;「深挖几个文件」不再覆盖整个目标的增量基准;去掉「规则元数据」「SETTINGS 块」「reference_only」等残留;`save-review.sh` 兼容 Python 3.8。
 
-- 主推自然语言用法,报告第一行写明审查范围;说「cr 帮助」可以看常用说法。报告之后的回复有了固定处理方式(`after-report.md`)。
+- 主推自然语言用法,报告第一行写明审查范围;说「review 帮助」可以看常用说法。报告之后的回复有了固定处理方式(`after-report.md`)。
 - 私有化 GitLab:新增配置文件 `~/.crosscheck/config`,`gitlab_hosts` 支持子路径和端口;平台判断顺序固定。
-- 对比基准以远端最新为准:本地分支和分支名审查前先从 origin 拉取基准分支(只更新远程跟踪分支),拉取失败时提示可能过期;本地审查也支持 `--base <分支>`;develop、release/* 这类长期分支比默认分支更近时输出 `BASE_CHOICE`,由 agent 问用户。见 DESIGN.md 决策 21。
+- 对比基准以远端最新为准:本地分支和分支名审查前先从 origin 拉取基准分支(只更新远程跟踪分支),拉取失败时提示可能过期;本地审查也支持 `--base <分支>`;develop、release/* 这类长期分支比默认分支更近时输出 `BASE_CHOICE`,由 agent 问用户。见 DESIGN.html。
 - Hook 仅在结束脚本成功执行后解除保护,支持 exec_command 和多种补丁输入,识别常见 shell 字面路径写入,处理 Cursor 失败退出码。去掉了已不再使用的 Task/Agent 分支。hook 只用各家文档里写明的事件、工具名和字段:Codex 改用单独的 `hooks/codex-hooks.json`(不再注册它没有的 `PostToolUseFailure`);Cursor 的 `preToolUse` 只匹配 `Write`、`Delete`,去掉了读取 `stop` 里未写明用量字段的统计。token 未统计时写明原因:hook 没有运行(没装,或 Codex 里还没用 `/hooks` 信任),还是运行了但读不到用量。
 - 插件不往 GitLab / GitHub 写任何东西;审查后唯一的写操作是用户确认后改工作区的规则文件。
 - 去掉 `dismiss.sh`(用 `feedback.sh invalid`)。

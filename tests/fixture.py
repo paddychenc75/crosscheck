@@ -15,7 +15,9 @@ import textwrap
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS = os.path.join(os.path.dirname(HERE), "skills", "cr", "scripts")
+PLUGIN = os.path.dirname(HERE)
+SCRIPTS = os.path.join(PLUGIN, "skills", "review", "scripts")
+SHARED_SCRIPTS = os.path.join(PLUGIN, "scripts")
 MOCK_BIN = os.path.join(HERE, "bin")
 
 
@@ -39,6 +41,35 @@ class Base(unittest.TestCase):
         })
         # 默认 PATH 里没有 glab / gh,需要时用 use_mock_glab()
         env["PATH"] = ":".join(p for p in env.get("PATH", "").split(":") if not (os.path.exists(os.path.join(p, "glab")) or os.path.exists(os.path.join(p, "gh"))))
+        # 测试用 git 包装器只允许本地传输；平台身份与本地裸仓库传输分开模拟。
+        real_git = shutil.which("git", path=env["PATH"])
+        bindir = Path(self.tmp, "git-bin")
+        bindir.mkdir()
+        wrapper = bindir / "git"
+        wrapper.write_text('''#!/usr/bin/env python3
+import os, subprocess, sys
+args = sys.argv[1:]
+real = os.environ["TEST_REAL_GIT"]
+command = next((x for x in args if x in ("fetch", "push", "ls-remote", "clone")), "")
+if command:
+    i = args.index(command)
+    prefix = args[:i]
+    if command == "clone":
+        destinations = args[i+1:]
+        if any("://" in x or "@" in x for x in destinations):
+            sys.exit(1)
+    else:
+        u = subprocess.run([real] + prefix + ["remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+        if "://" in u or "@" in u:
+            local = subprocess.run([real] + prefix + ["config", "--get", "crosscheck.testLocalOrigin"], capture_output=True, text=True).stdout.strip()
+            if not local:
+                sys.exit(1)
+            args = [local if x == "origin" else x for x in args]
+os.execv(real, [real] + args)
+''')
+        wrapper.chmod(0o755)
+        env["TEST_REAL_GIT"] = real_git
+        env["PATH"] = str(bindir) + ":" + env["PATH"]
         self.env = env
 
     def tearDown(self):
@@ -52,8 +83,28 @@ class Base(unittest.TestCase):
             f.write(textwrap.dedent(text))
 
     def mock_api(self, path, data):
-        with open(os.path.join(self.mock, "api", api_key(path) + ".json"), "w") as f:
-            json.dump(data, f, ensure_ascii=False)
+        # 老样例使用 :id；实际请求必须使用显式项目路径。
+        paths = [path]
+        if "projects/:id/" in path:
+            for repo in ("eng%2Fshop", "acme%2Facme-kit", "acme%2Fshop"):
+                paths.append(path.replace("projects/:id/", "projects/" + repo + "/"))
+        for item in paths:
+            with open(os.path.join(self.mock, "api", api_key(item) + ".json"), "w") as f:
+                json.dump(data, f, ensure_ascii=False)
+
+    def install_plugin(self):
+        """复制完整运行布局,安装路径含空格;不复制缓存或测试输出。"""
+        target = Path(self.tmp, "installed crosscheck")
+        for name in ("config", "scripts", "skills"):
+            shutil.copytree(Path(PLUGIN, name), target / name, ignore=shutil.ignore_patterns("__pycache__"))
+        return target
+
+    def run_config(self, *args, check=True):
+        r = subprocess.run(["sh", os.path.join(SHARED_SCRIPTS, "config.sh")] + list(args),
+                           cwd=self.tmp, env=self.env, capture_output=True, text=True)
+        if check and r.returncode != 0:
+            self.fail("config.sh 失败:\n%s\n%s" % (r.stdout, r.stderr))
+        return r
 
     def run_script(self, name, *args, cwd=None, check=True, env=None):
         r = subprocess.run(["sh", os.path.join(SCRIPTS, name)] + list(args), cwd=cwd or self.tmp, env=env or self.env,
@@ -197,3 +248,23 @@ class ProjectFixture(Base):
         rd = self.review_dir(r.stdout)
         self.run_script("collect-rules.sh", rd)
         return rd, r.stdout
+
+
+class ShopRepo(Base):
+    """main 上有 api/orders.ts 和调用方,feature 分支改了接口签名;提交说明里带需求单链接。"""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("shop", {
+            "api/orders.ts": "export function listOrders(page: number) {\n  return page\n}\n",
+            "report/daily.ts": "import { listOrders } from '../api/orders'\nexport const x = listOrders(1)\n",
+        })
+        self.git(self.repo, "switch", "-qc", "feature")
+        self.commit(self.repo, {"api/orders.ts": "export function listOrders(opts: { cursor?: string }) {\n  return opts\n}\n",
+                                "config/app.yml": "order:\n  cursor:\n    enabled: true\n"},
+                    "改为游标分页 https://tickets.acme.example.com/story/42")
+        self.env["CR_FETCH"] = "0"
+
+    def collect(self, *args, check=True):
+        r = self.run_script("collect-diff.sh", "--base", "main", *args, cwd=self.repo, check=check)
+        return r, (self.review_dir(r.stdout) if r.returncode == 0 else None)

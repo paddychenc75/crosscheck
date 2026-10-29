@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/skills/cr/scripts/guard.sh\"",
+            "command": "sh \"${PLUGIN_ROOT}/skills/review/scripts/guard.sh\"",
             "timeout": 10
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/skills/cr/scripts/guard.sh\"",
+            "command": "sh \"${PLUGIN_ROOT}/skills/review/scripts/guard.sh\"",
             "timeout": 10
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/skills/cr/scripts/guard.sh\"",
+            "command": "sh \"${PLUGIN_ROOT}/skills/review/scripts/guard.sh\"",
             "timeout": 10
           }
         ]

@@ -1,4 +1,4 @@
-"""analysis_facts.py:MR 说明的事实部分(符号、调用方、需注意、可跳过、审查量)。"""
+"""analysis_facts.py:审查用的事实(代码块编号、符号、调用方)。"""
 import json
 import os
 
@@ -49,7 +49,7 @@ class Languages(Facts):
         self.assertEqual([c["file"] for c in s["callers"]], ["src/report.ts", "src/report.ts"])
         self.assertEqual(s["callers_total"], 2)
         self.assertFalse(any(c["file"] == "src/orders.ts" and c["line"] == s["line"] for c in s["callers"]), "不含定义行本身")
-        self.assertEqual(s["tests"], [{"file": "src/orders.test.ts", "changed": False}])
+        self.assertNotIn("tests", s)
         self.assertEqual(self.sym(data, "totalCount")["change"], "body_only")
         self.assertEqual(self.sym(data, "freshOne")["change"], "added")
         d = self.sym(data, "dropMe")
@@ -57,7 +57,8 @@ class Languages(Facts):
         self.assertEqual([c["file"] for c in d["callers"]], ["src/report.ts", "src/report.ts"])
         h = self.sym(data, "helper")
         self.assertEqual((h["exported"], h["callers"]), (False, []))
-        self.assertTrue(any(a["type"] == "signature" and "listOrders" in a["detail"] for a in data["attention"]))
+        for gone in ("attention", "skippable", "effort"):
+            self.assertNotIn(gone, data)
         hid = s["hunk"]
         self.assertIn("listOrders", next(x for x in data["hunks"] if x["id"] == hid)["symbols"])
 
@@ -123,7 +124,7 @@ class Callers(Facts):
         self.assertTrue(dup["ambiguous"])
         self.assertEqual([c["file"] for c in dup["callers"]], ["src/use.ts"])
 
-    def test_in_diff_and_changed_test(self):
+    def test_in_diff_marks_callers_in_the_changed_files(self):
         repo = self.make_repo("indiff", {
             "src/a.ts": "export function listOrders(p: number) {\n  return p\n}\n",
             "src/b.ts": "listOrders(1)\n",
@@ -137,7 +138,7 @@ class Callers(Facts):
         data, _ = self.facts(repo, "feature")
         s = self.sym(data, "listOrders")
         self.assertEqual({(c["file"], c["in_diff"]) for c in s["callers"]}, {("src/b.ts", True), ("src/c.ts", False)})
-        self.assertEqual(s["tests"], [{"file": "src/a.test.ts", "changed": True}])
+        self.assertFalse(any(c["file"] == "src/a.test.ts" for c in s["callers"]), "测试文件不算调用方")
 
     def test_reads_code_from_git_not_worktree(self):
         repo = self.make_repo("ref", {
@@ -164,85 +165,40 @@ class Callers(Facts):
         self.assertEqual(sorted(c["file"] for c in self.sym(data, "listOrders")["callers"]), ["src/b.ts", "src/new.ts"])
 
 
-class AttentionAndSkip(Facts):
-    def test_attention_kinds(self):
-        _, data = self.feature("attn", {
+class ConfigAndScope(Facts):
+    def test_config_keys_and_hunk_kinds(self):
+        _, data = self.feature("cfg", {
             "config/app.yml": "order:\n  page:\n    size: 20\n  legacy: true\n",
             "src/settings.properties": "a.b=1\n",
-            "package.json": json.dumps({"dependencies": {"left-pad": "1.0.0", "lodash": "4.0.0"}}, indent=1) + "\n",
-            "src/env.ts": "export const x = 1\n",
-            "src/main.go": "package main\n\nfunc main() {\n}\n",
+            "src/gen.ts": "// @generated\nexport const c = 1\n",
         }, {
             "config/app.yml": "order:\n  page:\n    size: 50\n  cursor:\n    enabled: true\n",
             "src/settings.properties": "a.b=1\nfeature.flag=on\n",
-            "package.json": json.dumps({"dependencies": {"lodash": "4.17.0", "axios": "1.6.0"}}, indent=1) + "\n",
-            "db/migrations/002_add_cursor.sql": "ALTER TABLE orders ADD cursor text;\n",
-            "src/env.ts": "export const x = process.env.ORDER_API_URL\n",
-            "src/main.go": "package main\n\nimport \"os\"\n\nfunc main() {\n\t_ = os.Getenv(\"CURSOR_SECRET\")\n}\n",
-            "package-lock.json": "{}\n",
+            "src/gen.ts": "// @generated\nexport const c = 2\n",
         })
-        att = data["attention"]
-        details = [a["detail"] for a in att]
-        types = {a["type"] for a in att}
-        self.assertTrue({"migration", "config_key", "env_var", "dependency"} <= types)
-        self.assertIn("新增配置键 order.cursor.enabled", details)
-        self.assertIn("删除配置键 order.legacy", details)
-        self.assertIn("新增配置键 feature.flag", details)
-        self.assertTrue(any("新环境变量 ORDER_API_URL" == d for d in details))
-        self.assertTrue(any("新环境变量 CURSOR_SECRET" == d for d in details))
-        dep = next(d for d in details if "package.json" in d)
-        self.assertIn("新增 axios@1.6.0", dep)
-        self.assertIn("删除 left-pad", dep)
-        self.assertIn("lodash 4.0.0 → 4.17.0", dep)
-        self.assertTrue(any(a["type"] == "dependency" and a["file"] == "package-lock.json" for a in att))
-        self.assertTrue(any(a["type"] == "migration" and "002_add_cursor.sql" in a["detail"] for a in att))
-        size = next(s for s in data["symbols"] if s["name"] == "order.page.size")
-        self.assertEqual((size["change"], size["kind"]), ("body_only", "config_key"))
+        changes = {s["name"]: (s["change"], s["kind"]) for s in data["symbols"] if s["kind"] == "config_key"}
+        self.assertEqual(changes, {"order.page.size": ("body_only", "config_key"),
+                                   "order.cursor.enabled": ("added", "config_key"),
+                                   "order.legacy": ("removed", "config_key"),
+                                   "feature.flag": ("added", "config_key")})
         hunk_kinds = {h["file"]: h["kind"] for h in data["hunks"]}
-        self.assertEqual(hunk_kinds["config/app.yml"], "config")
+        self.assertEqual((hunk_kinds["config/app.yml"], hunk_kinds["src/gen.ts"]), ("config", "generated"))
 
-    def test_skippable_kinds(self):
-        repo = self.make_repo("skip", {
-            "src/fmt.ts": "export function a(x: number) {\n  return x\n}\n",
-            "src/old_name.ts": "".join("export const v%d = %d\n" % (i, i) for i in range(10)),
-            "src/real.ts": "export const r = 1\n",
-        })
+    def test_scope_and_method(self):
+        _, data = self.feature("small", {"src/a.ts": "export const a = 1\n"}, {"src/a.ts": "export const a = 2\n"})
+        self.assertEqual(data["scope"], {"diff": "diff.patch", "files": 1, "added": 1, "deleted": 1})
+        self.assertEqual(data["method"], "按名字在本仓库文本匹配(git grep -w),只看签名变化")
+
+    def test_hunks_cover_only_the_reviewed_diff_and_tests_with_the_flag(self):
+        repo = self.make_repo("withtests", {"src/a.ts": "export const a = 1\n", "src/a.test.ts": "a\n"})
         self.git(repo, "switch", "-qc", "feature")
-        self.git(repo, "mv", "src/old_name.ts", "src/new_name.ts")
-        self.commit(repo, {
-            "src/fmt.ts": "export function a(x: number) {\n    return x\n}\n",
-            "src/api_generated.ts": "// Code generated by tool. DO NOT EDIT.\nexport const g = 1\n",
-            "src/client.ts": "// @generated\nexport const c = 1\n",
-            "yarn.lock": "x\n",
-            "src/real.ts": "export const r = 2\n",
-        }, "改")
+        self.commit(repo, {"src/a.ts": "export const a = 2\n", "src/a.test.ts": "b\n"}, "改")
         self.git(repo, "switch", "-q", "main")
-        data, _ = self.facts(repo, "feature")
-        got = {s["file"]: s["reason"] for s in data["skippable"]}
-        self.assertEqual(got.get("src/fmt.ts"), "whitespace_only")
-        self.assertEqual(got.get("src/new_name.ts"), "rename_only")
-        self.assertEqual(got.get("src/api_generated.ts"), "generated")
-        self.assertEqual(got.get("src/client.ts"), "generated")
-        self.assertEqual(got.get("yarn.lock"), "lockfile")
-        self.assertNotIn("src/real.ts", got)
-        self.assertEqual(next(h for h in data["hunks"] if h["file"] == "src/client.ts")["kind"], "generated")
-
-    def test_effort_and_scope(self):
-        _, small = self.feature("small", {"src/a.ts": "export const a = 1\n"}, {"src/a.ts": "export const a = 2\n"})
-        self.assertEqual(small["effort"]["score"], 1)
-        self.assertEqual(small["scope"], {"diff": "diff.patch", "files": 1, "added": 1, "deleted": 1})
-        big = {"src/m%d/f.ts" % i: "".join("export const v%d_%d = %d\n" % (i, j, j) for j in range(60)) for i in range(12)}
-        _, large = self.feature("large", {"src/a.ts": "x\n"}, big)
-        self.assertGreaterEqual(large["effort"]["score"], 4)
-        self.assertIn("12 文件", large["effort"]["basis"])
-        self.assertEqual(large["method"], "按名字在本仓库文本匹配(git grep -w),只看签名变化")
-
-    def test_tests_are_included_as_hunks(self):
-        _, data = self.feature("withtests", {"src/a.ts": "export const a = 1\n", "src/a.test.ts": "a\n"},
-                               {"src/a.ts": "export const a = 2\n", "src/a.test.ts": "b\n"})
-        kinds = {h["file"]: h["kind"] for h in data["hunks"]}
-        self.assertEqual(kinds, {"src/a.ts": "other", "src/a.test.ts": "test"})
-        self.assertEqual([h["id"] for h in data["hunks"]], ["H1", "H2"])
+        data, _ = self.facts(repo, "feature")   # 测试文件默认不审查,不编代码块号
+        self.assertEqual({h["file"]: h["id"] for h in data["hunks"]}, {"src/a.ts": "H1"})
+        data, _ = self.facts(repo, "feature", "--with-tests")
+        self.assertEqual({h["file"]: (h["id"], h["kind"]) for h in data["hunks"]},
+                         {"src/a.test.ts": ("H1", "test"), "src/a.ts": ("H2", "other")})
 
     def test_bad_input_still_writes_file(self):
         rd = os.path.join(self.tmp, "rd")
@@ -257,12 +213,10 @@ class AttentionAndSkip(Facts):
         self.assertTrue(any("读不到被审查的代码" in l for l in data["limits"]))
         self.assertEqual(data["symbols"][0]["name"], "zzz")
 
-    def test_new_config_file_is_one_item_and_other_languages_fall_back(self):
+    def test_new_config_file_and_other_languages_have_no_symbols(self):
         _, data = self.feature("newcfg", {"bin/run.sh": "#!/bin/sh\nstart_server() {\n  echo a\n}\n"}, {
             "config/new.yml": "a:\n  b: 1\n  c: 2\n",
             "bin/run.sh": "#!/bin/sh\nstart_server() {\n  echo b\n}\nstop_server() {\n  echo c\n}\n",
         })
-        cfg = [a for a in data["attention"] if a["file"] == "config/new.yml"]
-        self.assertEqual([a["detail"] for a in cfg], ["新增配置文件 config/new.yml(2 个键)"])
         self.assertFalse(any(s["file"] in ("config/new.yml", "bin/run.sh") for s in data["symbols"]))
         self.assertTrue(any("bin/run.sh" in l for l in data["limits"]))

@@ -193,6 +193,9 @@ class PlatformRules(Project):
         super().setUp()
         self.use_mock_glab()
         self.config("gitlab_hosts=code.example.com\n")
+        local_origin = self.git(self.repo, "remote", "get-url", "origin")
+        self.git(self.repo, "config", "crosscheck.testLocalOrigin", local_origin)
+        self.git(self.repo, "remote", "set-url", "origin", "https://code.example.com/acme/acme-kit.git")
         self.git(self.repo, "checkout", "-qb", "dev-feature", "develop")
         self.head = self.commit(self.repo, {"g.txt": "g\n"}, "feat Closes #1")
         self.git(self.repo, "push", "-q", "origin", "HEAD:refs/merge-requests/12/head")
@@ -243,6 +246,7 @@ class PlatformRules(Project):
         self.assertIsNone(self.record())
 
     def test_github_unrecoverable_platform_base_fails_until_user_supplies_commit(self):
+        self.git(self.repo, "remote", "set-url", "origin", "https://github.com/acme/acme-kit.git")
         ghmock = os.path.join(self.tmp, "ghmock")
         os.makedirs(ghmock)
         self.env.update(MOCK_GH=ghmock, PATH=os.path.join(fixture.HERE, "bin-gh") + ":" + self.env["PATH"])
@@ -262,6 +266,7 @@ class PlatformRules(Project):
         self.assertEqual(Path(rd, "files.txt").read_text().split(), ["g.txt"])
 
     def test_github_uses_selected_branch(self):
+        self.git(self.repo, "remote", "set-url", "origin", "https://github.com/acme/acme-kit.git")
         ghmock = os.path.join(self.tmp, "ghmock")
         os.makedirs(ghmock)
         self.env.update(MOCK_GH=ghmock, PATH=os.path.join(fixture.HERE, "bin-gh") + ":" + self.env["PATH"])

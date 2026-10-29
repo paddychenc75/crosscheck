@@ -1,0 +1,3 @@
+# Codex:只允许显式调用($crosscheck:improve,拷贝安装时 $improve),不由自然语言隐式触发
+policy:
+  allow_implicit_invocation: false

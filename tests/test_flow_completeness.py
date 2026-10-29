@@ -1,6 +1,8 @@
 """流程完整性:查找角色的回复和核实结果是否落盘(completeness.py),以及 save-review 从文件数记录。不调用模型。"""
 import json
 import os
+import subprocess
+from pathlib import Path
 
 import fixture
 
@@ -64,6 +66,22 @@ class FlowCompleteness(fixture.ProjectFixture):
         r = self.save()
         self.assertIn("incomplete=缺 finders/reviewer.json；没有看到子代理用量", r.stdout)
 
+    def test_facts_failure_is_noted_and_recorded_as_missing_step(self):
+        installed = self.install_plugin()
+        Path(installed, "skills", "review", "scripts", "analysis_facts.py").write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
+        r = subprocess.run(["sh", str(installed / "skills" / "review" / "scripts" / "collect-diff.sh"), "feature",
+                            "--base-rule", "target", "--source", "doc=skip"],
+                           cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("NOTE: analysis_facts.py 运行失败", r.stdout)
+        self.assertNotIn("MR 说明", r.stdout)
+        self.rd = self.review_dir(r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.rd, "analysis-facts.json")))
+        self.finders("reviewer.json", "rules-auditor.json")
+        self.run_pipeline(self.rd, CAND, SCORE)
+        self.assertEqual(self.completeness(), ["INCOMPLETE: 缺 analysis-facts.json(代码块编号和调用方搜索结果没有生成)"])
+        self.assertIn("incomplete=缺 analysis-facts.json", self.save().stdout)
+
     def test_unsaved_review_leaves_marker_and_next_run_says_so(self):
         store = self.kv(os.path.join(self.rd, "meta.txt"))["store_dir"]
         self.assertTrue(os.path.isfile(os.path.join(store, "pending")), "开始真正审查时留下进行中标记")
@@ -75,17 +93,6 @@ class FlowCompleteness(fixture.ProjectFixture):
         self.run_pipeline(self.rd, CAND, SCORE)
         self.save()
         self.assertFalse(os.path.exists(os.path.join(store, "pending")), "保存后标记清除")
-
-    def test_mr_note_lands_in_saved_record_even_when_given_review_dir(self):
-        self.finders("reviewer.json", "rules-auditor.json")
-        self.run_pipeline(self.rd, CAND, SCORE)
-        dest = self.save().stdout.split("dir=")[1].splitlines()[0]
-        self.assertTrue(os.path.isfile(os.path.join(dest, "mr.md")))
-        self.assertTrue(os.path.isfile(os.path.join(dest, "mr.html")))
-        # 传入临时的 review_dir 时,MR 说明仍然写进记录目录
-        out = self.run_py("mr_note.py", self.rd).stdout
-        self.assertIn("mr=%s" % os.path.join(dest, "mr.md"), out)
-        self.assertFalse(os.path.exists(os.path.join(self.rd, "mr.md")))
 
     def test_configured_model_missing_from_session_is_noted(self):
         self.finders("reviewer.json", "rules-auditor.json")
@@ -102,7 +109,7 @@ class FlowCompleteness(fixture.ProjectFixture):
         self.assertIn("实际模型:claude-haiku-5-5", report)
         self.assertIn("模型与配置不一致:配置的finder模型 claude-sonnet-5-5", report)
 
-    def test_budget_limit_propagates_to_report_saved_record_and_mr(self):
+    def test_budget_limit_propagates_to_report_and_saved_record(self):
         self.finders("reviewer.json", "rules-auditor.json")
         with open(os.path.join(self.rd, "finders/reviewer.json"), "w") as f:
             json.dump({"candidates": CAND, "coverage": {"budget_reached": True, "limited": True,
@@ -112,7 +119,7 @@ class FlowCompleteness(fixture.ProjectFixture):
         lines = self.run_script('report-lines.sh', self.rd).stdout
         self.assertIn('达到候选预算,覆盖可能受限', lines)
         dest = self.save().stdout.split('dir=')[1].splitlines()[0]
-        for name in ('mr.md', 'mr.html', 'report.md', 'completeness.txt'):
+        for name in ('report.md', 'completeness.txt'):
             with open(os.path.join(dest, name)) as f:
                 self.assertIn('达到候选预算,覆盖可能受限', f.read(), name)
         self.assertTrue(os.path.isfile(os.path.join(dest, 'candidates.json')))

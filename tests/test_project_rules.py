@@ -68,6 +68,14 @@ class ProjectRulesTests(fixture.Base):
         r = self.run_script('settings.sh', 'show', repo, 'f' * 40, check=False)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_unclosed_root_review_frontmatter_is_reported(self):
+        repo = self.repo_with_changes({'REVIEW.md': '---\nskip: ["src/**"]\n\n- Python rule\n'})
+        r = self.run_script('settings.sh', 'show', repo)
+        self.assertEqual(json.loads(r.stdout)['skip'], [])
+        self.assertIn('没有结束的 ---', r.stderr)
+        rd = self.collect(repo)
+        self.assertIn('REVIEW.md: frontmatter 缺少结束分隔符', self.kv(Path(rd, 'rules-meta.txt'))['errors'])
+
     def test_review_body_severity_survives_aggregation_with_fixed_threshold(self):
         repo = self.repo_with_changes({'REVIEW.md': '## 严重程度\n- 订单审计记录缺失按重要问题报告。\n',
                                        '.claude/rules/audit.md': '- 订单操作必须记录审计事件。\n'})

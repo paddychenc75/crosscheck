@@ -322,6 +322,7 @@ class TestGitLab(Base):
 
     def test_subpath_mr_url(self):
         self.config("gitlab_hosts=company.com/gitlab\n")
+        self.git(self.repo, "remote", "set-url", "origin", "https://company.com/gitlab/eng/shop.git")
         r = self.run_script("collect-diff.sh", "https://company.com/gitlab/eng/shop/-/merge_requests/12", cwd=self.repo)
         meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
         self.assertEqual((meta["repo"], meta["gitlab_host"], meta["number"]), ("eng/shop", "https://company.com/gitlab", "12"))
@@ -329,6 +330,7 @@ class TestGitLab(Base):
     def test_url_given_by_user_wins_over_platform_url(self):
         # 平台返回的网址(这里的 web_url 指向另一个地址,像是项目改名后的样子)不能覆盖用户给的网址
         self.config("gitlab_hosts=company.com/gitlab\n")
+        self.git(self.repo, "remote", "set-url", "origin", "https://company.com/gitlab/eng/shop.git")
         r = self.run_script("collect-diff.sh", "https://company.com/gitlab/eng/shop/-/merge_requests/12", cwd=self.repo)
         meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
         self.assertEqual(meta["url"], "https://company.com/gitlab/eng/shop/-/merge_requests/12")
@@ -338,7 +340,7 @@ class TestGitLab(Base):
         self.config("gitlab_hosts=code.example.com:8929\n")
         r = self.run_script("collect-diff.sh", "http://code.example.com:8929/eng/shop/-/merge_requests/12", cwd=self.repo)
         meta = self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))
-        self.assertEqual((meta["repo"], meta["gitlab_host"], meta["repo_id"]), ("eng/shop", "http://code.example.com:8929", "code.example.com/eng/shop"))
+        self.assertEqual((meta["repo"], meta["gitlab_host"], meta["repo_id"]), ("eng/shop", "http://code.example.com:8929", "code.example.com:8929/eng/shop"))
         r = self.run_script("collect-diff.sh", "12", cwd=self.repo)
         self.assertEqual(self.kv(os.path.join(self.review_dir(r.stdout), "meta.txt"))["platform"], "gitlab")
 

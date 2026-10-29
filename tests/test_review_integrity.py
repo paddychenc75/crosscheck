@@ -140,9 +140,6 @@ class ReviewIntegrityTests(fixture.Base):
         self.assertEqual(final['resolved'], [])
         lines = self.run_script('report-lines.sh', str(rd)).stdout
         self.assertIn('抑制重复提醒 1 条', lines)
-        self.run_py('mr_note.py', str(rd))
-        for name in ('mr.md', 'mr.html'):
-            self.assertIn('按历史判断抑制 1 条(不计为已修复)', (rd/name).read_text())
         result.pop('history_context')
         (rd/'verify/result-1.json').write_text(json.dumps([result]))
         self.run_script('aggregate.sh', str(rd))

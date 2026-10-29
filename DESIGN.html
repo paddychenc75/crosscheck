@@ -1,0 +1,2664 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossCheck</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235272F2'/%3E%3Cstop offset='1' stop-color='%232B3FB0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Cpath d='M12.5 33.5 L22.5 43.5 L40.5 21' fill='none' stroke='%23fff' stroke-opacity='.42' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M22 34 L32 44 L51.5 20.5' fill='none' stroke='%23fff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f1f1ee;
+  --text: #1d1d1b;
+  --muted: #6b6b66;
+  --border: #e2e2dc;
+  --accent: #2f5bd3;
+  --accent-soft: #e8eefc;
+  --ok: #2f7d4f;
+  --ok-soft: #e5f3ea;
+  --warn: #a2610b;
+  --warn-soft: #fff6e0;
+  --warn-border: #ecd28f;
+  --bad: #b3261e;
+  --code-bg: #f3f3ef;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413;
+    --surface: #1d1d1b;
+    --surface-2: #252523;
+    --text: #ecebe6;
+    --muted: #a09f98;
+    --border: #34332f;
+    --accent: #8aa8ff;
+    --accent-soft: #1f2a46;
+    --ok: #6fcf97;
+    --ok-soft: #1a2e22;
+    --warn: #f0b45a;
+    --warn-soft: #2e2715;
+    --warn-border: #5e4d22;
+    --bad: #f2867c;
+    --code-bg: #262624;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413;
+  --surface: #1d1d1b;
+  --surface-2: #252523;
+  --text: #ecebe6;
+  --muted: #a09f98;
+  --border: #34332f;
+  --accent: #8aa8ff;
+  --accent-soft: #1f2a46;
+  --ok: #6fcf97;
+  --ok-soft: #1a2e22;
+  --warn: #f0b45a;
+  --warn-soft: #2e2715;
+  --warn-border: #5e4d22;
+  --bad: #f2867c;
+  --code-bg: #262624;
+  --shadow: none;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em; }
+code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.55; border: 1px solid var(--border); }
+pre code { background: none; padding: 0; font-size: 1em; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+nav.toc { position: sticky; top: 24px; align-self: start; font-size: 13.5px; }
+nav.toc .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; margin-bottom: 14px; }
+.logo { flex: none; display: block; }
+header.hero h1 .logo { filter: drop-shadow(0 4px 10px rgba(43, 63, 176, .28)); }
+nav.toc a { display: block; color: var(--muted); padding: 4px 0 4px 10px; border-left: 2px solid transparent; }
+nav.toc a:hover { color: var(--text); text-decoration: none; border-left-color: var(--border); }
+nav.toc a.active { color: var(--accent); border-left-color: var(--accent); }
+
+main { min-width: 0; }
+header.hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+header.hero h1 { display: flex; align-items: center; gap: 12px; font-size: 30px; line-height: 1.25; margin: 0; letter-spacing: -.01em; }
+.theme-toggle {
+  display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0;
+  cursor: pointer; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.theme-toggle:hover { background: var(--surface-2); color: var(--text); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.theme-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+section { margin: 48px 0; scroll-margin-top: 20px; }
+h2 { font-size: 21px; margin: 0 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 16.5px; margin: 26px 0 10px; }
+p { margin: 0 0 12px; }
+ul, ol { padding-left: 1.3em; margin: 0 0 12px; }
+li { margin: 3px 0; }
+.muted { color: var(--muted); }
+
+/* 总体设计图 */
+.arch { display: flex; flex-direction: column; }
+.layer { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 16px; box-shadow: var(--shadow); }
+.layer-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.layer-head b { font-size: 15px; }
+.layer-head span { color: var(--muted); font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 13px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-2); }
+.subrow { display: grid; grid-template-columns: 92px 1fr; gap: 8px 10px; align-items: start; margin-top: 8px; }
+.subrow > .label { font-size: 12.5px; color: var(--muted); padding-top: 5px; }
+.flow { text-align: center; color: var(--muted); font-size: 12.5px; padding: 6px 0; line-height: 1.3; }
+.flow .arrow { display: block; font-size: 18px; line-height: 1; }
+.pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch; }
+.pair .bi { align-self: center; color: var(--muted); font-size: 20px; }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px; }
+.role { border: 1px solid var(--border); background: var(--surface-2); border-radius: 8px; padding: 7px 10px; font-size: 13px; line-height: 1.5; }
+.role b { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--accent); margin-bottom: 2px; }
+.role span { color: var(--text); }
+.role-note { font-size: 12.5px; color: var(--muted); }
+.parallel-work { display: grid; gap: 8px; min-width: 0; }
+.work-set { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+.work-title { margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.work-set .roles { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.loop-note { margin-top: 10px; font-size: 12.5px; color: var(--muted); text-align: center; border: 1px dashed var(--border); border-radius: 8px; padding: 6px; }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-weight: 600; background: var(--surface-2); font-size: 13px; color: var(--muted); }
+tr:last-child td { border-bottom: none; }
+td.nowrap { white-space: nowrap; }
+
+/* 卡片 */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+.card h4 { margin: 0 0 6px; font-size: 15px; }
+.card p, .card li { font-size: 14px; }
+.card .num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; margin-right: 6px; }
+.card .accept { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 13px; color: var(--muted); }
+
+/* 设计依据：默认收起，不打断正文 */
+.design-basis { margin: 14px 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; }
+.design-basis summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.design-basis summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.design-basis[open] summary { margin-bottom: 10px; }
+.design-basis ul { margin-bottom: 8px; }
+.design-basis p:last-child { margin-bottom: 0; }
+
+/* 生命周期 */
+.lifecycle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 16px; }
+.state { padding: 6px 12px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); }
+.state.s1 { background: var(--surface-2); }
+.state.s2 { background: var(--ok-soft); color: var(--ok); }
+.state.s3 { background: var(--warn-soft); color: var(--warn); }
+.state.s4 { color: var(--muted); }
+.edge { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.edge::after { content: "→"; font-size: 16px; }
+.side-exits { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+
+/* 提示 */
+.callout { border: 1px solid var(--warn-border); background: var(--warn-soft); border-radius: 10px; padding: 12px 16px; margin: 12px 0; }
+.callout b { display: block; margin-bottom: 4px; }
+.principles { counter-reset: p; list-style: none; padding: 0; display: grid; gap: 8px; }
+.principles li { counter-increment: p; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px 10px 46px; position: relative; }
+.principles li::before { content: counter(p); position: absolute; left: 14px; top: 10px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* 演示动画:分场景播放,左边是场景,右边是执行日志 */
+[hidden] { display: none !important; }
+.demo { background: radial-gradient(900px 240px at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%), var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); margin: 8px 0 40px; }
+.demo-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.demo-head h2 { border: 0; padding: 0; margin: 0 0 2px; font-size: 18px; text-wrap: balance; }
+.demo-head p { margin: 0; font-size: 13px; }
+.demo-ctrl { display: flex; flex-wrap: wrap; gap: 6px; }
+.demo-ctrl button { font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; padding: 6px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.demo-ctrl button.primary { border-color: var(--accent); background: var(--accent); color: var(--surface); font-weight: 600; min-width: 92px; }
+.demo button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 流水线图:节点按步骤点亮,连线上的光点流向当前在工作的角色 */
+.pipe { overflow-x: auto; overscroll-behavior-x: contain; margin: 0 0 14px; padding: 16px 18px 12px; border: 1px solid var(--border); border-radius: 12px; scrollbar-width: thin;
+  background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1.5px) 0 0 / 16px 16px, var(--bg); }
+.pipe-in { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 22px; min-width: max-content; }
+.pipe svg.links { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.pcol { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
+.pnode { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; line-height: 1.25; text-align: center; white-space: nowrap; transition: color .3s; }
+.pnode small { display: block; font-size: 10.5px; font-weight: 400; opacity: .85; }
+.pic { position: relative; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--border); color: var(--muted); transition: background-color .3s, border-color .3s, color .3s, box-shadow .3s; }
+.pic svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pnode.done { color: var(--text); }
+.pnode.done .pic { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 50%, var(--border)); }
+.pnode.done .pic::after { content: "✓"; position: absolute; right: -6px; top: -6px; width: 15px; height: 15px; border-radius: 50%; background: var(--ok); color: var(--surface); font-size: 9px; font-weight: 800; line-height: 15px; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+.pnode.on { color: var(--accent); font-weight: 600; }
+.pnode.on .pic { color: var(--surface); border-color: transparent; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 72%, var(--surface)), var(--accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent), 0 8px 24px -6px color-mix(in srgb, var(--accent) 85%, transparent); }
+.pnode.on .pic::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; animation: halo 1.8s ease-out infinite; }
+@keyframes halo { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } to { box-shadow: 0 0 0 13px transparent; } }
+.links path { fill: none; stroke: var(--border); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.links path.done { stroke: color-mix(in srgb, var(--ok) 55%, var(--border)); }
+.links path.on { stroke: color-mix(in srgb, var(--accent) 70%, transparent); stroke-width: 1.8; }
+.links .pt { fill: var(--accent); }
+.links .pth { fill: var(--accent); opacity: .22; }
+.pipe-in.has-under { padding-bottom: 26px; }
+/* 同阶段并行任务:候选查找分组,核实单独一个上下文 */
+.pgrp { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 22px 10px 10px; border-radius: 12px; border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent); background: color-mix(in srgb, var(--surface) 70%, transparent); transition: border-color .3s, background-color .3s, box-shadow .3s; }
+.pgrp.verify { border-style: solid; align-items: center; margin: 0 14px; padding: 46px 12px 10px; }
+.pgrp-l { position: absolute; left: 10px; top: 4px; font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; letter-spacing: .02em; }
+.pgrp.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); box-shadow: 0 10px 28px -18px color-mix(in srgb, var(--accent) 90%, transparent); }
+.pgrp.on > .pgrp-l { color: var(--accent); }
+.ptask { display: flex; flex-direction: column; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ptask-l { font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.ptask-l b { color: var(--text); font-weight: 600; }
+.ptask.on { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.ptask.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.pgrp.done { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.pnode.m { flex-direction: row; align-items: center; gap: 9px; text-align: left; }
+.pnode.m .pic { flex: none; }
+.pn-t { display: flex; flex-direction: column; align-items: inherit; gap: 2px; }
+.pnode.m .pn-t { align-items: flex-start; }
+.pn-name { display: inline-flex; align-items: center; gap: 5px; }
+.mdl { font-style: normal; font-size: 9.5px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.mdl.strong { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); background: var(--accent-soft); }
+.passes { display: flex; align-items: center; gap: 3px; margin-top: 2px; }
+.passes i { font-style: normal; font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); transition: background-color .3s, color .3s, border-color .3s; }
+.passes i.on { color: var(--surface); background: var(--accent); border-color: var(--accent); box-shadow: 0 0 10px -2px var(--accent); }
+.passes i.done { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.passes .ar { font-size: 9px; color: var(--muted); }
+/* verifier 的 0–100 分环,80 分刻度;分数从环上弹出 */
+.gauge { position: relative; width: 58px; height: 58px; display: grid; place-items: center; }
+.gauge svg.ring { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ring .g-tr { fill: none; stroke: var(--border); stroke-width: 3.5; }
+.ring .g-val { fill: none; stroke: var(--muted); stroke-width: 3.5; stroke-linecap: round; }
+.gauge.ok .g-val { stroke: var(--ok); }
+.ring .g-tick { stroke: var(--text); stroke-width: 2; opacity: .6; stroke-linecap: round; }
+.ring text { font: 700 8px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text); opacity: .7; }
+.pscore { position: absolute; left: 50%; bottom: calc(100% + 2px); translate: -50% 0; font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 3px 6px; border-radius: 6px; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+.pscore.pass { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); background: var(--ok-soft); }
+.pscore.fail { color: var(--bad); }
+.pscore:empty { display: none; }
+.bin { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 2px; padding: 4px 10px 5px; border-radius: 8px; border: 1px dashed var(--border); background: var(--surface-2); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.bin b { color: var(--bad); font-variant-numeric: tabular-nums; display: inline-block; }
+.bin-sq { display: flex; gap: 3px; min-height: 7px; }
+.bin-sq i { width: 7px; height: 7px; border-radius: 2px; background: var(--muted); opacity: .55; }
+.elab { position: absolute; z-index: 2; translate: -50% -100%; font-size: 10px; font-weight: 600; line-height: 1.2; padding: 1px 4px; border-radius: 4px; background: var(--bg); color: var(--muted); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .3s, color .3s; }
+.elab.show { opacity: 1; }
+.elab.on { color: var(--accent); }
+.elab.done { color: var(--ok); }
+.ptok { position: absolute; z-index: 3; translate: -50% -50%; font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 3px 6px; border-radius: 99px; background: var(--surface); color: var(--accent); border: 1px solid var(--accent); box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--accent) 80%, transparent); white-space: nowrap; pointer-events: none; }
+.ptok.pass { color: var(--ok); border-color: var(--ok); background: var(--ok-soft); box-shadow: none; }
+.ptok.fail { color: var(--muted); border-color: var(--border); background: var(--surface-2); box-shadow: none; }
+
+/* 两块小标题 */
+.blk-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 18px 0 10px; }
+.blk-h b { font-size: 15px; }
+.blk-h .muted { font-size: 12.5px; }
+.blk-n { align-self: center; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--surface); font-size: 11.5px; font-weight: 800; }
+
+.demo-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.scene-wrap { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 14px; display: flex; flex-direction: column; min-height: 330px; }
+.scene-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.scene-no { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scene-title b { font-size: 16px; }
+.scene-cap { font-size: 13.5px; color: var(--muted); margin: 0 0 12px; min-height: 2.6em; }
+.scene { display: grid; gap: 8px; font-size: 13px; }
+
+.term { min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg); display: flex; flex-direction: column; overflow: hidden; }
+.term[open] { contain: size; }
+.term::details-content { display: flex; flex: 1; min-height: 0; }
+.term:not([open]) { align-self: start; }
+.term:not([open])::details-content { display: none; }
+.term-head { flex: none; font-size: 12px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; cursor: pointer; list-style: none; }
+.term-head::-webkit-details-marker { display: none; }
+.term-head > span:first-child::before { content: "▾"; display: inline-block; margin-right: 6px; transition: transform .2s; }
+.term:not([open]) .term-head > span:first-child::before { transform: rotate(-90deg); }
+.term:not([open]) .term-head { border-bottom: 0; }
+.term-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.term ol { list-style: none; margin: 0; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; overflow-y: auto; min-height: 0; flex: 1; }
+.term li { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 6px; }
+.term li.old { opacity: .55; }
+.term .who { color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.term .txt { overflow-wrap: anywhere; }
+
+/* 分段进度条:已完成段实心,当前段按这一步的时长填满 */
+.segs { list-style: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; padding: 0; margin: 14px 0 0; }
+.segs li { margin: 0; min-width: 0; }
+.seg { font: inherit; width: 100%; cursor: pointer; background: none; border: 0; border-radius: 4px; padding: 4px 0 2px; color: var(--muted); text-align: left; display: grid; gap: 6px; }
+.seg-bar { display: block; height: 5px; border-radius: 99px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; transition: box-shadow .3s; }
+.seg-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+.seg[aria-current="step"] { color: var(--accent); font-weight: 600; }
+.seg[aria-current="step"] .seg-bar { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, var(--border)), 0 0 12px -3px color-mix(in srgb, var(--accent) 80%, transparent); }
+.seg[aria-current="step"] .seg-fill { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--surface)), var(--accent)); }
+.seg:hover { color: var(--text); }
+.seg:hover .seg-bar { background: var(--border); }
+.seg-t { display: block; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-n { font-variant-numeric: tabular-nums; margin-right: 4px; opacity: .7; }
+@media (max-width: 600px) { .seg-l { display: none; } .seg-t { text-align: center; } }
+
+/* 场景里的元素 */
+.kv { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.kv .k { color: var(--muted); font-size: 12.5px; }
+.frow { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; align-items: center; font-size: 12.5px; }
+.frow code { background: none; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fbar { display: flex; height: 8px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.fbar .add { background: var(--ok); }
+.fbar .del { background: var(--bad); }
+.fbar.skip { opacity: .35; }
+.src { display: grid; grid-template-columns: 1.2em 7.5em minmax(0, 1fr); gap: 6px; align-items: baseline; }
+.src .ck { color: var(--ok); font-weight: 700; }
+.src .ck.no { color: var(--muted); }
+.src .muted { font-size: 12.5px; }
+.box { border: 1px dashed var(--accent); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+.box .t { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--accent); margin-bottom: 4px; }
+.lrow { display: grid; grid-template-columns: 4.6em minmax(0, 1fr) 3.4em; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+.lrow .lv { font-weight: 700; font-size: 12px; color: var(--accent); }
+.lrow .n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.lrow.zero { opacity: .55; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag2 { font-size: 12px; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); }
+.tag2.good { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+.task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.task code { background: none; padding: 0; color: var(--accent); }
+.lane { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 8px; align-items: start; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.lane:last-of-type { border-bottom: 0; }
+.lane > code { background: none; padding: 0; color: var(--accent); font-size: 12.5px; padding-top: 3px; }
+.cands { display: flex; flex-wrap: wrap; gap: 5px; }
+.cc { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 2px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); }
+.cc.note { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); font-family: inherit; }
+.sum2 { font-weight: 600; }
+/* 核实:分数条涨到目标值,过 80 分门槛的盖章,没过的变灰移到「否决」 */
+.vlist { display: grid; gap: 6px; }
+.v { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 130px) 2.2em 74px; gap: 10px; align-items: center; font-size: 12.5px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); transition: opacity .45s, background-color .45s, box-shadow .45s; }
+.v .what { min-width: 0; }
+.v .what > span { display: block; overflow-wrap: anywhere; }
+.v .what small { display: block; color: var(--muted); font-size: 11.5px; }
+.bar { position: relative; height: 8px; margin-top: 12px; border-radius: 99px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--muted); }
+.v.over .fill, .v.pass .fill { background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 50%, transparent), var(--ok)); box-shadow: 0 0 10px -2px color-mix(in srgb, var(--ok) 75%, transparent); }
+.bar .gate { position: absolute; left: 80%; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: .55; }
+.bar .gate em { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 1px; font: 600 9.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-style: normal; color: var(--text); }
+.v .score { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+.v.over .score, .v.pass .score { color: var(--ok); }
+.verdict { display: flex; justify-content: center; }
+.stamp { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; color: var(--ok); border: 1.5px solid currentColor; border-radius: 5px; padding: 1px 6px; background: var(--ok-soft); transform: rotate(-8deg); white-space: nowrap; box-shadow: 0 0 0 2px var(--ok-soft); }
+.nope { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.v.pass { box-shadow: inset 3px 0 0 var(--ok); }
+.v.fail { opacity: .6; background: var(--surface-2); }
+.v.fail .what > span { text-decoration: line-through; text-decoration-color: var(--muted); color: var(--muted); }
+.v.fail .fill { background: var(--muted); opacity: .55; }
+.vsep { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.vsep b { color: var(--bad); font-weight: 700; }
+.vsep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* 查找:候选从两个角色弹出,汇入合并去重 */
+.lanes { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 2px 10px; }
+.cc { display: inline-block; transition: opacity .35s, border-color .35s; }
+.cc.sent { opacity: .45; border-style: dashed; }
+.cc.merged { text-decoration: line-through; }
+.funnel { position: relative; height: 26px; display: flex; justify-content: center; }
+.funnel::before { content: ""; width: 2px; background: repeating-linear-gradient(to bottom, var(--accent) 0 4px, transparent 4px 8px); opacity: .55; animation: drip .7s linear infinite; }
+.funnel::after { content: ""; position: absolute; bottom: 1px; left: 50%; width: 7px; height: 7px; margin-left: -4px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(45deg); opacity: .7; }
+@keyframes drip { from { background-position: 0 0; } to { background-position: 0 8px; } }
+.merge { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, var(--accent-soft), var(--surface) 75%); padding: 8px 10px 10px; box-shadow: 0 8px 20px -14px color-mix(in srgb, var(--accent) 80%, transparent); }
+.merge-h { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; font-size: 12.5px; }
+.merge-h > b { font-weight: 600; }
+.mcount { display: inline-block; min-width: 1.1em; text-align: center; font-size: 19px; line-height: 1; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.plus1 { font-style: normal; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 10.5px; margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); display: inline-block; }
+
+/* 报告:问题行扫光,旧写法划掉,浮出建议 */
+.snip code { display: block; min-width: max-content; }
+.ln { display: block; position: relative; overflow: hidden; padding: 0 6px; margin: 0 -6px; border-radius: 3px; transition: background-color .5s, box-shadow .5s; }
+.ln.lit { background: color-mix(in srgb, var(--bad) 11%, transparent); box-shadow: inset 2px 0 0 var(--bad); }
+.sweep { position: absolute; top: 0; bottom: 0; left: 0; width: 45%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 40%, transparent), transparent); opacity: 0; pointer-events: none; }
+.was { position: relative; }
+.was .strike { position: absolute; left: -1px; right: -1px; top: 52%; height: 1.5px; background: var(--bad); transform: scaleX(0); transform-origin: left; }
+.was.struck { color: var(--muted); }
+.was.struck .strike { transform: none; }
+.rh3 .sev { display: inline-block; margin: 0 1px; }
+
+/* 「你看到的」:通用 AI 编程 CLI 窗口,终端和 MR 页面两个标签 */
+.win { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--bg); box-shadow: 0 18px 44px -30px color-mix(in srgb, var(--text) 55%, transparent); }
+.win-bar { display: flex; align-items: stretch; gap: 12px; padding: 0 10px; height: 36px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.win-dots { display: flex; align-items: center; gap: 6px; flex: none; }
+.win-dots i { width: 10px; height: 10px; border-radius: 50%; background: color-mix(in srgb, var(--text) 16%, transparent); }
+.wtabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.wtab { font: inherit; font-size: 12px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.wtab:hover { color: var(--text); }
+.wtab[aria-selected="true"] { color: var(--text); background: var(--bg); border-bottom-color: var(--accent); font-weight: 600; }
+.wpane { height: 460px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.wpane:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tbody { position: relative; padding: 14px 16px 22px; font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace; }
+.tbody code { font-size: 1em; background: var(--code-bg); padding: 0 .3em; }
+.tbanner { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 7px 12px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: 8px; }
+.tbanner b { color: var(--accent); }
+.tc { display: grid; gap: 1px; margin-bottom: 14px; transition: opacity .4s; }
+.tc.past { opacity: .62; }
+.tc > * { min-width: 0; overflow-wrap: anywhere; }
+.tp { margin: 2px 0 8px; padding: 4px 10px; border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.tp .pr { color: var(--accent); font-weight: 700; margin-right: 8px; }
+.tc .ta, .tc .tt { margin-top: 6px; padding-left: 1.5em; text-indent: -1.5em; }
+.tc .bul { display: inline-block; width: 1.5em; text-indent: 0; color: var(--ok); }
+.tc .tt .bul { color: var(--accent); }
+.tc .tt b { font-weight: 600; }
+.tc .to { padding-left: 3em; text-indent: -1.5em; color: var(--muted); }
+.tc .to.k { text-indent: 0; }
+.tc .to u, .tfoot u { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.tc .tree { display: inline-block; width: 1.5em; text-indent: 0; }
+.tpre { white-space: pre; overflow-x: auto; margin-left: 3em; color: var(--muted); line-height: 1.5; }
+.tpre .pl { color: var(--ok); }
+.tpre .mi { color: var(--bad); }
+.tsub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 4px 0 0 1.5em; padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.tsub b { color: var(--accent); font-weight: 600; }
+.tsub-d { color: var(--muted); }
+.tsub .st { margin-left: auto; color: var(--muted); }
+.tsub .st.ok { color: var(--ok); }
+.spin { flex: none; width: 11px; height: 11px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.spin.ok { border: 0; animation: none; width: auto; height: auto; color: var(--ok); }
+.spin.ok::before { content: "✓"; font-weight: 700; }
+@keyframes spin { to { transform: rotate(1turn); } }
+.tcand { margin: 4px 0 0 3em; padding: 5px 10px; border-left: 2px solid var(--ok); background: var(--surface); border-radius: 0 6px 6px 0; }
+.trep { display: grid; gap: 10px; margin: 6px 0 0 1.5em; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.trep > * { min-width: 0; }
+.rh2 { font-weight: 700; font-size: 13.5px; color: var(--accent); margin-bottom: 2px; }
+.rh3 { font-weight: 700; margin-bottom: 2px; }
+.tmeta { color: var(--muted); }
+.ttab-w { overflow-x: auto; }
+table.ttab { width: auto; font-size: 12px; border: 1px solid var(--border); }
+.ttab th, .ttab td { padding: 3px 10px; border: 1px solid var(--border); white-space: nowrap; }
+.ttab th { font-size: 11.5px; }
+.rfind2 { display: grid; gap: 4px; min-width: 0; }
+.tcode { margin: 2px 0; padding: 6px 10px; font-size: 12px; border-radius: 6px; background: var(--code-bg); }
+.tcode code { display: block; min-width: max-content; padding: 0; background: none; }
+.tdiff .dm { color: var(--bad); }
+.tdiff .dp { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+.tdiff .dh { color: var(--text); font-weight: 700; margin-top: 4px; }
+.tdiff .dh:first-child { margin-top: 0; }
+.tdiff .dc { color: var(--muted); }
+pre.tdiff.a { margin-left: 1.5em; }
+.tdet { color: var(--muted); padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--ok) 60%, transparent); }
+.tfoot { color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
+
+
+/* 打字光标 */
+.caret { display: inline-block; width: 2px; height: 1.05em; margin-left: 1px; vertical-align: -.17em; border-radius: 1px; background: var(--accent); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.sev { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.sev.hi { background: var(--warn-soft); color: var(--warn); }
+.snip { margin: 0; padding: 6px 8px; font-size: 11.5px; border-radius: 6px; overflow-x: auto; }
+.flowline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.flowline .to { color: var(--muted); }
+
+/* 入场由脚本按时间线逐个触发;静止时所有内容都是完整可见的 */
+.demo .pending { opacity: 0 !important; }
+.demo .gone { display: none !important; }
+
+@media (max-width: 900px) {
+  .demo { padding: 14px 12px; }
+  .demo-body { grid-template-columns: 1fr; }
+  .scene-wrap { min-height: 0; }
+  .term[open] { contain: none; }
+  .term::details-content { display: block; }
+  .term ol { overflow-y: visible; }
+  .lane { grid-template-columns: 1fr; gap: 4px; }
+  .term li { grid-template-columns: 1fr; gap: 0; }
+  .wpane { height: 400px; }
+  .tbody { padding: 12px 10px 18px; font-size: 12px; }
+  .trep { margin-left: 0; padding: 10px; }
+  .tsub, pre.tdiff.a { margin-left: 0; }
+  .tcand, .tpre { margin-left: 1.5em; }
+}
+@media (max-width: 900px) {
+  .v { grid-template-columns: minmax(0, 1fr) 2.2em 74px; gap: 4px 10px; }
+  .v .what { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo *, .demo *::before, .demo *::after { animation: none !important; transition: none !important; }
+}
+
+/* 演示:多个视角 */
+.tracks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.tracks button { font: inherit; font-size: 13px; cursor: pointer; border-radius: 8px; padding: 6px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); text-align: left; line-height: 1.35; }
+.tracks button small { display: block; font-size: 11.5px; }
+.tracks button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.trackinfo { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+.cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.cand small { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; }
+.cand.no b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--border); }
+.hrow { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) 7.5em; gap: 8px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 12.5px; }
+.hrow code { background: none; padding: 0; color: var(--accent); }
+.hrow .act { font-weight: 600; text-align: right; }
+.cases { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 5px; }
+.cases span { aspect-ratio: 1; max-width: 100%; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-variant-numeric: tabular-nums; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.cases .hit { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.cases .miss { background: var(--surface-2); border-style: dashed; }
+.cases .fp { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+.legend2 { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend2 i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; border: 1px solid var(--border); font-style: normal; }
+.legend2 .hit { background: var(--ok-soft); border-color: var(--ok); }
+.legend2 .miss { background: var(--surface-2); border-style: dashed; }
+.legend2 .fp { background: var(--warn-soft); border-color: var(--warn); }
+.cmp { display: grid; grid-template-columns: minmax(0, 1fr) 5em 5em 6em; gap: 4px 10px; font-size: 12.5px; font-variant-numeric: tabular-nums; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.cmp .h { color: var(--muted); font-size: 11.5px; }
+.cmp .up { color: var(--ok); font-weight: 600; }
+@media (max-width: 900px) {
+  .hrow { grid-template-columns: 1fr; gap: 2px; }
+  .hrow .act { text-align: left; }
+  .cmp { grid-template-columns: minmax(0, 1fr) 4em 4em 5em; }
+}
+
+/* 好规则样例的小标题 */
+.ex-h { font-size: 14.5px; margin: 22px 0 6px; }
+.ex-h code { font-size: .92em; }
+
+/* improve 演示:终端窗口里逐行出现,每次切换步骤都从模板重建 */
+.cr-demo { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); margin: 14px 0 18px; }
+.cr-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
+.cr-head b { font-size: 15px; }
+.cr-head p { margin: 2px 0 0; font-size: 12.5px; }
+.cr-demo button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cr-demo button[aria-disabled="true"] { opacity: .5; cursor: default; }
+.cr-demo .tracks button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.cr-wt { align-self: center; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cr-pane { height: 380px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.cr-pane:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cr-cap { margin-top: 12px; }
+.cr-cap .scene-cap { margin-bottom: 0; }
+.cr-demo .tc.now > * { animation: crIn .42s both; animation-delay: calc(var(--i, 0) * .38s); }
+@keyframes crIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (max-width: 900px) { .cr-pane { height: 340px; } .cr-head > div:first-child { flex-basis: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .cr-demo *, .cr-demo *::before, .cr-demo *::after { animation: none !important; transition: none !important; }
+}
+
+.cr-demo .segs { margin: 10px 0 12px; }
+/* 讨论要点 */
+.qnum { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+
+footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 14px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; padding: 20px 16px 60px; gap: 0; }
+  nav.toc { display: none; }
+  header.hero h1 { font-size: 25px; }
+  .pair { grid-template-columns: 1fr; }
+  .pair .bi { transform: rotate(90deg); justify-self: center; }
+  .subrow { grid-template-columns: 1fr; gap: 4px; }
+  .subrow > .label { padding-top: 6px; }
+}
+@media (max-width: 600px) {
+  .table-wrap table { min-width: 620px; }
+}
+@media print {
+  nav.toc, .theme-toggle { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  section { break-inside: avoid-page; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc" aria-label="目录">
+    <div class="brand"><svg class="logo" width="24" height="24" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="cc-logo-nav" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5272F2"/><stop offset="1" stop-color="#2B3FB0"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#cc-logo-nav)"/><path d="M12.5 33.5 L22.5 43.5 L40.5 21" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 34 L32 44 L51.5 20.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>CrossCheck</div>
+    <a href="#demo">流程演示</a>
+    <a href="#principles">设计原则</a>
+    <a href="#overview">总体设计</a>
+    <a href="#flows">审查流程</a>
+    <a href="#roles">审查角色</a>
+    <a href="#sources">需求来源</a>
+    <a href="#rules">CR 规则</a>
+    <a href="#metrics">判断记录</a>
+    <a href="#storage">文件存放</a>
+    <a href="#security">安全边界</a>
+    <a href="#limits">已知限制</a>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <h1><svg class="logo" width="40" height="40" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="cc-logo-hero" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5272F2"/><stop offset="1" stop-color="#2B3FB0"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#cc-logo-hero)"/><path d="M12.5 33.5 L22.5 43.5 L40.5 21" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 34 L32 44 L51.5 20.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>CrossCheck</h1>
+      <button type="button" id="themeBtn" class="theme-toggle" title="切换为深色模式" aria-label="切换为深色模式">
+        <svg id="themeMoon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z"/></svg>
+        <svg id="themeSun" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </header>
+
+    <section id="demo" class="demo" aria-labelledby="demo-title">
+      <div class="demo-head">
+        <div>
+          <h2 id="demo-title">流程演示</h2>
+          <p class="muted">两条流程：开发者审查一次改动并得到 CR 报告，项目负责人用命令从 MR 评论里沉淀规则。上面看内部怎么分工，下面看你在终端里实际看到什么，两块按步骤同步。文件名、分数和结果都是演示数据；默认自动循环播放，可随时暂停或用左右方向键切换步骤；系统开启“减少动态效果”时默认静止。</p>
+        </div>
+        <div class="demo-ctrl">
+          <button type="button" id="dPrev" aria-label="上一步">‹ 上一步</button>
+          <button type="button" id="dPlay" class="primary">▶ 播放</button>
+          <button type="button" id="dNext" aria-label="下一步">下一步 ›</button>
+          <button type="button" id="dSpeed" aria-label="切换播放速度">1×</button>
+        </div>
+      </div>
+
+      <div class="tracks" role="tablist" aria-label="选择视角" id="dTracks"></div>
+      <p class="trackinfo" id="dTrackInfo"></p>
+      <ol class="segs" id="dDots" aria-label="跳到某一步"></ol>
+
+      <div class="blk-h"><span class="blk-n">1</span><b>内部怎么运转</b><span class="muted">主 agent、脚本和子 agent 各做什么</span></div>
+      <div class="pipe" id="dPipe" role="group" aria-label="流水线：这一步谁在工作"><div class="pipe-in" id="dPipeIn"></div></div>
+
+      <div class="demo-body">
+        <div class="scene-wrap">
+          <div class="scene-title"><span class="scene-no" id="dNo">1 / 7</span><b id="dTitle">发起审查</b></div>
+          <p class="scene-cap" id="dCap" aria-live="polite"></p>
+
+          <div class="track" data-track="review">
+          <div class="scene" data-scene="0">
+            <div class="kv a" style="--i:0"><span class="k">翻译成设置</span><span>「MR 128」→ 目标 !128 · 没说深度 → standard · 「这次是修复分页丢数据」→ 意图</span></div>
+            <div class="kv a" style="--i:1"><span class="k">先复述</span><span>把理解到的范围、深度和意图说一遍，理解错了可以马上纠正</span></div>
+            <div class="kv a" style="--i:2"><span class="k">只读</span><span>审查阶段不改你的代码，也不往 MR 上写任何东西</span></div>
+          </div>
+
+          <div class="scene" data-scene="1" hidden>
+            <div class="kv a" style="--i:0"><span class="k">来源</span><span>code.company.com · MR !128（自建代码托管）</span></div>
+            <div class="frow a" style="--i:1"><code>src/orders/paginate.ts</code><span class="fbar"><span class="add" style="width:62%"></span><span class="del" style="width:10%"></span></span></div>
+            <div class="frow a" style="--i:2"><code>src/orders/order_service.go</code><span class="fbar"><span class="add" style="width:80%"></span><span class="del" style="width:14%"></span></span></div>
+            <div class="frow a" style="--i:3"><code>src/api/export.ts · utils/date.ts</code><span class="fbar"><span class="add" style="width:40%"></span><span class="del" style="width:12%"></span></span></div>
+            <div class="frow a" style="--i:4"><code>paginate.test.ts · go.sum（跳过）</code><span class="fbar skip"><span class="add" style="width:50%"></span><span class="del" style="width:10%"></span></span></div>
+            <div class="kv a" style="--i:5"><span class="k">结果</span><span>5 个文件 · +186 −31 · 跳过 2 个</span></div>
+            <div class="kv a" style="--i:6"><span class="k">测试削弱</span><span><code>paginate.test.ts</code> 删掉了 1 条断言 → 报告里单列</span></div>
+            <div class="kv a" style="--i:7"><span class="k">只读</span><span>记下仓库状态，出报告前核对是否被改动</span></div>
+          </div>
+
+          <div class="scene" data-scene="2" hidden>
+            <div class="src a" style="--i:0"><span class="ck">✓</span><b>MR 描述</b><span class="muted">「订单 41 条时只能拿到 40 条」</span></div>
+            <div class="src a" style="--i:1"><span class="ck">✓</span><b>需求 PROJ-231</b><span class="muted">验收标准 2 条</span></div>
+            <div class="src a" style="--i:2"><span class="ck">✓</span><b>提交说明 · MR 讨论</b><span class="muted">3 个提交 · 2 条人工评论</span></div>
+            <div class="src a" style="--i:3"><span class="ck">✓</span><b>你补充的</b><span class="muted">「修复分页丢数据」</span></div>
+            <div class="lrow a" style="--i:5"><span class="lv">项目</span><span><code>REVIEW.md</code>（从 base 读）</span><span class="n">1 份</span></div>
+            <div class="lrow a" style="--i:6"><span class="lv">约定文件</span><span><code>CLAUDE.md</code>、<code>.cursor/rules/orders.mdc</code></span><span class="n">2 份</span></div>
+            <div class="tags a" style="--i:7"><span class="tag2">规则就是 Markdown，不需要编号</span><span class="tag2">深度：标准</span></div>
+          </div>
+
+          <div class="scene" data-scene="3" hidden>
+            <div class="task a" style="--i:0"><span><code>reviewer</code> · 同一上下文分遍：正确性 → 安全 → 需求核对</span><span class="muted">缺陷候选</span></div>
+            <div class="task a" style="--i:1"><span><code>rules-auditor</code> · 只对照写下来的规则</span><span class="muted">规则候选</span></div>
+            <div class="find a" data-fx="find" style="--i:2">
+              <div class="lanes">
+                <div class="lane"><code>reviewer</code><span class="cands"><span class="cc sent" data-k="p42">paginate.ts:42</span><span class="cc sent" data-k="o118">order_service.go:118</span><span class="cc sent merged" data-k="p43" title="与 paginate.ts:42 同根因，已并入">paginate.ts:43</span><span class="cc sent" data-k="e55">export.ts:55</span><span class="cc sent" data-k="p12">paginate.ts:12</span></span></div>
+                <div class="lane"><code>rules-auditor</code><span class="cands"><span class="cc sent" data-k="r1">REVIEW.md「日期格式化统一用…」</span></span></div>
+              </div>
+              <div class="funnel" aria-hidden="true"></div>
+              <div class="merge">
+                <div class="merge-h"><b>合并去重</b><span class="mcount">5</span><span class="muted">条候选，交给核实</span></div>
+                <div class="cands"><span class="cc" data-m="p42">paginate.ts:42<i class="plus1">+1 同根因</i></span><span class="cc" data-m="o118">order_service.go:118</span><span class="cc gone" data-m="p43">paginate.ts:43</span><span class="cc" data-m="e55">export.ts:55</span><span class="cc" data-m="p12">paginate.ts:12</span><span class="cc" data-m="r1">REVIEW.md「日期格式化统一用…」</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="scene" data-scene="4" hidden>
+            <div class="vlist a" data-fx="verify" style="--i:0">
+              <div class="v pass" data-o="0" data-s="96" data-tok=":42"><span class="what"><span>paginate.ts:42 非整数倍时尾页数据被截掉</span><small>读过调用方 api/orders.ts:88，base 版本没有这个问题</small></span><span class="bar"><span class="fill" style="width:96%"></span><span class="gate"><em>80</em></span></span><span class="score">96</span><span class="verdict"><span class="stamp">✓ 已核实</span></span></div>
+              <div class="v pass" data-o="2" data-s="90" data-tok="规则"><span class="what"><span>REVIEW.md「日期格式化统一用 src/utils/date.ts」</span><small>脚本核对引文在规则里、规则覆盖这个文件 ✓</small></span><span class="bar"><span class="fill" style="width:90%"></span><span class="gate"><em>80</em></span></span><span class="score">90</span><span class="verdict"><span class="stamp">✓ 已核实</span></span></div>
+              <div class="v pass" data-o="4" data-s="88" data-tok=":118"><span class="what"><span>order_service.go:118 写库失败后状态没回滚</span><small>走完错误路径，事务外已改了内存状态</small></span><span class="bar"><span class="fill" style="width:88%"></span><span class="gate"><em>80</em></span></span><span class="score">88</span><span class="verdict"><span class="stamp">✓ 已核实</span></span></div>
+              <div class="vsep"><b>否决</b>低于 80 分不报，留档 rejected.json</div>
+              <div class="v fail" data-o="1" data-s="40" data-tok=":55"><span class="what"><span>export.ts:55 SQL 拼接</span><small>实际已经参数绑定</small></span><span class="bar"><span class="fill" style="width:40%"></span><span class="gate"><em>80</em></span></span><span class="score">40</span><span class="verdict"><span class="nope">✗ 未过线</span></span></div>
+              <div class="v fail" data-o="3" data-s="0" data-tok=":12"><span class="what"><span>paginate.ts:12 空数组</span><small>以前判为不成立，代码没变</small></span><span class="bar"><span class="fill" style="width:0%"></span><span class="gate"><em>80</em></span></span><span class="score">0</span><span class="verdict"><span class="nope">✗ 未过线</span></span></div>
+            </div>
+          </div>
+
+          <div class="scene" data-scene="5" hidden>
+            <div class="kv a" style="--i:0"><span class="k">只读核对</span><span><code>check-state</code>：仓库未被改动 ✓，只读阶段结束</span></div>
+            <div class="kv a" style="--i:1"><span class="k">说明行</span><span><code>report-lines</code> 给出审查范围、意图来源、规则、已检查等说明行，原样放进报告</span></div>
+            <div class="kv a" style="--i:2"><span class="k">问题代码</span><span><code>snippet</code> 从原文摘取，不凭记忆写；修复建议的 <code>-</code> 行和原文一致</span></div>
+            <div class="kv a" style="--i:3"><span class="k">条数</span><span>缺陷 2 条计入标题；规范 1 条单列；<code>paginate.ts:30</code> 是原有问题，不计入</span></div>
+            <div class="kv a" style="--i:4"><span class="k">保存</span><span><code>save-review</code> 存下报告和记录，算出用时、角色数和 token 用量</span></div>
+          </div>
+
+          <div class="scene" data-scene="6" hidden>
+            <div class="kv a" style="--i:0"><span class="k">重新核对</span><span>读 <code>handler.go:30-48</code>：<code>SaveOrder</code> 在事务里调用，失败时整体回滚</span></div>
+            <div class="kv a" style="--i:1"><span class="k">记下判断</span><span><code>feedback</code>：#1 成立；#2 不成立「外层事务整体回滚」</span></div>
+            <div class="kv a" style="--i:2"><span class="k">不再重复报</span><span>记下这段代码的指纹；代码不变时，同一条不再报</span></div>
+          </div>
+          </div>
+
+          <div class="track" data-track="rules" hidden>
+            <div class="scene" data-scene="0" hidden>
+              <div class="kv a" style="--i:0"><span class="k">拉取</span><span>只读拉取最近 90 天已合并的 23 个 MR 上的人工评论，去掉机器人和系统消息</span></div>
+              <div class="kv a" style="--i:1"><span class="k">判断记录</span><span>加上 CrossCheck 记下的「成立 / 不成立」判断</span></div>
+              <div class="kv a" style="--i:2"><span class="k">先读现有规则</span><span>已经写过的不重复</span></div>
+              <div class="kv a" style="--i:3"><span class="k">缓存</span><span>拉过的 MR 存起来，下次只拉新的</span></div>
+            </div>
+            <div class="scene" data-scene="1" hidden>
+              <div class="cand a" style="--i:0"><b>金额计算禁止使用浮点数</b><span class="tag2 good">候选</span><small>4 个 MR、3 位评审人 · 评论后都改了 · 适用 src/payments/**</small></div>
+              <div class="cand a" style="--i:1"><b>订单状态变更必须写审计日志</b><span class="tag2 good">候选</span><small>3 个 MR、2 位评审人 · 适用 src/orders/**</small></div>
+              <div class="cand no a" style="--i:2"><b>变量名用驼峰</b><span class="tag2">交给 linter</span><small>工具能查，不写成审查规则</small></div>
+              <div class="cand no a" style="--i:3"><b>这里加个注释</b><span class="tag2">不收</span><small>只出现在 1 个 MR，作者没有改</small></div>
+            </div>
+            <div class="scene" data-scene="2" hidden>
+              <div class="kv a" style="--i:0"><span class="k">写入</span><span><code>.agents/rules/payments.md</code>、<code>orders.md</code> 各 +1 条</span></div>
+              <div class="kv a" style="--i:1"><span class="k">每条包含</span><span>规则、原因、严重级别、正反例、不要报、来源 MR</span></div>
+              <div class="tags a" style="--i:2"><span class="tag2 good">只改工作区</span><span class="tag2">由你提交，走正常的代码评审</span><span class="tag2">合入后审查就会对照</span></div>
+            </div>
+          </div>
+        </div>
+
+        <details class="term" open>
+          <summary class="term-head"><span>执行日志</span><span id="dLogCount"></span></summary>
+          <ol id="dLog"></ol>
+        </details>
+      </div>
+
+      <div class="blk-h"><span class="blk-n">2</span><b>你看到的</b><span class="muted">在 AI 编程 CLI 里实际看到的输出</span></div>
+      <div class="win" id="dWin">
+        <div class="win-bar">
+          <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div class="wtabs" role="tablist" aria-label="窗口">
+            <button type="button" role="tab" class="wtab" id="dTabTerm" aria-selected="true" aria-controls="dTerm">终端 · ~/demo-shop</button>
+          </div>
+        </div>
+
+        <div class="wpane tbody" id="dTerm" role="tabpanel" aria-labelledby="dTabTerm" tabindex="0">
+          <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck 0.3.0</span><span class="muted">~/demo-shop · main</span></div>
+
+          <div class="tterm" data-track="review">
+            <div class="tc" data-scene="0">
+              <div class="tp ty a" data-ms="45"><span class="pr">›</span>/crosscheck:review 帮我看下 MR 128，这次是修复分页丢数据</div>
+              <div class="ta ty a"><span class="bul">●</span>按下面的理解开始审查，理解错了直接告诉我：</div>
+              <div class="to a"><span class="tree">└</span>审查范围：MR !128（feature/pay → main）· 深度：standard</div>
+              <div class="to k a">意图：修复分页丢数据</div>
+            </div>
+
+            <div class="tc" data-scene="1" hidden>
+              <div class="ta ty a"><span class="bul">●</span>先拉取改动。</div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> collect-diff.sh 128</div>
+              <div class="to a"><span class="tree">└</span>MR !128 · 5 个文件 · +186 −31 · 跳过 2 个（go.sum、package-lock.json）</div>
+              <div class="tpre a"><span>src/orders/paginate.ts      </span><span class="pl">++++++++</span><span class="mi">−</span>
+<span>src/orders/order_service.go </span><span class="pl">+++++++++</span><span class="mi">−−</span>
+<span>src/api/export.ts           </span><span class="pl">+++++</span><span class="mi">−</span>
+<span>src/utils/date.ts           </span><span class="pl">+++</span><span class="mi">−</span>
+<span>src/orders/paginate.test.ts </span><span class="pl">++</span><span class="mi">−−</span></div>
+              <div class="to k a">测试削弱 1 处：paginate.test.ts 删掉了 1 条断言</div>
+              <div class="to k a">已记下仓库状态，出报告前核对是否被改动</div>
+            </div>
+
+            <div class="tc" data-scene="2" hidden>
+              <div class="ta ty a"><span class="bul">●</span>整理意图和要对照的规则。</div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> collect-context.sh</div>
+              <div class="to a"><span class="tree">└</span>意图来源：MR 描述、需求 PROJ-231、提交说明、MR 讨论、你的补充；验收标准 2 条</div>
+              <div class="to k a">① 订单数不是页大小整数倍时，最后一页也能拿到</div>
+              <div class="to k a">② 翻页不重复、不遗漏</div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> collect-rules.sh</div>
+              <div class="to a"><span class="tree">└</span>REVIEW.md（读自 base main）· CLAUDE.md · .cursor/rules/orders.mdc</div>
+            </div>
+
+            <div class="tc" data-scene="3" hidden>
+              <div class="ta ty a"><span class="bul">●</span>同时启动两个候选查找角色，各自独立执行：</div>
+              <div class="tsub a" data-fx="agent" data-done="3200"><span class="spin ok"></span><b>reviewer</b><em class="mdl">查找模型</em><span class="tsub-d">正确性 → 安全 → 需求核对</span><span class="st ok" data-run="查找中…">5 条候选</span></div>
+              <div class="tsub a" data-fx="agent" data-done="2000"><span class="spin ok"></span><b>rules-auditor</b><em class="mdl">查找模型</em><span class="tsub-d">对照 3 份规则</span><span class="st ok" data-run="对照中…">1 条候选 · 引文 REVIEW.md</span></div>
+              <div class="ta ty a"><span class="bul">●</span>合并去重：6 → 5 条候选（paginate.ts:43 与 :42 同根因）</div>
+            </div>
+
+            <div class="tc" data-scene="4" hidden>
+              <div class="ta ty a"><span class="bul">●</span>交给 verifier 独立核实，它只拿到候选结论，看不到查找过程。</div>
+              <div class="tsub a" data-fx="agent" data-done="2900"><span class="spin ok"></span><b>verifier</b><em class="mdl">核实模型</em><span class="tsub-d">逐条先推翻再打分 · 80 分过线</span><span class="st ok" data-run="核实中…">通过 3 · 否决 2</span></div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> aggregate.sh</div>
+              <div class="to a"><span class="tree">└</span>依据位置 ✓ · 规则引文 ✓ · 否决的 2 条留档 rejected.json</div>
+            </div>
+
+            <div class="tc" data-scene="5" hidden>
+              <div class="ta ty a"><span class="bul">●</span>只读阶段结束，仓库未被改动。报告如下：</div>
+              <div class="trep">
+                <div class="a"><div class="rh2">审查：MR !128 修复分页尾页数据被截掉 — 2 条发现</div>
+                  <div class="tmeta">审查范围：MR !128（feature/pay → main）· 深度：standard · 全量</div>
+                  <div class="tmeta">意图来源：MR 描述、需求 PROJ-231、提交说明、MR 讨论、你的补充；验收标准 2 条</div></div>
+                <div class="ttab-w a" data-fx="pop"><table class="ttab"><thead><tr><th>#</th><th>严重程度</th><th>维度</th><th>位置</th><th>摘要</th></tr></thead><tbody><tr><td>1</td><td><span class="sev hi">重要</span></td><td>bug</td><td><code>paginate.ts:42</code></td><td>非整数倍时尾页数据被截掉</td></tr><tr><td>2</td><td><span class="sev hi">重要</span></td><td>bug</td><td><code>order_service.go:118</code></td><td>写库失败后状态没回滚</td></tr></tbody></table></div>
+                <div class="rfind2 a" data-fx="report">
+                  <div class="rh3">1. [<span class="sev hi">重要</span> · bug · 读代码推断] 非整数倍时尾页数据被截掉</div>
+                  <div><b>位置</b>：<code>src/orders/paginate.ts:42</code></div>
+                  <div><b>问题代码</b></div>
+<pre class="tcode snip"><code><span class="ln">   41 |   const total = rows.length;</span><span class="ln hot lit">&gt;  42 |   const pageCount = Math.floor(total / pageSize);<span class="sweep"></span></span><span class="ln">   43 |   return rows.slice(0, pageCount * pageSize);</span></code></pre>
+                  <div><b>问题</b>：total=41、pageSize=20 时 pageCount 算成 2，第 41 条被截掉；不满足验收标准 ①</div>
+                  <div><b>修复建议</b></div>
+<pre class="tcode tdiff"><code><span class="ln dm">-   const pageCount = <span class="was struck">Math.floor<span class="strike"></span></span>(total / pageSize);</span><span class="ln dp">+   const pageCount = Math.ceil(total / pageSize);</span></code></pre>
+                  <div class="tdet"><div>▾ 依据（置信度 96）</div>
+                    <div>- 读过：paginate.ts:38-47（改动处）；api/orders.ts:88（唯一调用方）</div>
+                    <div>- 排除：base 版本用的是 Math.ceil，问题由本次改动引入</div>
+                    <div>- 查到：reviewer（正确性一遍）</div></div>
+                </div>
+                <div class="a"><div class="rh3">2. [<span class="sev hi">重要</span> · bug · 读代码推断] 写库失败后状态没回滚</div>
+                  <div><b>位置</b>：<code>src/orders/order_service.go:118</code></div>
+                  <div><b>问题</b>：SaveOrder 返回错误时 order.Status 已经改成 paid，调用方重试会跳过扣款</div>
+                  <div><b>修复建议</b>：写库成功后再改状态，或失败时恢复原状态</div>
+                  <div class="tdet">▸ 依据（置信度 88）</div></div>
+                <div class="a"><div class="rh3">规范（1）</div>
+                  <div><b>3.</b> <code>src/api/export.ts:61</code> — 「日期格式化统一用 src/utils/date.ts 的 formatDate」（出处 REVIEW.md）→ 这里手拼了 yyyy-MM-dd，改成 formatDate(d)</div>
+                  <div class="tdet">▸ 依据（置信度 90）</div></div>
+                <div class="a"><div class="rh3">测试和检查被削弱（1）</div>
+                  <div><code>src/orders/paginate.test.ts:27</code> 删掉了断言 <code>expect(results.at(-1)).toHaveLength(1)</code></div></div>
+                <div class="a"><div class="rh3">改动代码里的原有问题（1）</div>
+                  <div class="tmeta"><code>src/orders/paginate.ts:30</code> — pageSize 没有校验上限（原有，不是本次引入）</div></div>
+                <div class="tfoot a">
+                  <div>规则：<code>REVIEW.md</code>、<code>CLAUDE.md</code>、<code>.cursor/rules/orders.mdc</code>（读自 base main），违反 1 条</div>
+                  <div>已检查：bug、安全、需求核对、规范 · 深度：standard · 范围：全量</div>
+                  <div>消耗：用时 4 分 12 秒 · 查找 2 个角色、核实 1 个 · 候选 5 条、通过 3 条 · token 约 18.6 万</div>
+                  <div>记录：<u>~/.crosscheck/reviews/demo-shop/mr-128/report.md</u></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tc" data-scene="6" hidden>
+              <div class="tp ty a" data-ms="40"><span class="pr">›</span>1 对；第 2 条不对，order_service 外层有事务，失败会整体回滚</div>
+              <div class="ta ty a"><span class="bul">●</span>我重新核对一下调用方。</div>
+              <div class="tt a"><span class="bul">◆</span><b>读取</b> src/api/handler.go:30-48</div>
+              <div class="to a"><span class="tree">└</span>handler.go:40 在事务里调用 SaveOrder，失败时整个请求回滚，内存里的 order 随请求丢弃</div>
+              <div class="ta ty a"><span class="bul">●</span>核对后撤回第 2 条。已记录：1 成立；2 不成立，原因「外层事务整体回滚」。这段代码不变时不再报。</div>
+              <div class="to a"><span class="tree">└</span>feedback.sh：valid #1 · invalid #2</div>
+            </div>
+          </div>
+
+          <div class="tterm" data-track="rules" hidden>
+            <div class="tc" data-scene="0">
+              <div class="tp ty a" data-ms="45"><span class="pr">›</span>/crosscheck:improve 从最近的 MR 评论里整理规则</div>
+              <div class="ta ty a"><span class="bul">●</span>沉淀规则：从最近 90 天已合并的 MR 评论里归纳候选。只读，不会改代码托管上的任何东西。</div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-mrs.sh --days 90</div>
+              <div class="to a"><span class="tree">└</span>已合并 MR 23 个（新拉取 23 · 缓存 0）· 人工评论 41 条 · 评审人 6 位</div>
+              <div class="to k a">判断记录 9 条 · 现有规则 2 份</div>
+            </div>
+            <div class="tc" data-scene="1" hidden>
+              <div class="tsub a" data-fx="agent" data-done="1800"><span class="spin ok"></span><b>miner</b><span class="tsub-d">从评论里归纳候选</span><span class="st ok" data-run="归纳中…">候选 4 条</span></div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-check.py</div>
+              <div class="to a"><span class="tree">└</span>通过 2 · 交给 linter 1 · 证据不足 1</div>
+              <div class="ta ty a"><span class="bul">●</span>找到 2 条够格的规则：</div>
+              <div class="tcand a"><b>1. 金额计算禁止使用浮点数</b> <span class="sev hi">重要</span> <span class="muted">src/payments/**</span><br><span class="muted">4 个 MR、3 位评审人 · 证据 ✓ · 摘录原文 ✓ · 评论后改了代码 ✓ · 不重复 ✓</span></div>
+              <div class="tcand a"><b>2. 订单状态变更必须写审计日志</b> <span class="sev hi">重要</span> <span class="muted">src/orders/**</span><br><span class="muted">3 个 MR、2 位评审人 · 证据 ✓ · 摘录原文 ✓ · 评论后改了代码 ✓ · 不重复 ✓</span></div>
+              <div class="to a"><span class="tree">└</span>丢掉 2 条：变量名用驼峰（工具能查，交给 linter）；这里加个注释（只出现在 1 个 MR）</div>
+              <div class="ta ty a"><span class="bul">●</span>已生成 plan.md（存在本机，不进仓库），每条的动作都是“待定”：请逐条标“写入”或“跳过”，也可以改措辞、改去向。</div>
+            </div>
+            <div class="tc" data-scene="2" hidden>
+              <div class="tp ty a" data-ms="45"><span class="pr">›</span>两条都写入，确定</div>
+              <div class="ta ty a"><span class="bul">●</span>预演（--check）无误，已 --apply 写入工作区，没有提交：</div>
+<pre class="tcode tdiff a"><code><span class="ln dh">.agents/rules/payments.md</span><span class="ln dp">+ ## 金额计算禁止使用浮点数</span><span class="ln dp">+ - 规则：在 src/payments/ 中，金额运算必须用 Money 类型，禁止 float</span><span class="ln dp">+ - 原因：浮点误差导致对账差 1 分钱</span><span class="ln dp">+ - 严重级别：重要</span><span class="ln dp">+ - 不要报：汇率展示、日志格式化</span><span class="ln dp">+ &lt;!-- 来源：!112 !118 !131 !140 --&gt;</span><span class="ln dh">.agents/rules/orders.md</span><span class="ln dp">+ ## 订单状态变更必须写审计日志</span><span class="ln dc">  …（共 7 行）</span></code></pre>
+              <div class="to a"><span class="tree">└</span>2 个文件已修改（未提交）。由你提交，走正常的代码评审；合入后审查就会对照。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="principles">
+      <h2>一、设计原则</h2>
+      <ol class="principles">
+        <li><b>精确率优先。</b>两条真实发现好过十条里错三条。作者看到几条错误评论后就不再认真看其余的，报告为空是正当结果。</li>
+        <li><b>查找负责不漏，核实负责不错。</b>查找阶段放开去查，查到一半的也交；verifier 看不到查找时的推理，先尝试推翻、再打分，必须给出依据。</li>
+        <li><b>确定性的工作交给脚本。</b>diff、行范围、规则装配、依据和规则引文校验、过滤排序、增量都由脚本完成，agent 只做判断。</li>
+        <li><b>规则就是文件。</b>项目的 REVIEW.md 和已有的 CLAUDE.md、AGENTS.md、Cursor / Copilot 规则直接用，不需要编号、元数据或专门格式。</li>
+        <li><b>记住人的判断。</b>表态时写下原因，同一段代码不再重复报同样的误报；团队共享的写进 REVIEW.md。</li>
+        <li><b>机制保持简单。</b>只留业界验证过有效的；在有真实使用数据之前，不为“可能有用”加机制。</li>
+      </ol>
+
+      <h3>不做什么</h3>
+      <ul>
+        <li>不替代编译器、类型检查器、linter 和 CI，它们能拦住的问题不报。</li>
+        <li>不审查改动之外的存量代码；不报风格、命名、可读性、日志措辞和影响很小的性能优化（除非项目写成了规则）。</li>
+        <li>不往 PR/MR 发评论，不 approve、request changes、merge；不提交 MR、不改 MR 描述，也不生成 PR / MR 描述。</li>
+        <li>默认不改文件，只有用户明确要求时才修复，且只改工作区、不提交。</li>
+        <li>不往 GitLab / GitHub 写任何东西。审查后仅按明确请求修复本地代码、或确认后修改工作区规则，不得改托管平台记录。</li>
+        <li>不做组织级的规则分发、团队数据同步和评测平台。</li>
+        <li>不追求召回率，会漏报，这是有意的取舍；不自动改规则，也不自动停用规则，增删由负责人确认。</li>
+      </ul>
+      <details class="design-basis">
+        <summary>设计依据：这些原则从哪来</summary>
+        <ul>
+          <li><b>精确率优先：</b>Uber 发现开发者对低质量建议很快失去信任，整类砍掉评分最差的评论；OpenAI 接受召回略降，换取信号质量。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a></li>
+          <li><b>先找后核实：</b>Claude Code Review 由多个 agent 并行查找，再由单独的验证步骤逐条对照代码过滤误报；官方 code-review 命令要求规则违反引用原文。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a></li>
+          <li><b>确定性的交给脚本：</b>简单的语法规则 linter 最好，LLM 补语义判断；CodeRabbit 用工具结果过滤模型的误报。<a href="https://addyosmani.com/blog/agentic-code-review/">Addy Osmani：Agentic Code Review</a>；<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
+          <li><b>规则就是文件：</b>REVIEW.md、BUGBOT.md、Copilot 指令文件都是普通 Markdown。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://cursor.com/docs/bugbot">Cursor Bugbot 文档（BUGBOT.md）</a>；<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审（只读前 4000 字符）</a></li>
+          <li><b>记住人的判断：</b>Bugbot 从开发者的反应和回复里学习规则，CodeRabbit 把开发者的回复记成 learnings，避免同样的误报反复出现。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="overview">
+      <h2>二、总体设计</h2>
+      <div class="arch">
+        <div class="layer">
+          <div class="layer-head"><b>入口</b><span>在本地调用；只有审查能用平时说话的方式触发</span></div>
+          <div class="chips">
+            <span class="chip">审查（自然语言或 /review）</span>
+            <span class="chip">审查之后：表态、质疑、修复、补充需求资料</span>
+            <span class="chip">规则维护：沉淀、检查、整理 REVIEW.md（只能用命令 /crosscheck:improve）</span>
+          </div>
+        </div>
+        <div class="flow"><span class="arrow">↓</span></div>
+
+        <div class="layer">
+          <div class="layer-head"><b>收集</b><span>脚本完成，写进本次审查目录（review_dir）</span></div>
+          <div class="subrow"><div class="label">改动</div><div class="chips">
+            <span class="chip">diff 收集</span><span class="chip">有效代码过滤</span><span class="chip">行范围</span><span class="chip">分批</span><span class="chip">增量与依赖扩散</span>
+          </div></div>
+          <div class="subrow"><div class="label">意图</div><div class="chips">
+            <span class="chip">MR 描述 / 提交说明</span><span class="chip">需求单、需求文档（缺了先问，按配置的工具读取）</span><span class="chip">MR / PR 人工讨论</span><span class="chip">你补充的意图和文档（随口说就行，可选）</span>
+          </div></div>
+          <div class="subrow"><div class="label">规则</div><div class="chips">
+            <span class="chip">REVIEW.md（可选，目录级 / 根目录，含「不要报」）</span><span class="chip">CLAUDE.md / AGENTS.md / Cursor / Copilot</span><span class="chip">PR/MR 读 base</span>
+          </div></div>
+          <div class="subrow"><div class="label">信号</div><div class="chips">
+            <span class="chip">测试削弱扫描</span><span class="chip">历史判断</span><span class="chip">代码块编号、符号、调用方（按名字搜索）</span>
+          </div></div>
+        </div>
+        <div class="flow"><span class="arrow">↓</span></div>
+
+        <div class="layer">
+          <div class="layer-head"><b>审查</b><span>主 agent 编排；有子代理时并行，否则顺序执行</span></div>
+          <div class="subrow"><div class="label">① 并行任务<br>同时启动</div><div class="parallel-work">
+            <div class="work-set"><div class="work-title">查找候选 · 两个角色互相独立 · 交给 verifier</div><div class="roles">
+              <div class="role"><b>reviewer</b><span>能读整个仓库、搜索、看 git 历史，自己决定往哪里深挖；在同一个上下文里分遍查：正确性 → 安全 → 需求核对，deep 加影响面</span></div>
+              <div class="role"><b>rules-auditor</b><span>只对照写下来的规则；每条违反写出规则文件和逐字原文</span></div>
+            </div></div>
+          </div></div>
+          <div class="subrow"><div class="label">② 核实<br>尽量不错</div><div class="roles">
+            <div class="role"><b>verifier</b><span>逐条复查，看不到查找时的推理；先尝试推翻，再按固定标准打 0–100 分，给出读过的代码和排除的可能；每批最多 3 条，严重问题单独核实；deep 下经 run-check.sh 复现。用强模型</span></div>
+          </div></div>
+          <div class="subrow"><div class="label">③ 汇总</div><div class="roles">
+            <div class="role"><b>aggregate.sh</b><span>校验依据和规则引文、只留改动行、低于 80 分不报、增量遗留与已解决、仅合并关键字段等价的重复发现并保留来源、历史处理单独留痕、原有问题单列、排序、条数上限、编号</span></div>
+          </div></div>
+        </div>
+        <div class="flow"><span class="arrow">↓</span></div>
+
+        <div class="layer">
+          <div class="layer-head"><b>输出</b><span>CR 报告留在本地</span></div>
+          <div class="subrow"><div class="label">CR 报告</div><div class="chips">
+            <span class="chip">问题代码原文摘取</span><span class="chip">每条附依据，区分已复现、执行未定与读代码推断</span><span class="chip">测试削弱单列</span><span class="chip">改动代码里的原有问题单列</span><span class="chip">消耗含实际模型，与配置不一致时提示</span><span class="chip">审查记录</span><span class="chip">--fix（仅工作区）</span>
+          </div></div>
+        </div>
+        <div class="flow"><span class="arrow">↓</span>人的判断 · MR 人工评论</div>
+
+        <div class="pair">
+          <div class="layer">
+            <div class="layer-head"><b>判断记录</b></div>
+            <div class="chips">
+              <span class="chip">表态记在本机（同一段代码不再报）</span><span class="chip">团队共享写进 REVIEW.md「不要报」</span>
+            </div>
+          </div>
+          <div class="bi" aria-hidden="true">⇄</div>
+          <div class="layer">
+            <div class="layer-head"><b>规则维护</b></div>
+            <div class="chips">
+              <span class="chip">沉淀：MR 评论 → 候选 → plan.md，逐条确认后写入</span><span class="chip">检查现有规则</span><span class="chip">整理 REVIEW.md</span><span class="chip">确认后只改工作区</span>
+            </div>
+          </div>
+        </div>
+        <div class="loop-note">↺ 规则文件合入后，回到「收集」的规则装配</div>
+      </div>
+      <details class="design-basis">
+        <summary>设计依据：总体结构</summary>
+        <ul>
+          <li><b>允许自主调查：</b>reviewer 可沿调用链和数据流读取仓库，补足 diff 之外的证据。Bugbot 的代理化支持自主搜索、读代码和调用工具，但不代表单 agent，其现行 agent 数量未公开。<a href="https://cursor.com/blog/building-bugbot">Cursor：Building Bugbot</a></li>
+          <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
+          <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
+          <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
+          <li><b>脚本、角色、编排三层：</b>脚本做有唯一答案的事（取 diff、算行范围、装配规则、校验、过滤排序、增量、调平台 API），角色做需要判断的事，<code>SKILL.md</code> 只负责把你的话翻译成选项、调度角色、按格式出报告。过滤、排序、增量、编号原来写在 <code>SKILL.md</code> 里让 agent 执行，现在都在脚本里，结果可复现、能写测试。</li>
+          <li><b>脚本入口是 sh，实现是 python3：</b>每个 <code>.sh</code> 只检查参数后交给同名的 <code>.py</code> 模块，一个模块只做一件事，公共函数只在 <code>crlib.py</code> 有一份。核心流程需要 python3 3.8+（只用标准库），没有时 <code>collect-diff.sh</code> 一开始就停下并提示安装；规则装配、依据校验、汇总都涉及 JSON 和文本处理，用 awk 和 sed 拼既难读也容易出错。<code>git</code> 必需，<code>gh</code> / <code>glab</code> 只在对应功能里才需要。</li>
+          <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，规则维护在 <code>skills/improve/</code> 下，两者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
+          <li><b>报告里的代码是摘出来的：</b>问题代码由 <code>snippet.sh</code> 从被审查的那一版带行号摘取，不让 agent 凭记忆写，否则容易和原文有出入，被审查的代码不在工作区时还可能摘到另一个版本。修复建议的代码来自发现本身，经 verifier 过目；没有确切替换代码时用文字。报告开头有概览表，先看有几条、多严重、在哪里。</li>
+          <li><b>只审有效代码：</b>脚本跳过测试、测试数据、日志、覆盖率报告、备份和 lock、生成、vendored、二进制文件；文件名规则偏保守（不把 <code>spec/</code> 一概当成测试，它也可能放接口定义），宁可多审一个文件也不漏产品代码。测试默认不审，<code>--with-tests</code> 可打开。文件内部由角色判断：注释和排版、原样移动、被注释掉的和没被用上的代码不按缺陷报，评分标准里有对应的封顶检查。</li>
+          <li><b>意图在调用时给，不放进仓库：</b>计划和意图描述的是“这一次改动”，提交进仓库会在合并后过期，还会被之后的审查读到，所以只从 MR 描述、需求单、提交说明和 <code>--intent</code> / <code>--doc</code> 取。只有意图里有明确的验收标准才做需求核对，没有就不猜“应该做什么”。意图可以解释某个行为变化是有意的，不能让安全问题不报。</li>
+          <li><b>测试削弱由脚本扫出来：</b>删除测试、断言减少、新增 skip / only / 抑制注释、降低覆盖率阈值、放宽 CI 检查，不是缺陷，但评审的人必须看到，所以单列一节，不占缺陷条数，也不经 verifier。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="flows">
+      <h2>三、审查流程</h2>
+      <div class="table-wrap"><table>
+        <tr><th>步骤</th><th>谁做</th><th>产出</th></tr>
+        <tr><td>0. 审查前先问（有要问的才有）</td><td>主 agent 一轮问完；用配置的工具读取链接</td><td>对比基准（无法自动确定才问，默认不记住）、需求单和需求文档的链接和内容（同一分支记住）、可选的 PRD 等资料（可跳过）</td></tr>
+        <tr><td>1. 收集改动</td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）</td><td><code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>history.json</code>；增量时 <code>prev-findings.json</code></td></tr>
+        <tr><td>2. 装配规则</td><td><code>collect-rules.sh</code></td><td><code>rules.txt</code>、<code>rules-index.json</code></td></tr>
+        <tr><td>3. 并行查找</td><td><code>reviewer</code>、<code>rules-auditor</code>（并行）</td><td><code>candidates.json</code></td></tr>
+        <tr><td>4. 核实</td><td><code>prepare-verify.sh</code> 分批 → <code>verifier</code> × N</td><td><code>verify/result-*.json</code></td></tr>
+        <tr><td>5. 汇总</td><td><code>aggregate.sh</code></td><td><code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code></td></tr>
+        <tr><td>6. 报告</td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code></td><td>报告和审查记录</td></tr>
+        <tr><td>7. 修复（仅要求时）</td><td>主 agent</td><td>工作区改动，修好的记为成立</td></tr>
+      </table></div>
+
+      <h3>对比基准</h3>
+      <p>和 GitHub / GitLab 一样，diff 从源分支与目标分支<strong>远端最新</strong>的 merge-base 算起：</p>
+      <ul>
+        <li><b>分支基准取远端最新：</b>选定分支后先从 origin 拉取再算（只更新 <code>origin/</code> 下的远程跟踪分支，不动工作区）；拉取失败使用本地缓存并提示可能过期。平台提供已合入 MR 的冻结 diff 时使用合入前版本。报告的 SCOPE 行写明实际基准及选择来源。</li>
+        <li><b>已合入的 MR 用合入前的版本：</b>用 merge commit 合入后目标分支已包含 head，merge-base 就是 head、diff 为空。脚本在目标分支的 first-parent 链上找到合入它的提交，用它的第一个父提交算基准；squash / rebase 合入照常算；找不到合入提交（如快进合入）时输出 BASE_FAILED 并停止，请用户指定有效基准。</li>
+        <li><b>用户可以指定：</b><code>--base</code> 指定分支，<code>--base-sha</code> 指定提交（短哈希也行，必须是 head 的祖先，优先于任何自动计算）。都只对这一次生效，不改项目的记录。</li>
+        <li><b>空 diff 一定提示：</b>MR 或用户指定的基准算出 0 个文件时输出 NOTE，说基准可能不对，不当成“0 条发现”。</li>
+        <li><b>能确定就直接审，不确定才问：</b>当次明确基准优先，其次是用户明确保存的项目规则。没有这些时，PR / MR 使用目标分支，本地从分支创建和切换记录寻找可验证的切出来源，取来源分支远端最新版本算 diff。Git 不永久保存来源，记录缺失、过期或有歧义才问；不拿 upstream 或最近共同祖先当来源证据。</li>
+        <li><b>默认不记住：</b>回答基准问题默认仅本次使用，顺带提示“是否记住为这个项目的默认规则？默认不记住”。明确要求才保存“跟随每个 MR 目标分支”或“固定对比分支 X”，不保存提交哈希，自动推断也不保存。换基准默认不改旧规则。必要的基准、需求与可选资料合并一轮问。</li>
+        <li><b>计算失败先恢复基准：</b>分支缺失、没有共同祖先或无法推断合入前版本时，输出 BASE_FAILED 并停止，交互中让用户选有效分支或提交再继续。非交互缺少来源时可用推荐项并标“基准未确认”，实际计算失败仍停止，不生成误导报告。</li>
+      </ul>
+
+      <h3>读外部 MR：tools.code_host</h3>
+      <p>gh、glab 之外的代码托管平台（内部自建的）也能审 MR：</p>
+      <ul>
+        <li><b>一句提示词配置：</b>在 <code>config/defaults.conf</code> 或个人配置里用一句自然语言写明用哪个只读工具读 MR、链接长什么样。配置后链接形式的 MR / PR（GitHub、GitLab 的链接也一样）都由它读；只给编号时仍走 gh / glab。</li>
+        <li><b>agent 只交文本：</b>agent 用这个工具读出标题、描述、讨论、目标分支名和源引用，写成固定格式的 <code>code-host.json</code>。编号、仓库、平台和网址从用户给的链接解析，不让 agent 报。</li>
+        <li><b>脚本校验，能算的不信：</b><code>code_host.py</code> 要求仓库和本地 origin 一致、分支名合法（<code>git check-ref-format</code>）；自己只读 fetch <code>source_ref</code>，head 以 fetch 到的为准；讨论作者只存哈希、过滤机器人；基准不取 agent 的，和其他路径一样拉取最新的目标分支再算。</li>
+        <li><b>失败退回纯 git：</b>核对不过或工具报错（<code>status</code> 为 <code>failed</code>）时只用 git 拉取代码，NOTE 和报告里都写明“MR 信息没有读到”，不悄悄丢掉标题。</li>
+        <li><b>只读靠约束：</b>配置模板和 SKILL.md 都写明这个工具只用来读；插件看不出远端的 MR 有没有被改过。</li>
+      </ul>
+
+      <h3>深度</h3>
+      <div class="table-wrap"><table>
+        <tr><th>档位</th><th>查找</th><th>核实</th><th>上限</th></tr>
+        <tr><td>quick</td><td>主 agent 自己按 reviewer 说明做第 1–3 遍</td><td>主 agent 自己核实</td><td>5 条</td></tr>
+        <tr><td>standard（默认）</td><td>reviewer（同一上下文分遍：正确性、安全、需求核对）、rules-auditor 并行</td><td>verifier 子代理，只读代码，每批最多 3 条</td><td>缺陷 10 条；需求核对、规范各 5 条</td></tr>
+        <tr><td>deep</td><td>同 standard，reviewer 多做一遍影响面（从使用方往回查）</td><td>verifier 可以跑项目已有的类型检查和测试来复现</td><td>同 standard</td></tr>
+      </table></div>
+      <p>改动较大时按约 1000 行一批（<code>CR_BATCH_LINES</code> 可调），reviewer 和 rules-auditor 每批各跑一次；quick 不分批。超过 4 批（<code>CR_LARGE_BATCHES</code>）先问你，确认后加 <code>--allow-large</code> 再跑。条数上限可被 <code>REVIEW.md</code> 的 <code>limits</code> 覆盖，不指定深度按 standard。deep 下 verifier 只能运行项目已经定义的只读和构建类命令，不装包、不改已跟踪的文件、不访问网络。</p>
+
+      <h3>流程是否走完</h3>
+      <ul>
+        <li><b>进行中标记：</b>真正开始审查时在记录目录写 <code>pending</code>，保存成功后删除；下次审查同一目标时标记还在，就提示上一次没有保存、很可能提前结束，然后照常重新审查。</li>
+        <li><b>非交互运行：</b>没有人在场时（<code>claude -p</code>、<code>codex exec</code>、CI）必须前台启动子代理，等每个子代理的最终 JSON 都回来再进入下一步，全部返回之前不写报告、不保存记录。</li>
+        <li><b>代码块编号和调用方交给脚本：</b><code>analysis_facts.py</code> 给每个改动块编号（H1…），提取改了哪些函数、接口、类型和配置键，用 <code>git grep</code> 按名字找本仓库里的调用方，写进 <code>analysis-facts.json</code> 供 reviewer 引用；依赖注入、反射、跨服务调用搜不到。它失败不阻止审查，但会在 NOTE 里披露，并记为流程缺项，报告里写“流程不完整”。</li>
+        <li><b>实际用的模型：</b>消耗行列出会话记录里实际出现的模型名；配置的查找或核实模型没有出现在记录里时，报告多一行“模型与配置不一致”。</li>
+      </ul>
+
+      <h3>被审查的代码不在工作区时</h3>
+      <ul>
+        <li><b>审查阶段不检出：</b>审 PR/MR、其他分支或提交范围时，<code>meta.txt</code> 的 <code>head_checked_out=no</code>，所有角色用 <code>git show &lt;code_ref&gt;:&lt;path&gt;</code> 读文件、<code>git grep</code> 搜索，不读磁盘；这时 verifier 不跑检查。<code>code_ref=UNAVAILABLE</code>（head 提交拉不到本地）时只能基于 diff 本身审查，报告里注明。</li>
+        <li><b>读不到 MR 信息就用 git 拉取：</b>gh / glab 没装或没登录时，脚本用 <code>git fetch origin merge-requests/&lt;n&gt;/head</code>（GitHub 是 <code>pull/&lt;n&gt;/head</code>）把代码拉下来，用的是仓库已配置好的凭证。代价是拿不到标题、描述和目标分支，报告里说明。</li>
+        <li><b>“没登录”常是环境没带上：</b>agent 的终端多半不读 <code>.zshrc</code>。脚本只用 <code>grep -q</code> 看 rc 文件里有没有出现相关变量名、当前环境里是不是空的，不读取、不保存、不输出任何值，然后建议把它们挪到 <code>~/.zshenv</code>，这一次改用 git 拉取。</li>
+        <li><b>自建 GitLab 的平台判断：</b>域名常不含 “gitlab”，所以顺序固定为 <code>--platform</code> → 环境变量 → 配置的 <code>gitlab_hosts</code>（支持带子路径）→ 域名和链接形态。</li>
+        <li><b>远程地址去掉凭证再显示：</b>所有要显示或保存远程地址的地方都经过同一个函数；拉取失败时不转述 git 的原始报错，因为其中可能带着完整地址。</li>
+        <li><b>--fix 是唯一需要切换分支的地方：</b>工作区有未提交改动就不切换、不修；干净时先问你，同意后才切换；永远不替你 <code>stash</code>。</li>
+      </ul>
+
+      <details class="design-basis">
+        <summary>设计依据：查找怎么分工、对比基准和读外部 MR</summary>
+        <ul>
+          <li><b>分遍复用材料，成本按用量判断：</b>reviewer 在同一上下文保留已读材料，减少重复调查。提示缓存按前缀匹配；fresh agent 通常不共享父对话，但工具、系统提示等共同前缀仍可能命中缓存，取决于宿主和请求构造。子代理数不等于成本倍数，实际成本还取决于输入、输出和缓存读写。<a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic：Prompt caching</a></li>
+          <li><b>分工按任务边界：</b>两个查找角色分别处理缺陷判断和规则原文。<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>当前并行运行两个规则检查和两个 bug finder；<a href="https://www.greptile.com/blog/greptile-v5">Greptile v5</a>明确并行探索多个假设。并行与单上下文分遍各有取舍，外部方案不直接决定本插件的角色数量。</li>
+          <li><b>安全一遍默认开：</b>照搬 <a href="https://github.com/anthropics/claude-code-security-review">Anthropic security-review</a> 的排除清单，默认不报只导致服务不可用的问题、缺少限流、开放重定向、只在测试代码里出现的。</li>
+          <li><b>规则单独查：</b>“只认写下来的规则、必须引原文”和 reviewer 的判断标准差别最大，Anthropic、Amp、Uber、Qodo 也都单独拆出来。</li>
+          <li><b>不报可读性和小重构：</b>Uber 的数据显示这类建议的评分一直最差，宿主也自带 /simplify。</li>
+          <li><b>流程不能省：</b>用公开 PR 评测时，便宜的宿主模型常觉得改动简单就不启动子代理、自己读一遍出结论。所以 standard、deep 只要能启动子代理就必须启动，改动再小也一样；按流程走完时，干净对照基本没有误报。</li>
+          <li><b>留标记、下次发现：</b>会话提前结束时进程已经不在了，没有谁能事后补写“失败”；开始时写下标记、保存后删除，下次就能发现上一次没走完。非交互运行没有人在场，后台启动的子代理会在会话结束时丢掉，所以必须前台启动。</li>
+          <li><b>实际模型从会话记录里读：</b>宿主不支持为子代理指定模型时会照常用宿主的模型，用户读报告时只看到自己配置了什么，所以由脚本读出实际模型，对不上就提示；只读模型名，不读对话内容。</li>
+          <li><b>基准以远端最新为准：</b>GitHub、GitLab 的 PR / MR 都按目标分支当前最新的状态与源分支的 merge-base 算 diff；本机缓存的 <code>main</code> 可能是几天前的，当前分支已经合入更新的 main 时，别人的提交会被算成这次的改动。<a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests">GitHub：PR 里的分支比较</a>；<a href="https://docs.gitlab.com/ee/user/project/merge_requests/changes.html">GitLab：合并请求的改动</a></li>
+          <li><b>已合入的 MR 不能出空 diff：</b>合入后 merge-base 等于 head，报成“0 条发现”最误导，所以取合入前的版本，算不出来就停下来问。</li>
+          <li><b>有依据才自动选，记忆由用户决定：</b>PR / MR 有明确目标，本地 reflog 可以提供创建来源线索，但会过期，也不能代表未来一直合入同一分支。因此自动选择不持久化，缺少可靠线索才问，明确要求记住才保存规则；同一仓库的不同工作流可以使用不同基准。<a href="https://git-scm.com/docs/git-reflog">Git：reflog 的本地记录与过期机制</a></li>
+          <li><b>读外部 MR 的适配层是三样东西：</b>主流做法是在平台之上加一层适配器，每家平台一套实现，统一成同一组能力；crosscheck 跑在 agent 里，不内置任何平台的客户端，能调用的是用户自己的工具，所以适配层是一句提示词、一个固定格式和脚本校验。<a href="https://docs.qodo.ai/install-and-configure/git-provider-feature-support">Qodo：各 Git 平台的功能支持</a>；<a href="https://github.com/anthropics/claude-code-action">Claude Code Action：由运行环境访问平台，把 PR 信息交给模型</a></li>
+          <li><b>大改动分批：</b>一个角色读几千行 diff，后面的文件得到的注意力明显少于前面的。切分由脚本按路径顺序做（同目录的文件落在一起、单个超限的文件独占一批），不让 agent 临场决定，结果可复现。代价是成本随批次数线性增长，小改动只有一批，和不分批完全一样。分批按行数而不是依赖关系，路径相距很远的关联改动会落在不同批次，各批仍能看完整的 <code>diff.patch</code>，跨批的问题更依赖 deep 的影响面那一遍。</li>
+          <li><b>不检出、不 stash：</b>读代码用 <code>git show</code> 和 <code>git grep</code> 就能读到任意提交的完整内容；检出会动你的工作区，有未提交改动时要么切换失败，要么得 <code>stash</code>，流程一中断，改动就留在 stash 里不容易想起来。代价是看不到目标分支上未提交的改动，以及 deep 下 verifier 不能跑检查。回退到 git 拉取，是因为曾有 agent 在 <code>glab</code> 未登录时从远程地址里取出 token 自己去调 API，还把带凭证的地址打印出来；有了这条退路就没有理由这样做。</li>
+          <li><b>拉取不阻塞：</b>算基准前的拉取关闭交互式输入，ssh 10 秒连不上就放弃，离线或沙箱里用本地已有的那份并说明它最后更新于多久之前；<code>CR_FETCH=0</code> 可显式关闭。所有路径（当前分支、其他分支、git 回退、<code>tools.code_host</code>）都经同一个函数拉取并取 <code>origin/&lt;目标分支&gt;</code>，不各自 fetch。<code>--base-sha</code> 变了算全量重审：同一个文件的 diff 可能没变，但“拿什么比”变了。</li>
+          <li><b>查找不自己过滤：</b>评测里漏掉的问题大多是查找阶段根本没提出来，而不是被核实否决。所以 reviewer 不读误报清单，拿不准的都交给 verifier；这和 <a href="https://www.qodo.ai/resources/high-signal-ai-code-review-a-multi-agent-blueprint">Qodo 的多 agent 方案</a>“先尽量找全、再统一核实”一致。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="roles">
+      <h2>四、审查角色</h2>
+      <p>每个角色只做一件事，交出的东西都有固定格式，脚本负责核对。</p>
+      <div class="table-wrap"><table>
+        <tr><th>角色</th><th>做什么</th><th>交出什么</th><th>不做什么</th></tr>
+        <tr><td class="nowrap"><code>reviewer</code></td><td>查正确性、安全、需求核对；deep 再查影响面</td><td>缺陷候选，每条标明哪一遍查到的</td><td>不判对错；拿不准的照交，标 <code>needs_check</code></td></tr>
+        <tr><td class="nowrap"><code>rules-auditor</code></td><td>对照写下来的规则，只看改动的行</td><td>规则候选，带规则文件和逐字引文</td><td>不凭空造规则；规则里没写的不查</td></tr>
+        <tr><td class="nowrap"><code>verifier</code></td><td>在独立上下文里重读代码，先推翻再打分</td><td>0–100 分、读过的位置、排除的可能</td><td>不看发现的来源和旧分数；不改代码</td></tr>
+      </table></div>
+      <ul>
+        <li><b>查找和核实分开：</b>reviewer、rules-auditor 只负责找，verifier 只负责判，不在同一个上下文里。</li>
+        <li><b>规则发现要逐字引文：</b>引文由脚本核对，对不上的不报。</li>
+        <li><b>80 分是操作性门槛：</b>低于 80 分的不报但留档；它不是概率，也不是行业标准。</li>
+      </ul>
+      <p class="muted">reviewer 在同一个上下文里分遍查，是为了复用已读的代码和调用链理解，少做重复调查，也省去多个 agent 之间的协调。业界两种做法都有（Anthropic 官方命令并行跑多个 finder，Greptile v5 并行探索多个假设，Bugbot 公开的是按需自主调查），这是 CrossCheck 当前的取舍，不是已证明的最优：还缺同预算下和多个子代理对比的数据。</p>
+      <details class="design-basis">
+        <summary>设计依据：角色分工</summary>
+        <ul>
+          <li><b>查找与核实分开：</b>查找角色提交候选，verifier 独立读代码确认。这样核实者不容易沿用候选的推理。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a></li>
+          <li><b>同一上下文分遍是取舍：</b>分遍可以复用已读代码，减少重复调查和协调成本；成本要看实际的输入、输出和缓存用量，不能按 agent 数量算。官方 code-review 命令当前并行运行两个规则检查和两个 bug finder，Greptile v5 并行探索多个假设，Bugbot 的复盘说明按需自主调查带来提升、没有公开 agent 数量。同预算下的对比数据还没有。<a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic：Prompt caching</a>；<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Anthropic 官方 code-review 命令</a>；<a href="https://www.greptile.com/blog/greptile-v5">Greptile v5</a>；<a href="https://cursor.com/blog/building-bugbot">Cursor：Building Bugbot</a></li>
+          <li><b>80 分是操作性证据门槛：</b>本插件按依据完整性和反证检查给出 0–100 分，以 80 分过滤候选；它不是真实概率，也不是已校准的行业标准。Anthropic 官方<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">命令文件</a>当前没有数值 80 门槛，而其<a href="https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-review/README.md">README</a>仍写 80，不能据此宣称行业统一标准。</li>
+          <li><b>verifier 的执行证据：</b>Meta TestGen-LLM 只保留能编译、稳定通过、确实提高覆盖率的测试；有 agent 跑了 0 个测试、退出码 0 就报告“全部通过”，所以执行声明要核对原始记录。<a href="https://arxiv.org/abs/2402.09171">Meta：TestGen-LLM（可执行的过滤器）</a>；<a href="https://redreamality.com/blog/coding-agent-done-claims-verification-survey/">综述：agent 自报“测试通过”的核实</a></li>
+          <li><b>原有问题单独标出：</b>Anthropic 内部的代码审查给发现加 Pre-existing 标签：问题真实，但不是这次改动引入的，不当作作者要修的缺陷，也不丢掉。我们同样把它们和本次引入的问题分开展示。<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a></li>
+          <li><b>隔离不是完全盲审：</b>verifier 只拿结构化候选，不拿发现者的推理、来源角色、旧分数；启动查找角色时也不把 diff 或编排者的印象贴进任务，每个角色自己读材料。候选的描述、失败场景、修复建议和相关历史仍可能影响判断，隔离只减少先入为主，不保证核实正确。没有子代理的宿主做不到真隔离，主 agent 先把自己查找阶段的结论放到一边，重新打开文件，先为反方辩护再打分，效果弱于子代理。</li>
+          <li><b>没有场景就没有发现：</b>每条发现必须写“具体的输入或状态 → 错误的结果”，写不出来的只是怀疑。这逼着查找角色去读代码而不是凭印象，也让 verifier 能逐步对照代码走一遍。安全类要写出攻击者可控的值从哪进、经过哪几步，规则类要逐字引用规则原文和出处。</li>
+          <li><b>查找预算有界，但要说清楚：</b>reviewer 每批最多交 15 条，这是查找预算，不是展示上限。回复里声明预算是否达限、覆盖是否受限；达到 15 条或主动声明受限时，报告和保存记录都标“流程不完整”，不杜撰没交候选的数量。reviewer 还对每块有效改动对照 base 过一遍最常漏的几类：去掉或缩小的保护（锁、事务、await、过滤、校验）、读-改-写的并发、包装层绕回自己、违反写明的约定、新实现处理空输入不一致、搬移时丢掉的行为。</li>
+          <li><b>同一根因只报一条：</b>同一种有缺陷的写法被复制到几处、一个改法能处理全部时，reviewer 只交主位置，其余写进 <code>also_at</code>，verifier 逐处核对，脚本去掉不在改动行上的位置；修法或失败场景不同的各自提交。脚本只合并关键字段完全等价的重复项，位置接近或摘要相似不算同根因；模型确要多对一合并时必须给理由并指向原件，这个理由是模型判断，不是脚本证明。</li>
+          <li><b>封顶检查，不靠 verifier 当时的感觉：</b>评分标准里有一组按顺序执行的封顶检查（行号不在改动范围内、别处有守卫使场景不可达、CI 本来就会拦住、命中误报清单等），第一条适用的直接决定分数上限。例外：本次改动破坏了接口自己写明的约定、或去掉了原有的保护（锁、事务、过滤、校验、await）时，不能用“现在没人这样调用”否决，因为下一个按约定调用的人就会出错。想调松紧，改 <code>references/scoring-rubric.md</code>。</li>
+          <li><b>严重程度按后果的类型定：</b>数据丢失或写入错误数据、崩溃或未处理的异常（含按约定的正常输入稳定返回 500）、约定违反导致调用方出错、安全边界破坏属于严重；异常已被处理、数据没写错但调用方拿到错误结果或状态码属于重要。评测里本该严重的问题被报成重要，是因为 verifier 因“影响范围窄”“后果还没出现”一路降档，所以只有后果的类型判断错了才改级别；影响窄、触发少只说明难触发，不改变后果的类型。</li>
+          <li><b>依据要校验，没通过的要留档：</b>每条通过的发现带读过的代码位置和排除的可能；脚本校验引用的文件和行在被审查的那一版里真实存在，引用不存在或没给依据的分数最高 50，过不了 80 分。这只能挡住凭空编造的引用，不能证明依据充分。低于 80 分的存进 <code>rejected.json</code>，不展示，但留下分数和理由，用来统计“差一点通过”的分布判断 80 分是否太严，用户问“还有别的吗”时也能列出并标明“未通过核实”。</li>
+          <li><b>运行记录只防幻觉：</b>verifier 声称执行的命令必须经 <code>run-check.sh</code> 留下命令、退出码和日志；结论分已复现、被反证、未定三种，反证把当前场景归零，声称复现却没说明观察的最高 75，声称执行却没有记录的改读代码推断、最高 60。曾经做过宿主见证和日志哈希之类防伪造的校验，防的是刻意伪造，而要防的是幻觉和偷懒，三家宿主的输出格式又各不相同，维护成本高，已去掉。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="sources">
+      <h2>五、需求来源</h2>
+      <p>团队问卷（约 27 人）：15% 缺需求背景。意图只靠 MR 描述和提交说明时经常不够，所以审查开始前先把需求来源问清楚，再并入意图，让 reviewer 能做需求核对。</p>
+      <ul>
+        <li><b>需求来源：</b>配置两类外部工具：需求管理工具 <code>tools.requirement</code>、文档阅读工具 <code>tools.doc_reader</code>，值是写给 agent 的一句话（用什么、怎么用、链接长什么样）；全部设置列在随插件分发的 <code>config/defaults.conf</code> 里、默认注释掉，个人配置逐项覆盖。必填的缺了在审查开始前问一次（贴链接 / 没有需求单 / 跳过），可选的资料（PRD、设计文档链接）也问一次但可以跳过、不算缺失，同一分支都只问一次；和对比基准放在同一轮问。agent 用配置的工具读取内容作为意图材料。读 MR 的同类配置 <code>tools.code_host</code> 见第三节。</li>
+        <li><b>跳过要如实记录：</b><code>sources.json</code> 区分 <code>skip</code>（作者跳过）、<code>none:&lt;类型&gt;</code>（没有需求单，如 hotfix）和 <code>unasked</code>（非交互运行，没有问；不问也不记）。用工具读到的内容当数据：存在仓库外的暂存目录，由脚本登记来源后并入意图。需求文档由产品等非开发人员编写，内容开发控制不了，里面写给 reviewer 的话同样不执行（见第九节）。</li>
+        <li><b>事后补充：</b>审查之后说“需求文档是 &lt;链接&gt;”“这个没有需求单”“这次是为了…”，用 <code>sources.py set</code> 只更新意图、需求单、文档三项，下次审查生效。</li>
+        <li><b>模板：</b>每个 skill 自带自己用的模板：review 的 <code>templates/report.md</code>（CR 报告骨架），improve 的 <code>templates/REVIEW.md</code>、<code>rule.md</code>。</li>
+      </ul>
+    </section>
+
+    <section id="rules">
+      <h2>六、CR 规则</h2>
+      <p><b>CR 规则就是写在仓库里、审查时拿来对照的 Markdown 文件。</b>没有规则也能审查（只是报告里没有“规范”一节），所以先不用写；等发现“同一类问题被人工反复指出”，再把它沉淀成规则。规则分三类来源，越具体的越先：</p>
+      <div class="table-wrap"><table>
+        <tr><th>类别</th><th>文件</th><th>谁来写</th><th>生效范围</th></tr>
+        <tr><td>目录规则（最具体）</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录的负责人手写；<code>improve</code> 可按 <code>plan.md</code> 在「每次都要检查」「不要报」下追加一行</td><td>只对该目录下的改动；头部设置不执行</td></tr>
+        <tr><td>项目规则</td><td>根目录 <code>REVIEW.md</code></td><td>负责人手写；<code>improve</code> 可起草，也可按 <code>plan.md</code> 追加一行</td><td>全部改动；头部 <code>skip</code>、<code>limits</code> 由脚本执行</td></tr>
+        <tr><td>沉淀规则</td><td><code>.agents/rules/&lt;主题&gt;.md</code></td><td><code>improve</code> 从 MR 评论归纳成 <code>plan.md</code>，你逐条标“写入”并说“确定”后才写入</td><td>按 frontmatter 的 <code>paths</code> / <code>globs</code>；不写表示全仓库；写错字段整个文件不生效，不会悄悄变成全局</td></tr>
+        <tr><td>团队已有约定（只读）</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code></td><td>团队本来就在维护</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 会被排除</td></tr>
+      </table></div>
+      <ul>
+        <li><b>冲突怎么办：</b>目录规则优先于项目规则，再优先于沉淀规则和团队约定。同一层里两条互相矛盾时，两条都不报，改发一条“规则冲突”的说明交给人处理。这一步由 rules-auditor 判断，脚本只负责排序。</li>
+        <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
+        <li><b>任何规则都不能越权：</b>不能取消核实、降低 80 分门槛或授权写操作。<code>REVIEW.md</code> 头部只认 <code>skip</code> 和 <code>limits</code>；正文里的严重程度定义和证据要求照常采用。</li>
+        <li><b>「出问题长什么样」：</b>模板里有一节，由这块代码的负责人写它失败时会变成什么样（文档写错事实、配置接错路由或开关、迁移不可回滚）。它帮助判断后果类型，不改变严重程度的定义，也不用来挑风格、命名上的小毛病；不写也能审查。</li>
+        <li><b>「不要报」：</b>标题为「不要报」（或 <code>Do not report</code>）的一节写团队不想再被提醒的情况，只对它所在的目录或文件生效，本身不算要检查的规则；规则发现引用它会作废。</li>
+        <li><b>团队已有的规则文件怎么用：</b>内容完全相同的文件只输出一次（常见于 <code>CLAUDE.md</code> 和 <code>AGENTS.md</code> 互为副本）；这些文件大多是写给 agent 的操作指令（怎么跑测试、用哪个包管理器），rules-auditor 只挑能对照代码检查的陈述，并且要求改动行明显违反字面内容才报。不读 <code>.cursorrules</code>、<code>.windsurfrules</code>、<code>GEMINI.md</code> 这类少见的文件。</li>
+        <li><b>多个项目共用规则：</b>放进各项目的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，用团队已有的方式同步，插件不另设分发机制。</li>
+      </ul>
+
+      <h3>REVIEW.md 写什么、怎么写</h3>
+      <p><b>REVIEW.md 是只给审查用的短清单，每一条都应该是“光看代码不会知道”的信息。</b>官方文档："Keep REVIEW.md to instructions that change review behavior, and leave general project context in CLAUDE.md."（只放会改变审查行为的内容，通用的项目背景放 <code>CLAUDE.md</code>）。Anthropic 的博客说得更直接："The good ones are short."（出处见本节末尾的“设计依据”）。</p>
+      <p>官方文档按“遇到什么问题，就加哪类指令”来写。对应到 CrossCheck 的模板：</p>
+      <div class="table-wrap"><table>
+        <tr><th>遇到的问题</th><th>在 REVIEW.md 里写什么</th><th>对应哪一节</th><th>短例子</th></tr>
+        <tr><td>不重要的问题被标成重要</td><td>重新定义什么算重要</td><td>严重程度</td><td>风格、命名、重构建议最高为轻微；<code>scripts/</code> 下只在几乎确定且严重时才报</td></tr>
+        <tr><td>小毛病太多</td><td>限制轻微问题的条数</td><td>头部 <code>limits</code></td><td><code>limits: { minor: 3 }</code>（官方示例：“Report at most five Nits per review.”）</td></tr>
+        <tr><td>对生成文件、CI 已查的内容出评论</td><td>列出要跳过的路径和类别</td><td>头部 <code>skip</code>；不要报</td><td><code>skip: ["**/generated/**"]</code>；不要报：lint、格式、类型错误（CI 已经查）</td></tr>
+        <tr><td>团队的规则没被查</td><td>把每次都要看的写进去</td><td>每次都要检查</td><td>新增或修改图标组件时，必须判断是否需要加 rtl 类名</td></tr>
+        <tr><td>发现经常有误</td><td>要求先给证据</td><td>严重程度</td><td>说某段代码的行为有问题，要附 <code>file:line</code>，不能只凭变量名猜</td></tr>
+        <tr><td>想让审查按真正的后果判断</td><td>写这块代码失败时是什么样（Anthropic 博客）</td><td>出问题长什么样</td><td>订单和支付出错，表现为漏单、重复扣款；博客里文档是 "it lies"，配置是 "it misroutes"</td></tr>
+      </table></div>
+
+      <p><b>不该写进 REVIEW.md 的：</b></p>
+      <ul>
+        <li>linter、CI 已经能查的：让工具去查，最多在“不要报”里写一句“CI 已查，不要报”。</li>
+        <li>泛泛的规范，如“写干净代码”：说不出违没违反，见下面“一条好规则长什么样”。</li>
+        <li>大段背景或设计介绍：放 <code>CLAUDE.md</code>。</li>
+        <li>写给写代码 agent 的操作说明（怎么跑测试、用哪个包管理器）：放 <code>CLAUDE.md</code> / <code>AGENTS.md</code>。</li>
+        <li>成批的、按文件类型或路径限定的规范：放 <code>.agents/rules</code>。</li>
+      </ul>
+
+      <h4 class="ex-h">样例：一份很短的根目录 <code>REVIEW.md</code></h4>
+      <p class="muted">虚构的前端项目，约 20 行。头部只认 <code>skip</code> 和 <code>limits</code>，只在根目录执行。节名和 <code>improve</code> 的模板一致（模板里另有“出问题长什么样”一节，这里省略）。</p>
+<pre><code>---
+skip: ["**/generated/**", "*.snap"]
+limits: { minor: 3 }
+---
+# Review 约定
+
+## 严重程度
+
+只有会导致行为错误、数据泄漏或无法回滚的问题才算重要及以上。风格、命名、重构建议最高为轻微。`scripts/` 下只在几乎确定且严重时才报。
+
+## 每次都要检查
+
+- 新增或修改图标组件时,必须判断是否需要加 rtl 类名(带方向的图标如箭头、返回要加;左右对称的如关闭、搜索不用)。原因:阿拉伯语、希伯来语界面方向相反。
+- 日期格式化统一用 `src/utils/date.ts`,不要直接调用 dayjs。原因:时区统一在那里处理。
+
+## 不要报
+
+- `order_client` 已负责瞬时失败重试时,不要求调用方再加重试;最终失败仍须处理。
+- `*.stories.tsx` 里写死的演示数据。</code></pre>
+
+      <h4 class="ex-h">怎么长出来，放到哪里</h4>
+      <ul>
+        <li><b>从反复出现的评论里搬进来：</b>Anthropic 的博客建议 "Add a REVIEW.md, and move repeated review comments into it"，先在一个仓库里调几周再推广（"tune REVIEW.md for a few weeks, then widen"）。Copilot 也建议先加一条或一小组，看下一轮审查有没有被遵循，再加下一批。不要一次写满。</li>
+        <li><b>放哪的标准，看数量和范围：</b>REVIEW.md 放一份短而完整的核心清单（严重程度、出问题长什么样、<code>skip</code> / <code>limits</code>、少量项目特有的必查、不要报）；<code>.agents/rules</code> 放成批的、按文件类型或路径限定的、带 MR 来源的规则，也就是 <code>improve</code> 沉淀的产物。机制上，严重程度、出问题长什么样、<code>skip</code>、<code>limits</code> 只有 REVIEW.md 里才会被读到。</li>
+        <li><b>什么时候拆：</b>REVIEW.md 超过约 15 条，或某一条只对某类文件、跨目录生效，就拆到 <code>.agents/rules</code>。“约 15 条”是我们自己的约定，不是官方数字，参照 Copilot 的“从 10–20 条起步”。官方没有给条数建议；它的做法是内容太长时用 <code>@</code> 引入其他文件（最多 8 个文件，合计 150,000 字节）。<code>.agents/rules</code> 目录是我们的扩展，官方没有。</li>
+      </ul>
+
+      <h3>一条好规则长什么样</h3>
+      <p>先看标准，再看样例。标准来自各家官方文档和 Google 的研究，括号里是出处简称，完整链接在本节末尾的“设计依据”里；标“CrossCheck 的做法”的是我们自己的约定，不是这些资料的说法。</p>
+      <ol>
+        <li><b>具体、可衡量。</b>别人拿着规则和 diff，不用问你就能说出违没违反。Greptile 写明 "Rules must be specific and measurable"：<code>"Write clean code"</code>、<code>"Follow best practices"</code> 不行，<code>"Functions must not exceed 50 lines"</code> 可以。Copilot 也明确不支持 "Be more accurate"、"Don't miss any issues" 这类空泛要求。（Greptile、Copilot）</li>
+        <li><b>一条只讲一件事，不主观。</b>Google AutoCommenter 发现，一个链接覆盖多条准则、主观有争议的话题、正确但价值低的评论，是“没用”评论的主要来源；屏蔽 22 条不可执行的规则并改写摘要后，有用率从约 54% 升到 80%。（Google AutoCommenter）</li>
+        <li><b>写清范围。</b>Copilot 用 <code>applyTo</code> 限定路径，避免语言规则用错文件；CodeRabbit 的 <code>path_instructions</code> 每条对应一个路径；Claude Code Review 的子目录 <code>REVIEW.md</code> 只对该路径生效；Bugbot 的嵌套 <code>BUGBOT.md</code> 只在改动文件位于其下时生效。（Copilot、CodeRabbit、Claude Code Review、Bugbot）</li>
+        <li><b>短的祈使句，配正反例。</b>Copilot："Short, imperative directives rather than long narrative paragraphs"，并建议 "Include code snippets showing both correct and incorrect patterns"；Qodo："Include brief code examples when helpful with before/after patterns"；Greptile："Include examples in your rule for best results"。（Copilot、Qodo、Greptile）</li>
+        <li><b>写清什么算严重、什么不要报。</b>Claude Code Review 的 <code>REVIEW.md</code> 示例分 "What Important means here"、"Cap the nits"、"Do not report"、"Always check" 四节，并建议把 CI 已经检查的、生成文件列进不要报；对容易误判的一类发现，要求先给证据，例如 "behavior claims need a file:line citation"。CrossCheck 的做法：<code>REVIEW.md</code> 模板有“严重程度”“出问题长什么样”“不要报”三节，每条沉淀规则的“不要报”必填。（Claude Code Review）</li>
+        <li><b>项目特有、少而精、逐步加。</b>Qodo："Focus on project-specific guidelines"，文件 under 800 lines，因为 "Long files tend to contain generic guidelines already known to AI"；Copilot 建议从 10–20 条具体指令起步，"Add new instructions one at a time or in small groups"，单个文件约 1,000 行为上限；CodeRabbit："Observe a few reviews first"，只在某处一直被漏掉时才加。CrossCheck 的做法：单个文件约 15 条或 4000 字符为上限，超过就按目录或主题拆开（这是我们自己的约定，不是官方数字，参照 Copilot 的“10–20 条起步”）。（Qodo、Copilot、CodeRabbit）</li>
+      </ol>
+
+      <h4 class="ex-h">样例 1：坏写法 → 好写法</h4>
+      <p class="muted">下面用本页演示里的 demo-shop 订单分页举例。好写法都落在“在某个范围内，必须或禁止做什么”。</p>
+      <div class="table-wrap"><table>
+        <tr><th>坏写法</th><th>为什么不行</th><th>好写法</th></tr>
+        <tr><td>代码要优雅</td><td>说不出违没违反</td><td>不写进规则；格式、命名这类让 linter 和格式化工具去查</td></tr>
+        <tr><td>注意性能</td><td>没有范围，也没有可检查的动作</td><td>在 <code>src/orders/**</code> 里，禁止在循环内逐条查询数据库，必须批量查询</td></tr>
+        <tr><td>错误处理要规范</td><td>“规范”因人而异</td><td>在 <code>src/api/**</code> 里，接口返回错误时必须带 <code>code</code> 和 <code>message</code> 字段</td></tr>
+        <tr><td>分页别算错，日期也别乱写</td><td>一条讲了两件事，范围也不同</td><td>拆成两条：在 <code>src/orders/**</code> 的分页代码里，总页数必须向上取整；日期格式化统一用 <code>src/utils/date.ts</code></td></tr>
+      </table></div>
+
+      <h4 class="ex-h">样例 2：一条沉淀规则写进 <code>.agents/rules/orders.md</code> 后的样子</h4>
+      <p class="muted">格式和 <code>improve</code> 实际写入的一致：文件头是 <code>paths</code> 范围、主题标题和说明句；每条规则一个“## 标题”块，字段按“规则、原因、严重级别、反例、正例、不要报”排列，最后一行注释记下证据所在的 MR。</p>
+<pre><code>---
+paths: ["src/orders/**"]
+---
+# orders
+
+由 crosscheck 从 MR 评论沉淀,经人工挑选。每条规则后面的注释是证据所在的 MR。
+
+## 总页数要向上取整
+
+- **规则**:在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor
+- **原因**:向下取整会丢掉最后一页不满的数据(!118、!131、!140)
+- **严重级别**:重要
+- **反例**:`Math.floor(total / pageSize)`
+- **正例**:`Math.ceil(total / pageSize)`
+- **不要报**:只做展示估算、不决定取多少条数据的页数
+&lt;!-- 来源:!118 !131 !140 --&gt;</code></pre>
+      <p class="muted">“不要报”这个字段必填，写不出来说明这条还不够具体。团队明确不想再被提醒的情况，会另放在文件末尾的“## 不要报”一节。</p>
+
+      <h3>怎么维护：improve</h3>
+      <p>只能用命令调用（<code>/crosscheck:improve</code>、Codex 的 <code>$improve</code>），不会被自然语言自动触发。它不会改业务代码，只会写规则文件（<code>.agents/rules/</code> 下的文件，或某目录 <code>REVIEW.md</code> 的指定章节）。沉淀是“先出计划，再写入”：先生成一份 <code>plan.md</code>，你和 agent 对话修改，每次改完预演，你说“确定”才写进工作区；写入后不做 <code>git add</code> 或提交，由你自己看 diff、提交，提交后审查才会读到。</p>
+      <div class="lifecycle">
+        <span class="state s1">从 MR 评论归纳候选</span>
+        <span class="edge">脚本按准入清单核对</span>
+        <span class="state s3">生成 plan.md，动作默认“待定”</span>
+        <span class="edge">对话修改，每次改完预演 --check</span>
+        <span class="state s3">你逐条标“写入”，说“确定”</span>
+        <span class="edge">--apply：规则文件 + REVIEW.md 一行</span>
+        <span class="state s3">你看 diff 并提交</span>
+        <span class="edge">审查时按 paths / 所在目录生效</span>
+        <span class="state s2">规则生效</span>
+      </div>
+      <div class="cr-demo" id="crDemo" role="group" aria-labelledby="crDemoTitle">
+        <div class="cr-head">
+          <div>
+            <b id="crDemoTitle">动画演示：improve 怎么跑</b>
+            <p class="muted">一步一步看终端里发生什么。文件名和数字是演示数据。滚动到这里会自动循环播放，滚出视野暂停；可随时暂停，或用左右方向键切换步骤；系统开启“减少动态效果”时不自动播放。另有“检查”，只给修改建议，这里不演示。</p>
+          </div>
+          <div class="demo-ctrl">
+            <button type="button" data-act="prev" aria-label="上一步">‹ 上一步</button>
+            <button type="button" data-act="play" class="primary" aria-label="播放">▶ 播放</button>
+            <button type="button" data-act="next" aria-label="下一步">下一步 ›</button>
+          </div>
+        </div>
+        <div class="tracks" role="group" aria-label="选择演示">
+          <button type="button" data-track="rules" aria-pressed="true">沉淀：规则文件 + REVIEW.md 一行</button>
+          <button type="button" data-track="review" aria-pressed="false">整理整份 REVIEW.md（另一个用法）</button>
+        </div>
+        <p class="trackinfo" id="crInfo"></p>
+        <ol class="segs" id="crSegs" aria-label="跳到某一步"></ol>
+        <div class="win">
+          <div class="win-bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="cr-wt">终端 · ~/demo-shop</span>
+          </div>
+          <div class="cr-pane tbody" id="crPane" role="region" aria-label="终端画面" tabindex="0">
+            <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck</span><span class="muted">~/demo-shop · main</span></div>
+            <div id="crSteps"></div>
+          </div>
+        </div>
+        <div class="cr-cap">
+          <div class="scene-title"><span class="scene-no" id="crNo"></span><b id="crTitle"></b><span class="tag2" id="crWho"></span></div>
+          <p class="scene-cap" id="crCap" aria-live="polite"></p>
+        </div>
+
+        <template data-track="rules" data-title="输入命令" data-who="你" data-cap="你用命令调用 improve。说“沉淀”或带时间范围才会开始沉淀，不带参数会先列出三件事让你选。“最近半年”会被换算成 --days 180。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>/crosscheck:improve 沉淀 最近半年</div>
+            <div class="ta"><span class="bul">●</span>选“沉淀”。最近半年换算成 <code>--days 180</code>，先去拉评论。</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="脚本拉取" data-who="脚本" data-cap="脚本只读拉取已合并 MR 上的人工评论，过滤机器人，再加上本机的判断记录。结果存在本机，不放进仓库。">
+          <div class="tc">
+            <div class="tt"><span class="bul">◆</span><b>运行</b> mine-mrs.sh --days 180</div>
+            <div class="to"><span class="tree">└</span>mining: 最近 180 天合并的 MR 48 个(新拉取 31,用缓存 17),人工评论 213 条,评审人 9 位,分成 3 批;crosscheck 判断记录 14 条</div>
+            <div class="to"><span class="tree">└</span>~/.crosscheck/mining/demo-shop/run-20261028-101500</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="miner 归纳" data-who="miner 子代理" data-cap="每一批交给一个 miner 子代理，三批同时跑。它们只读自己那一批，归纳出候选规则，只回复 JSON，不写文件。">
+          <div class="tc">
+            <div class="ta"><span class="bul">●</span>同时启动 3 个 miner，每批一个：</div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-1.json</span><span class="st ok">候选 3 条</span></div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-2.json</span><span class="st ok">候选 2 条</span></div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-3.json</span><span class="st ok">候选 3 条</span></div>
+            <div class="to"><span class="tree">└</span>回复原样存成 result-1.json … result-3.json，不修改</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="核对并出计划" data-who="脚本" data-cap="脚本逐条核对：证据要是原文、至少 2 个 MR、评论后代码确实改了。通过的写进 plan.md，丢弃的写明原因。✓ 通过，? 无法判断，要你自己看。plan.md 存在本机，不进仓库。">
+          <div class="tc">
+            <div class="tt"><span class="bul">◆</span><b>运行</b> mine-check.py run-…/result-*.json</div>
+            <div class="to"><span class="tree">└</span>candidates=3 dropped=5</div>
+            <div class="tpre">1. [orders · 重要] 总页数要向上取整
+   准入:<span class="pl">✓</span>3 个 MR <span class="pl">✓</span>3 位评审人 <span class="pl">✓</span>改过代码或已解决 <span class="pl">✓</span>针对改动的代码 <span class="pl">✓</span>有不要报的边界 <span class="pl">✓</span>有正反例
+2. [api · 轻微] 错误响应带 code 和 message
+   准入:<span class="pl">✓</span>2 个 MR ?1 位评审人 <span class="pl">✓</span>改过代码或已解决 ?针对改动的代码 <span class="pl">✓</span>有不要报的边界 ?有正反例
+3. [orders · 不要报] 导出脚本里的循环查库不要报
+   准入:<span class="pl">✓</span>3 个 MR <span class="pl">✓</span>3 位评审人 <span class="pl">✓</span>改过代码或已解决 <span class="pl">✓</span>针对改动的代码
+丢掉:写法不合格 2 条、已有规则 1 条、证据不足 2 条
+PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
+            <div class="ta"><span class="bul">●</span>已生成 plan.md，3 个块，每块的动作都是“待定”。第 2 条的 <code>?</code> 要你自己判断。</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="看 plan.md" data-who="你" data-cap="每条候选一个块：候选编号与 MR、去向、动作、规则、原因、严重级别、范围、反例 / 正例、不要报。去向默认：规则类进 .agents/rules；“不要报”类、范围正好是单个目录的，进该目录 REVIEW.md 的“不要报”。去向可以改。">
+          <div class="tc">
+            <div class="ta"><span class="bul">●</span>计划如下，所有字段你都可以改：</div>
+            <div class="tpre"># 规则沉淀计划
+
+- 项目:demo-shop
+- 范围:最近 180 天,48 个 MR
+- 生成:2026-10-28 10:15
+
+&lt;!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。改完用 rules-write.py &lt;work_dir&gt; --check 预演,没问题再 --apply。--&gt;
+
+## 1. 总页数要向上取整
+
+- **候选**:1(!118 !131 !140;评审人 3 位;准入 ✓✓✓✓✓✓)
+- **去向**:.agents/rules/orders.md
+- **动作**:待定
+- **规则**:在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor
+- **原因**:向下取整会丢掉最后一页不满的数据
+- **严重级别**:重要
+- **范围**:src/orders/**
+- **反例**:Math.floor(total / pageSize)
+- **正例**:Math.ceil(total / pageSize)
+- **不要报**:只做展示估算、不决定取多少条数据的页数
+
+## 2. 错误响应带 code 和 message
+
+- **候选**:2(!122 !137;评审人 1 位;准入 ✓?✓?✓?)
+- **去向**:.agents/rules/api.md
+- **动作**:待定
+- **规则**:在 src/api/** 里,接口返回错误时必须带 code 和 message 字段
+  …(原因、严重级别、范围、反例、正例、不要报)
+
+## 3. 导出脚本里的循环查库不要报
+
+- **候选**:3(!109 !126 !133;评审人 3 位;准入 ✓✓✓✓)
+- **去向**:src/orders/REVIEW.md#不要报
+- **动作**:待定
+- **规则**:订单导出脚本 export.ts 只在运维窗口手动运行,其中循环内逐条查库不要报
+- **原因**:评审里被判不成立 3 次
+- **范围**:src/orders/**</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="对话并预演" data-who="你 · agent · 脚本" data-cap="你和 agent 对话修改 plan.md，改的就是落盘的内容：标“写入”或“跳过”，也可以改去向、范围。每次改完跑预演：不写任何文件，只打印会写哪些文件、还有几块没定。说“全部写入”才会批量改动作。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>第 1 条和第 3 条写入，第 2 条我再想想</div>
+            <div class="ta"><span class="bul">●</span>好，把块 1、块 3 的动作改成“写入”，块 2 仍是“待定”。改完先预演：</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> rules-write.py &lt;work_dir&gt; --check</div>
+            <div class="tpre"><span class="pl">WRITE: .agents/rules/orders.md +16行</span>
+<span class="pl">WRITE: src/orders/REVIEW.md +1行</span>
+PENDING: 1 块还是待定</div>
+            <div class="ta"><span class="bul">●</span>一次会写两个文件：规则文件 <code>orders.md</code>，和 <code>src/orders/REVIEW.md</code> 的“不要报”下追加一行。块 2 还没定，它的“?”项需要你判断。</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="改范围再预演" data-who="你 · agent · 脚本" data-cap="任一块有 ERROR，整批都不写，只打印错在哪。改好再预演，没有 ERROR 也没有待定，才轮到你说“确定”。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>第 2 条跳过。第 3 条范围太宽，只管导出那一处</div>
+            <div class="ta"><span class="bul">●</span>块 2 标“跳过”；块 3 的去向改成 <code>src/orders/export/REVIEW.md#不要报</code>。预演：</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> rules-write.py &lt;work_dir&gt; --check</div>
+            <div class="tpre"><span class="mi">ERROR: 块 3 去向: 目录 src/orders/export 不在仓库里</span>
+NOTE: 有 1 处错误,什么都没写。改好 plan.md 再运行。</div>
+            <div class="ta"><span class="bul">●</span>导出只是单个文件 <code>src/orders/export.ts</code>，没有这个目录，这一批现在一个都不会写。去向改回 <code>src/orders/REVIEW.md#不要报</code>，范围收窄成那个文件，再预演：</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> rules-write.py &lt;work_dir&gt; --check</div>
+            <div class="tpre"><span class="pl">WRITE: .agents/rules/orders.md +16行</span>
+<span class="pl">WRITE: src/orders/REVIEW.md +1行</span></div>
+            <div class="ta"><span class="bul">●</span>没有 ERROR，也没有待定的块；还没写任何文件。要写入就说“确定”。</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="确定后写入" data-who="你 · 脚本" data-cap="你说“确定”才跑 --apply，写进工作区。对 REVIEW.md 只在指定章节下追加一行，章节不存在就新建，不改头部。来源 MR 的注释由脚本按候选编号写。写入后 plan.md 里该块的动作变成“已写入”，重复执行不会重复写。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>确定</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> rules-write.py &lt;work_dir&gt; --apply</div>
+            <div class="tpre"><span class="pl">WRITE: .agents/rules/orders.md +16行</span>
+<span class="pl">WRITE: src/orders/REVIEW.md +1行</span>
+NOTE: 只改了工作区,没有 git add 或提交。…</div>
+            <div class="ta"><span class="bul">●</span>plan.md 里块 1、块 3 的动作现在是“已写入”，块 2 仍是“跳过”。再跑一次不会重复写。</div>
+          </div>
+        </template>
+        <template data-track="rules" data-title="两个产物，你来提交" data-who="agent · 你" data-cap="一次 improve 同时产出两个文件：新增的规则文件，和追加了一行（带来源注释）的 REVIEW.md。下面是 agent 用 git status、读文件和 git diff 给你看的，不是脚本输出。都只在工作区，没有 git add、没有提交；你看 diff，满意再提交，提交之后审查才会读到。">
+          <div class="tc">
+            <div class="tt"><span class="bul">◆</span><b>运行</b> git status --short</div>
+            <div class="tpre">?? .agents/rules/orders.md
+ M src/orders/REVIEW.md</div>
+            <div class="ta"><span class="bul">●</span>新文件 <code>.agents/rules/orders.md</code>（读文件，全部是新增行）：</div>
+            <div class="tpre">---
+paths: ["src/orders/**"]
+---
+# orders
+
+由 crosscheck 从 MR 评论沉淀,经人工挑选。每条规则后面的注释是证据所在的 MR。
+
+## 总页数要向上取整
+
+- **规则**:在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor
+- **原因**:向下取整会丢掉最后一页不满的数据
+- **严重级别**:重要
+- **反例**:`Math.floor(total / pageSize)`
+- **正例**:`Math.ceil(total / pageSize)`
+- **不要报**:只做展示估算、不决定取多少条数据的页数
+&lt;!-- 来源:!118 !131 !140 --&gt;</div>
+            <div class="ta"><span class="bul">●</span>追加了一行的 <code>src/orders/REVIEW.md</code>（<code>git diff</code>）：</div>
+            <div class="tpre"> ## 不要报
+<span class="pl">+- 订单导出脚本 export.ts 只在运维窗口手动运行,其中循环内逐条查库不要报。原因:评审里被判不成立 3 次 &lt;!-- 来源:!109 !126 !133 --&gt;</span></div>
+            <div class="ta"><span class="bul">●</span>之后审查改到 <code>src/orders/**</code> 下的文件时，这两处才会被对照；改其他目录时不会。</div>
+          </div>
+        </template>
+
+        <template data-track="review" data-title="输入命令" data-who="你" data-cap="这是 improve 的另一个用法：起草或整理整份根目录 REVIEW.md，不看 MR 评论。主 agent 只会改工作区里的这个文件。整理的口径是简洁：只放会改变审查行为的内容，约 15 条以内。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>/crosscheck:improve 整理 REVIEW.md，再加一条：新增图标要判断 rtl 类名</div>
+            <div class="ta"><span class="bul">●</span>选“整理 REVIEW.md”。先读现有的 REVIEW.md 和头部设置；没有这个文件时，改为按模板起草。</div>
+          </div>
+        </template>
+        <template data-track="review" data-title="读文件找问题" data-who="脚本" data-cap="脚本读头部设置、核对 skip 里的路径在仓库里还在不在；主 agent再按“检查”的标准过一遍正文，列出问题。判断标准是官方那句：REVIEW.md 只放会改变审查行为的内容，背景和写给 agent 的操作说明不属于它。">
+          <div class="tc">
+            <div class="tt"><span class="bul">◆</span><b>运行</b> settings.sh show .</div>
+            <div class="to"><span class="tree">└</span>settings: REVIEW.md 头部以 --- 开头但没有结束的 ---,skip、limits 都没有生效</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> git ls-files（核对 skip 的路径）</div>
+            <div class="to"><span class="tree">└</span>legacy/** 在仓库里没有匹配的文件</div>
+            <div class="ta"><span class="bul">●</span>发现 4 个问题：</div>
+            <div class="tpre"><span class="mi">✗</span> 头部缺结束的 ---，skip 和 limits 都没生效
+<span class="mi">✗</span> skip 里的 legacy/** 在仓库里不存在
+<span class="mi">✗</span> “每次都要检查”里的“注意性能”说不出违没违反
+<span class="mi">✗</span> “项目简介”一节是背景介绍，不会改变审查行为，应放 CLAUDE.md</div>
+          </div>
+        </template>
+        <template data-track="review" data-title="补“出问题长什么样”" data-who="主 agent" data-cap="按这块代码的类型，用项目里的事实写失败后果。拿不准的不编，留一行请负责人补。">
+          <div class="tc">
+            <div class="ta"><span class="bul">●</span>起草“出问题长什么样”：</div>
+            <div class="to"><span class="tree">└</span>订单和支付：出错表现为漏单、重复扣款、状态对不上</div>
+            <div class="to"><span class="tree">└</span>接口：出错表现为调用方拿到 500 或字段缺失</div>
+            <div class="to"><span class="tree">└</span>src/export/：从代码里看不出失败是什么样，留一行请负责人补</div>
+          </div>
+        </template>
+        <template data-track="review" data-title="找“不要报”候选" data-who="主 agent" data-cap="从判断记录里找：同一类发现被判为不成立 2 次以上、原因说得清条件的，改写成“在什么条件下不报”的候选。">
+          <div class="tc">
+            <div class="tt"><span class="bul">◆</span><b>读取</b> ~/.crosscheck/reviews/demo-shop/feedback.jsonl</div>
+            <div class="to"><span class="tree">└</span>“未判空”这类发现被判为不成立 3 次，原因都是“schema 已标 required”</div>
+            <div class="ta"><span class="bul">●</span>候选：schema 里已标 required 的字段，不要求再判空。</div>
+          </div>
+        </template>
+        <template data-track="review" data-title="给出 diff" data-who="主 agent" data-cap="所有改动合成一份 diff 给你看。绿色 + 是新增，红色 − 是删除。整理后“每次都要检查”约 6 条，在约 15 条以内。这一步还没有改任何文件。">
+          <div class="tc">
+            <div class="ta"><span class="bul">●</span>改动如下，你同意后我才改：</div>
+            <pre class="tcode tdiff"><code><span class="ln dh">@@ 头部 @@</span><span class="ln dc"> ---</span><span class="ln dm">-skip: ["**/generated/**", "legacy/**"]</span><span class="ln dp">+skip: ["**/generated/**"]</span><span class="ln dp">+---</span><span class="ln dc"> # Review 约定</span><span class="ln dh">@@ 出问题长什么样 @@</span><span class="ln dp">+- 订单和支付：出错表现为漏单、重复扣款、状态对不上</span><span class="ln dp">+- 接口：出错表现为调用方拿到 500 或字段缺失</span><span class="ln dp">+- &lt;请负责人补：src/export/ 失败时是什么样&gt;</span><span class="ln dh">@@ 项目简介 @@</span><span class="ln dm">-## 项目简介（12 行背景介绍，建议移到 CLAUDE.md）</span><span class="ln dh">@@ 每次都要检查 @@</span><span class="ln dm">-- 注意性能</span><span class="ln dp">+- &lt;请负责人改写：“注意性能”说不出违没违反&gt;</span><span class="ln dp">+- 新增或修改图标组件时，必须判断是否需要加 rtl 类名（带方向的图标如箭头、返回要加；左右对称的如关闭、搜索不用）。原因：阿拉伯语、希伯来语界面方向相反。</span><span class="ln dh">@@ 不要报 @@</span><span class="ln dp">+- schema 里已标 required 的字段，不要求再判空</span></code></pre>
+          </div>
+        </template>
+        <template data-track="review" data-title="你同意后才改" data-who="你" data-cap="你同意了，主 agent才改工作区里的 REVIEW.md；不 git add、不提交。你自己检查并提交。">
+          <div class="tc">
+            <div class="tp"><span class="pr">›</span>同意，改吧</div>
+            <div class="ta"><span class="bul">●</span>已改工作区里的 <code>REVIEW.md</code>。没有 <code>git add</code>，也没有提交。</div>
+            <div class="to"><span class="tree">└</span>请你看 <code>git diff</code>，没问题再提交。两处“请负责人补”还要人来填。</div>
+          </div>
+        </template>
+      </div>
+
+      <div class="table-wrap"><table>
+        <tr><th>用法</th><th>做什么</th></tr>
+        <tr><td>不带参数</td><td>先列出三件事（沉淀、检查、整理 REVIEW.md），让你选一件再开始，不会直接动手。</td></tr>
+        <tr><td>说“沉淀”，或带时间范围</td><td>从最近一个季度已合并 MR 的人工评论和 CrossCheck 的判断记录里挑候选。脚本按准入清单核对：证据是原文、至少 2 个 MR、评论后代码确实改了或讨论已解决、能写成“必须/禁止”单句并有严重级别和“不要报”边界、不和已有规则重复。通过的生成 <code>plan.md</code>，每块的“去向”可以是 <code>.agents/rules</code>，也可以是某目录 <code>REVIEW.md</code> 的一节，所以<b>一次沉淀可能同时写出规则文件和 <code>REVIEW.md</code> 里的一行</b>。<code>plan.md</code> 和被丢弃的原因一起存在本机 <code>~/.crosscheck/mining/&lt;项目&gt;/</code> 下，不放进仓库。你和 agent 对话修改 <code>plan.md</code>，每次改完跑预演 <code>rules-write.py &lt;work_dir&gt; --check</code>，说“确定”才跑 <code>--apply</code> 写入工作区。<code>--check</code> 和 <code>--apply</code> 必须二选一。</td></tr>
+        <tr><td>带“检查”</td><td>逐条看现有规则：能不能检查、有没有范围和“不要报”的边界、是否重复或过长、是否长期误报。结果是一份修改建议，你同意后才改。</td></tr>
+        <tr><td>带“整理 REVIEW.md”</td><td>这是另一个用法，整份根目录文件的起草或整理，和“沉淀”往 REVIEW.md 追加一行是两回事。没有就按模板起草，有就整理设置和结构，口径是简洁：只留会改变审查行为的内容，约 15 条以内，背景和操作说明建议移走。路径只用仓库里确实存在的；“出问题长什么样”用项目里的事实填，拿不准就提醒负责人补；“不要报”从反复被判不成立的记录里找。同样先给 diff，同意后才改。</td></tr>
+      </table></div>
+      <ul>
+        <li><b>什么时候维护：</b>同一类问题被人工指出两次以上，就沉淀；审查里反复出现你认为不该报的，写进“不要报”；规则文件超过上限或长期没命中，就用“检查”整理。每次只加少量规则，下一轮审查看有没有被遵循，再决定要不要继续加。</li>
+        <li><b>写到哪：</b>审查时当场定的一条（“以后这种别报了”“以后都要查 X”）由 <code>review</code> 写进对应目录的 <code>REVIEW.md</code>，要写清范围和不报的条件，并带来源；从 MR 评论批量沉淀的，由 <code>improve</code> 先写进 <code>plan.md</code>，每块有“去向”：<code>.agents/rules/&lt;主题&gt;.md</code>、<code>&lt;目录&gt;/REVIEW.md#每次都要检查</code> 或 <code>&lt;目录&gt;/REVIEW.md#不要报</code>。建议值是：规则类进 <code>.agents/rules</code>；“不要报”类且范围正好是单个目录的进该目录的 <code>REVIEW.md</code>，其余进 <code>.agents/rules</code>。去向可以在对话里改，放哪的标准见上面“REVIEW.md 写什么、怎么写”：少量核心的进 REVIEW.md，成批的、按路径限定的进 <code>.agents/rules</code>。</li>
+        <li><b>plan.md 里有什么：</b>每条候选一个块：候选编号与来源 MR、去向、动作、规则、原因、严重级别、范围、反例 / 正例、不要报。所有字段都能改。动作默认“待定”，要你逐条标“写入”或“跳过”；说“全部写入”才批量改。预演只打印、不写文件：<code>WRITE: &lt;文件&gt; +&lt;n&gt;行</code>、<code>SKIP: 块 &lt;n&gt; 已在 &lt;文件&gt; 里</code>、<code>ERROR: 块 &lt;n&gt; &lt;字段&gt;: &lt;原因&gt;</code>、<code>PENDING: &lt;k&gt; 块还是待定</code>；任一块有 ERROR，整批都不写。</li>
+        <li><b>plan.md 是唯一来源：</b>你改的就是落盘的。<code>--apply</code> 往 <code>.agents/rules/</code> 里的规则文件追加块；对 <code>REVIEW.md</code> 只在指定章节下追加一行，章节不存在就新建，不改头部。写入后该块的动作变成“已写入”，重复执行不会重复写。证据留在 <code>candidates.json</code>，来源 MR 的注释由脚本按候选编号写，不信任 <code>plan.md</code> 里改过的文字；不能在 <code>plan.md</code> 里凭空加没有候选编号的规则。不 <code>git add</code>、不提交。</li>
+        <li><b>写入由 plan.md 把关，“待定”不写：</b>动作是“待定”的块不会写；脚本核对证据来源、字段格式和规则句，预演有 ERROR 整批不写。准入清单里“项目特有”“工具抓不到”“不主观”这几项靠归纳时模型自评，脚本管不了，所以不让整批默认通过，模型自评的几项仍要你再看一遍。</li>
+      </ul>
+
+      <h3>规则发现怎么保证可信</h3>
+      <div class="lifecycle">
+        <span class="state s1">rules-auditor 报出</span>
+        <span class="edge">rule_file + rule_quote</span>
+        <span class="state s3">脚本核对引文和范围</span>
+        <span class="edge">对上了</span>
+        <span class="state s2">verifier 确认违反</span>
+      </div>
+      <p>引文不在那份规则里、规则不覆盖这个文件、没写引文的，置信度直接为 0。模型不能凭空编出一条规则来报。<b>防得了编造，防不了漏看</b>：没报的规则不保证每条都认真看过，靠规则文件保持短小来减少漏看。</p>
+      <details class="design-basis">
+        <summary>设计依据：REVIEW.md 怎么写，怎样的规则才好用，怎样维护，规则发现怎么保证可信</summary>
+        <ul>
+          <li><b>规则就是普通文件，引原文再核实：</b>Bugbot rules、CLAUDE.md / AGENTS.md、CodeRabbit 的路径说明都是普通文件；<a href="https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/code-review/commands/code-review.md">Claude Code 官方 code-review 命令</a>要求规则违反引用原文，再由核实步骤确认。写规则不需要编号或元数据。</li>
+          <li><b>核对引文，不证明“读过”：</b>证明“规则在上下文里、每条都有结论”的机制证明不了判断是对的，还会给流程增加容易出错的环节；逐字引文由脚本和 verifier 核对就够了。</li>
+          <li><b>好规则的标准（一手资料）：</b>上面六条标准的原文都来自这些官方文档和论文：
+            <ul>
+              <li><a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>——子目录 <code>REVIEW.md</code> 只对该路径生效；示例分 "What Important means here"、"Cap the nits"、"Do not report"、"Always check" 四节；建议把 CI 已检查的、生成文件列进不要报；要求 "behavior claims need a file:line citation"。</li>
+              <li><a href="https://cursor.com/docs/bugbot">Cursor Bugbot</a>——嵌套 <code>BUGBOT.md</code> 只在改动文件位于其下时生效。</li>
+              <li><a href="https://www.greptile.com/docs/code-review/custom-standards">Greptile：自定义规则</a>——"Rules must be specific and measurable"，反例 "Write clean code"、"Follow best practices"，正例 "Functions must not exceed 50 lines"；"Include examples in your rule for best results"。</li>
+              <li><a href="https://docs.coderabbit.ai/guides/review-instructions">CodeRabbit：评审指令指南</a>——<code>path_instructions</code> 每条对应一个路径；"Observe a few reviews first"，只在某处一直被漏掉时才加。</li>
+              <li><a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审</a>——"Short, imperative directives rather than long narrative paragraphs"；"Include code snippets showing both correct and incorrect patterns"；用 <code>applyTo</code> 限定路径；从 10–20 条具体指令起步，"Add new instructions one at a time or in small groups"，单个文件约 1,000 行为上限；不支持 "Be more accurate"、"Don't miss any issues" 这类空泛要求。</li>
+              <li><a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>——"Focus on project-specific guidelines"；文件 under 800 lines，因为 "Long files tend to contain generic guidelines already known to AI"；"Include brief code examples when helpful with before/after patterns"。</li>
+              <li><a href="https://arxiv.org/html/2405.13565v1">Google AutoCommenter</a>——一个链接覆盖多条准则、主观有争议的话题、正确但价值低的评论，是“没用”评论的主要来源；屏蔽 22 条不可执行的规则并改写摘要后，有用率从约 54% 升到 80%。</li>
+            </ul></li>
+          <li><b>我们自己的约定：</b>单个规则文件约 15 条或 4000 字符为上限，超过时 <code>rules-write.py</code> 会提示拆分。这是 CrossCheck 的做法，不是上面资料的说法。</li>
+          <li><b>作用域跟着目录和路径走：</b>Bugbot 从改动文件向上找各级 <code>BUGBOT.md</code>，只对所在目录生效；Copilot 用 <code>applyTo</code>，CodeRabbit 用 <code>path_instructions</code> 的 glob。CodeRabbit 还提醒不要把规范文件放进 path_instructions，否则变成“审查这个文件”而不是“按它审查”。<a href="https://forum.cursor.com/t/bugbot-md-not-applied-in-pr-review/126341">Cursor 社区：BUGBOT.md 的作用范围</a>；<a href="https://docs.coderabbit.ai/configuration/path-instructions">CodeRabbit：路径审查指令</a>；<a href="https://docs.coderabbit.ai/knowledge-base/code-guidelines">CodeRabbit：Code Guidelines</a></li>
+          <li><b>读哪一版规则：</b>Copilot 审 PR 时读 head 分支，可以在同一个 PR 里试规则；Bugbot 的配置读 base 分支，PR 改不了审查自己的规则。我们选后者，避免被审的改动改写审查标准。<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审</a>；<a href="https://forum.cursor.com/t/bugbot-md-not-applied-in-pr-review/126341">Cursor 社区：Bugbot 读 base 分支配置</a></li>
+          <li><b>从历史里长出规则，由人合并：</b>Bugbot 从反应和回复中学习规则，持续负反馈的自动停用；Qodo 只统计被采纳并改了代码的建议；CodeRabbit 从开发者回复里记 learnings，并可用 <code>@coderabbitai emit path instructions</code> 把近 7 天的建议汇总成一个 PR，不覆盖已有条目，由人审阅合并后生效。我们也是“候选 → plan.md 里逐条确认 → 提交后生效”。<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a>；<a href="https://docs.qodo.ai/v1/features/best-practices">Qodo：best_practices.md</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a>；<a href="https://docs.coderabbit.ai/configuration/path-instructions">CodeRabbit：emit path instructions</a></li>
+          <li><b>写下失败的样子：</b>Anthropic 在 REVIEW.md 里写明这块代码“失败长什么样”（what failure looks like），让审查者按真正重要的后果判断，而不是挑小毛病。<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a></li>
+          <li><b>每类规则单独检查：</b>Amp 把规则放在 .agents/checks 下，每个 check 单独执行，比写进 AGENTS.md 更可靠。<a href="https://ampcode.com/news/liberating-code-review">Amp：.agents/checks</a></li>
+          <li><b>规则为什么有两个写入处：</b>审查时当场定的一条（“以后这种别报了”“以后都要查 X”）由 <code>review</code> 按 <code>after-report.md</code> 写进对应目录的 <code>REVIEW.md</code>；从 MR 评论批量沉淀、成主题的规则由 <code>improve</code> 经 <code>plan.md</code> 写进 <code>.agents/rules/&lt;主题&gt;.md</code>（范围正好是单个目录的“不要报”，也可以写进该目录 <code>REVIEW.md</code> 的“不要报”一节）。两处并存，是因为 <code>REVIEW.md</code> 按目录生效，适合当场定的一条；<code>.agents/rules</code> 按 <code>paths</code> 生效，适合成批、带证据的规则。业界也是两样并存：Bugbot、CodeRabbit 在审查现场教规则（learnings），仓库里另有规则文件（见上面两条的链接）。当场写的那一行带来源注释（审查目标和发现 id），<code>improve</code> 检查时能追溯；写之前先查两处有没有同一条。</li>
+          <li><b>REVIEW.md 为什么要短，怎么放：</b>官方文档："Keep REVIEW.md to instructions that change review behavior, and leave general project context in CLAUDE.md."，并按“遇到什么问题就加哪类指令”来写（重新定义重要、限制轻微问题条数、列出要跳过的路径、写团队规则、要求证据），没有给条数建议；内容太长时用 <code>@</code> 引入其他文件（最多 8 个文件，合计 150,000 字节）。Anthropic 的博客："The good ones are short. They say what failure looks like in that repo (for docs it's "it lies," for config it's "it misroutes"), cap the nits, list paths to skip, and ask for a file and line as evidence instead of a guess from a name."；以及 "Add a REVIEW.md, and move repeated review comments into it"、"tune REVIEW.md for a few weeks, then widen"。Copilot："Begin with 10–20 specific instructions"，"Add new instructions one at a time or in small groups"，"Short, imperative directives rather than long narrative paragraphs"，不支持 "Be more accurate" 这类空泛要求；Greptile 要求 "specific and measurable"（见上面各条）。我们自己的约定：REVIEW.md 超过约 15 条就拆，依据是 Copilot 的 10–20 条起步，不是官方数字；<code>.agents/rules</code> 是我们的扩展，官方没有这个目录。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>；<a href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic：Solving code review at Anthropic</a>；<a href="https://docs.github.com/en/copilot/tutorials/customize-code-review">GitHub Copilot：定制代码评审</a></li>
+          <li><b>为什么先出计划文档，再写入：</b>一是所见即所得：<code>plan.md</code> 里写的就是落盘的，不是对话里说一套、脚本另生成一套。二是单一来源：你和 agent 改的是同一份文件，证据留在 <code>candidates.json</code>，来源 MR 由脚本按候选编号写，不信任 <code>plan.md</code> 里改过的文字，也不能凭空加没有编号的规则。三是预演：每次改完跑 <code>--check</code>，不写任何文件，只打印会写什么、跳过什么、哪里有错，有错整批都不写。“动作”默认是“待定”而不是“写入”，因为准入清单里“项目特有”“不主观”靠模型自评，脚本管不了，整批默认通过会让没人看过的规则进仓库。业界参照只有一个：CodeRabbit 的 <code>@coderabbitai emit path instructions</code> 把近 7 天的建议汇总成 PR，由人审阅合并；我们的审阅物是本机一份 <code>plan.md</code>，通过后只改工作区，不开 PR。<a href="https://docs.coderabbit.ai/configuration/path-instructions">CodeRabbit：emit path instructions</a></li>
+          <li><b>improve 不带参数只列出三件事：</b>沉淀要拉一个季度的 MR，不该被一次空调用触发；明确说“沉淀”或带时间范围才开始。它只能用命令调用（Claude Code、Cursor 用 <code>disable-model-invocation</code>，Codex 用 <code>allow_implicit_invocation: false</code>），避免一句话误触发这种重任务；只有 <code>review</code> 可以用自然语言触发。</li>
+          <li><b>不自动改、不自动停用，维护靠负责人判断：</b>一条规则长期零命中，可能是没用了，也可能是大家都遵守了，从数字上分不出来，所以只给线索。曾让 agent 现场提炼规则，结果不可复现、证据无法核对，才改成独立的 <code>improve</code>：规则只写工作区，不提交、不推送、不开 MR，走团队正常的代码评审。Claude Code、Cursor 写代码时不会自动读 <code>.agents/rules/</code>，需要时在 <code>AGENTS.md</code> / <code>CLAUDE.md</code> 里用 <code>@</code> 引入（问过你才加）。拉取的缓存只存 MR 标题、作者和评论，不存描述原文。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="metrics">
+      <h2>七、判断记录</h2>
+      <ul>
+        <li>对某条发现表态（成立 / 成立但不修 / 不成立 / 有争议）由 <code>feedback.sh</code> 记在<b>你本机</b>的 <code>~/.crosscheck/reviews/&lt;项目名&gt;/feedback.jsonl</code>（不在仓库里，也不共享给别人），对这个项目的所有分支、MR 和范围有效；不成立和不修必须写原因。</li>
+        <li>判断记着那段代码的样子（出问题的一行加上下各两行的哈希）。代码没变就不再报，代码变了重新评估并注明之前的判断。</li>
+        <li>不在核实前删除候选：历史判断交给 verifier 判断是不是同一个问题；因此没报的在报告里折叠列出，可以核对。</li>
+        <li>团队共享常见误报：本机的判断记录只对你自己生效；想让全队都不再报，写进仓库里 <code>REVIEW.md</code> 的「不要报」一节，随代码一起评审。</li>
+      </ul>
+
+      <details class="design-basis">
+        <summary>设计依据：记住人的判断</summary>
+        <ul>
+          <li><b>记住人的判断：</b>CodeRabbit learnings、Bugbot 学习规则都从开发者的回复和反应里学，避免同样的误报反复出现。<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a>；<a href="https://cursor.com/blog/bugbot-learning">Cursor：Bugbot 从反馈中学习规则</a></li>
+          <li><b>记在项目级，带着发现的身份：</b>被否定的发现换个分支或 MR 又出现、撤回没被记下来，是第一批真实反馈里最先暴露的问题。判断不挂在某次审查的目录下，记录时只需要发现的 id，换个会话也能记。身份是文件、维度、摘要、出问题的那一行，以及这一行上下各两行代码的哈希：只用一行代码不够（<code>return nil</code>、<code>}</code> 到处都是），只用行号也不够（行号来自模型，常差一两行）。</li>
+          <li><b>不在核实前删除候选：</b>曾考虑过“文件、维度、行哈希都对上就直接丢弃”，被否决：常见行会让同文件同类的新 bug 被静默丢掉，同一行上的另一个问题被一起丢掉，调用方变了而这一行没变时照样丢，而且不可审计。</li>
+          <li><b>事实和处理决定分开：</b>“不修”不把当前证据分改成 0；“不成立”是历史判断，压不掉本轮已核实成立的发现。历史抑制要有匹配的记录，并核对当前场景、调用环境、触发前提是否仍是同一个问题，文件没变不足以自动抑制。折叠项保留当前置信度、结论、历史决定和抑制原因，“已抑制”不记成“已解决”。</li>
+          <li><b>统计口径：</b>判断和去向分开存，不互相折算；“代码已改”不叫“已修复”；成立率只按有人明确判断过的算，并标出样本数和选择偏差。为减轻只记否定带来的偏差，<code>--fix</code> 修好的和你明确认可的会自动记为成立。规范违规和缺陷分开计数；没有加行内的 <code>crosscheck: ignore</code> 标记，因为它会污染代码，还和 <code>REVIEW.md</code> 的“不要报”重复。</li>
+          <li><b>不要从别的会话猜 token：</b>用量只由 hook 统计，没有 hook 时写“未统计”。曾考虑推断当前会话的记录，被否决：那需要读本机其他会话的完整对话，可能含密钥，还可能选错会话。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="storage">
+      <h2>八、文件存放</h2>
+      <pre><code>${TMPDIR:-/tmp}/cr.XXXXXX/    每次审查新建（mktemp），名字随机，不与其他审查共用（下文记作 review_dir）
+├── diff.patch  files.txt  ranges.txt  skipped.txt  batches.txt  meta.txt
+├── intent.md  sources.json  discussions.json  weakening.txt  settings.json  history.json
+├── rules.txt  rules-index.json
+├── candidates.json  verify/batch-*.json  verify/result-*.json  runs/（运行记录）
+├── analysis-facts.json
+└── final.json  findings.json  rejected.json  report.md
+
+插件/config/defaults.conf   团队统一的配置（外部工具、需求收集），随插件分发
+插件/scripts/config.py       全部技能共用的配置读取入口（config.sh 薄转发）
+插件/skills/review/templates/        report.md
+插件/skills/improve/templates/  REVIEW.md  rule.md
+
+~/.crosscheck/
+├── config                  个人配置，逐项覆盖插件里的
+├── mining/&lt;项目名&gt;/          improve 拉取的 MR 评论缓存、候选和 plan.md
+└── reviews/&lt;项目名&gt;/
+    ├── feedback.jsonl      你的判断（项目级）
+    ├── project.json        对比基准规则（项目级，不过期）
+    ├── sources/&lt;分支&gt;.json  需求链接、跳过、意图（90 天过期）
+    └── &lt;对象&gt;/&lt;时间&gt;/       report.md、findings.json、rejected.json、meta.txt …
+        latest · baseline   最近一次 · 增量基准
+        pending             进行中标记，保存成功后删除
+
+仓库/.agents/rules/&lt;主题&gt;.md     improve 沉淀的规则（你提交后生效）
+仓库/**/REVIEW.md              improve 也可在“每次都要检查”“不要报”下追加一行（同上）</code></pre>
+      <p>文件分三层，隔离的单位是“每次审查”和“审查对象”，不是“需求”：</p>
+      <ul>
+        <li><b>单次审查的中间文件：</b>上面的随机临时目录，每次审查新建一个。</li>
+        <li><b>长期记录：</b><code>~/.crosscheck/reviews/&lt;项目&gt;/&lt;对象&gt;/&lt;时间&gt;/</code>。<code>&lt;对象&gt;</code> 是 <code>mr-N</code>、<code>pr-N</code>、<code>branch-&lt;分支&gt;</code> 或 <code>range-&lt;范围&gt;</code>，<code>&lt;时间&gt;</code> 精确到秒（<code>%Y%m%d-%H%M%S</code>）。不同的 MR 或分支落在不同目录；进行中标记 <code>pending</code>、<code>latest</code>、<code>baseline</code> 也各在自己的对象目录里，不会串。</li>
+        <li><b>项目级共享的只有三样：</b><code>feedback.jsonl</code>（你的判断）、<code>project.json</code>（基准规则）和 <code>mining/</code>（沉淀缓存）。判断记录是项目级的，所以同一段代码（文件加上下文行一致）在别的 MR / 分支里再出现时，也会按历史判断处理，并在报告里折叠列出。这是有意的，想让误报不重复出现；不是“互不影响”。</li>
+      </ul>
+      <p>上面没列出、排错时会遇到的文件：</p>
+      <div class="table-wrap"><table>
+        <tr><th>文件</th><th>内容</th><th>谁用</th></tr>
+        <tr><td><code>batch-&lt;n&gt;.patch</code></td><td>第 n 批的 diff</td><td>分批运行的角色</td></tr>
+        <tr><td><code>description.md</code></td><td>PR/MR 的标题和描述；本地审查是范围内的提交说明</td><td>角色（对照“说了要做什么”和“实际做了什么”）</td></tr>
+        <tr><td><code>code-host.json</code></td><td><code>tools.code_host</code> 读到并经 <code>code_host.py</code> 核对的 MR 信息和讨论</td><td><code>discussions.py</code></td></tr>
+        <tr><td><code>rules-notes.json</code></td><td>规则“可能过时 / 冲突”的说明</td><td>报告</td></tr>
+        <tr><td><code>state.txt</code></td><td>审查开始时的仓库状态</td><td><code>check-state.sh</code></td></tr>
+        <tr><td><code>hashes.txt</code>、<code>context-hash.txt</code></td><td>每个文件 diff 的哈希；影响审查方式的输入的哈希，不同就全量重审</td><td><code>save-review.sh</code>、下次的 <code>collect-diff.sh</code></td></tr>
+        <tr><td><code>incremental.txt</code>、<code>prev-findings.json</code></td><td>增量时每个文件的状态；上次留下的发现</td><td>编排、verifier</td></tr>
+        <tr><td><code>diff.full.patch</code>、<code>files.full.txt</code></td><td>增量时完整的改动（<code>diff.patch</code> 已缩减到变化的文件）</td><td>需要全貌时</td></tr>
+        <tr><td><code>verification-errors.json</code></td><td>核实不完整时 <code>aggregate.sh</code> 写出的问题</td><td>编排</td></tr>
+        <tr><td><code>usage.txt</code></td><td>hook 统计的 token 用量和实际出现的模型名；统计不到时只有原因，hook 没运行时没有这个文件</td><td><code>save-review.sh</code></td></tr>
+        <tr><td><code>record.txt</code></td><td>指向这次保存到的记录目录</td><td><code>save-review.sh</code></td></tr>
+        <tr><td><code>source-args.txt</code>、<code>doc-files.txt</code></td><td><code>--source</code>、<code>--doc</code> 的原样参数</td><td><code>collect-context.sh</code>、<code>context_hash.py</code></td></tr>
+      </table></div>
+      <p>判断记录不在 <code>review_dir</code> 里，而在你本机的 <code>feedback.jsonl</code>（第七节）。发现的数据结构见 <code>skills/review/references/finding-schema.md</code>。</p>
+      <p>长期记录按审查对象分目录（<code>mr-128</code>、<code>pr-42</code>、<code>branch-&lt;分支名&gt;</code> 这样的名字）。需求单号作为材料存在记录里，不按需求分目录：一个需求常拆成多个 MR，很多分支也没有需求单号。</p>
+      <p>同一个目标再次审查默认做增量：diff 没变的文件不再查找，上次的发现原样带过来；变更或识别到依赖的文件重新审，本轮进入核实流程时，上次仍在发现列表且有历史处理判断的条目也重新核对前提，分成“遗留”和“已解决”，已抑制不算已解决。规则、用户给的意图或计划、审查设置、审查范围（<code>--only</code>、<code>--with-tests</code>）、模型或插件本身变了就全量重审；提交说明、MR 讨论和判断记录变化不触发全量。已进入历史抑制列表的条目不会自动带入以后每轮增量；符号名依赖匹配可能漏掉配置、反射等间接影响，环境广泛变化时可用“重新审”全量检查。读不到被审查的代码时停止生成结论，不出空报告。</p>
+      <details class="design-basis">
+        <summary>设计依据：记录和增量</summary>
+        <ul>
+          <li><b>在本地存记录、只重看变了的：</b>AI 评审工具普遍在每次提交后只评审新改动；Bugbot、CodeRabbit 把学到的东西按仓库存。<a href="https://docs.ellipsis.dev/introduction">Ellipsis：每次提交重新评审</a>；<a href="https://docs.coderabbit.ai/knowledge-base/learnings">CodeRabbit：Learnings</a></li>
+          <li><b>项目级和分支级分开记：</b>需求来源按分支记、90 天过期；基准默认不记，用户明确要求才保存为项目规则，和判断记录放在同一目录。换基准默认仅本次，明确说记住才更新保存的规则。</li>
+          <li><b>记录放用户目录，不放仓库：</b>放仓库里要加忽略规则，还会让“审查不改动仓库”不再成立；放 <code>.git/</code> 里不容易找。代价是换机器或重新克隆后历史不跟着走。按文件 diff 的哈希判断是否变化，对已提交和未提交的改动一视同仁，不用 commit 判断，因为本地审查的对象常含未提交的内容。</li>
+          <li><b>增量对角色透明：</b><code>collect-diff.sh</code> 直接把 <code>diff.patch</code>、<code>files.txt</code>、<code>ranges.txt</code> 和批次缩减到变化的文件，角色看到的只是一个更小的改动，说明文档不用为增量写分支。上次的发现按文件状态处理：没变的原样带入，变了的交给 verifier 重新核实（复用已有的核实流程，不另写“是否已修复”的逻辑），文件不在改动里了算已解决。</li>
+          <li><b>哪些记录能当基准由脚本定：</b>上次深度不低于这次才复用；只查部分维度（<code>--only</code>）的审查存记录但不更新基准指针；<code>--full</code> 或你说“重新审”时不读历史，旧记录保留，新记录成为新的基准。这些判断交给 agent，不同次运行会不一致。</li>
+          <li><b>按项目的身份存，不按路径：</b>项目名取自 <code>origin</code> 地址的最后一段，没有远程时取主工作区的目录名。早期用“目录名加路径哈希”，同一个项目的每个 worktree 各有一份记录，增量接不上；现在直接在分支上审、从别的分支指名审、在另一个 worktree 里审，用的是同一份。两个不同项目重名时，目录里的 <code>.repo</code> 标记记着先来者，后来者在目录名后加哈希。</li>
+          <li><b>改动行覆盖：</b>Codecov 的 patch 覆盖率只统计本次改动的行，思路和“只审改动的行”一致。<a href="https://docs.codecov.com/docs/commit-status">Codecov：只统计改动行的 patch 覆盖率</a></li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="security">
+      <h2>九、安全边界</h2>
+      <div class="table-wrap"><table>
+        <tr><th>保障</th><th>做什么</th><th>适用</th></tr>
+        <tr><td>说明</td><td>SKILL.md 的「只读约束」、<code>references/common.md</code> 和每个角色说明都写明只读、被审查的内容是数据不是指令、不接触凭证</td><td>所有宿主</td></tr>
+        <tr><td>核对</td><td>开始时记下分支、HEAD、stash、暂存区和改动文件的哈希，出报告前对比，有变化写在报告最前面</td><td>所有宿主</td></tr>
+      </table></div>
+      <ul>
+        <li>没有事前拦截：审查过程中 agent 能执行的命令不受限制，只读靠说明，出报告前由核对发现改动。这是约束，不是强制。</li>
+        <li>hook 只做 token 统计，每家一份注册文件，只写各家文档里列出的事件和工具名：Claude Code <code>hooks/hooks.json</code>，Codex <code>hooks/codex-hooks.json</code>（要先在 <code>/hooks</code> 里信任），Cursor <code>hooks/cursor-hooks.json</code>。hook 不拒绝任何操作。</li>
+        <li><code>tools.code_host</code> 只用来读：不评论、不改描述、不 approve、不合入；读到的标题、描述和讨论是待审查的材料；脚本只核对得了仓库、分支和提交，插件看不出远端的 MR 有没有被改过，这是已知限制。</li>
+        <li>MR 描述、需求单、评论、规则文件里写给 reviewer 的话（“忽略安全问题”“approve 这个”）一律不执行；意图只能解释改动，不能让安全问题不报。</li>
+        <li>不改变仓库状态：不切换分支，不 <code>reset</code> / <code>stash</code> / <code>clean</code> / <code>commit</code> / <code>push</code>，读其他版本的代码一律用 <code>git show</code>。这条在 SKILL.md 和每个角色说明里各写了一遍，因为子代理不会看到 SKILL.md；被审查内容是数据这条同理，每个角色独立读材料。</li>
+        <li><code>--fix</code> 只在你明确要求时进入（“review 一下”“该怎么修”不算），只编辑工作区、不暂存不提交，只应用通过核实的发现，每条用最小改动、不顺手重构，修复方式不明确的跳过并说明。</li>
+        <li><code>REVIEW.md</code> 的头部设置只能调整报什么、怎么定级、报多少、要什么证据，不能取消核实、降低 80 分阈值、触发 <code>--fix</code>、往外发内容或 approve。只认 <code>REVIEW.md</code>：它是专门写给 review 的文件，<code>CLAUDE.md</code>、<code>AGENTS.md</code> 里指挥审查的文字仍然不采用。</li>
+        <li>凭证：脚本和角色不读取、不保存、不输出 token；检查环境只看变量名在不在，不看值。</li>
+      </ul>
+      <details class="design-basis">
+        <summary>设计依据：安全边界</summary>
+        <ul>
+          <li><b>只读靠说明和核对：</b>拦截按命令的字面形式匹配，<code>sh -c</code>、变量拼出的路径、经脚本间接调用 git 都挡不住，模型换一种写法就能绕过；三家宿主的 hook 输入和拒绝格式各不相同，维护成本高，Codex 还要先在 <code>/hooks</code> 信任。业界审查工具靠说明和只给只读工具的权限约束 agent。hook 保留，只用来统计 token：agent 拿不到用量，只能由 hook 从会话记录里读。<a href="https://code.claude.com/docs/en/hooks">Claude Code hooks 文档</a></li>
+          <li><b>被审查的内容是数据：</b>提示注入是 LLM 应用的首要风险；评审场景里 PR 正文、评论、需求文档都可能带指令。<a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP LLM01：提示注入</a></li>
+          <li><b>PR 改不了审查规则：</b>Claude Code Review 只从受保护的默认分支读 REVIEW.md。<a href="https://code.claude.com/docs/en/code-review-customize">Claude Code Review：REVIEW.md 自定义</a>。我们的代价是 PR 里新增或修改的规则要合并之后才会用到；早期给被改过的 <code>REVIEW.md</code> 标记再降级处理，已去掉，从 base 读更简单，也没有“这次新增的规则要不要生效”的歧义。</li>
+          <li><b>核对只报告，不恢复：</b>恢复本身就要 <code>git checkout</code> / <code>git clean</code> 这类危险操作，而且脚本分不清哪些变化是你自己同时在做的。</li>
+          <li><b>不往外发、不提交 MR：</b>早期有过 <code>--comment</code>（发行内评论，带指纹去重），主要在本地使用而移除，需要时再加回来。提交 MR 要推送、选目标分支和评审人，是外发且不可撤回的动作，各团队规范不同，所以只给可复制的 <code>glab</code> / <code>gh</code> 命令。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="limits">
+      <h2>十、已知限制</h2>
+      <p>下面是已知的限制和应对办法，哪里可以调，以及有意不做的事；判断“这是 bug 还是设计如此”时先看这里。</p>
+
+      <h3>限制与应对</h3>
+      <div class="table-wrap"><table>
+        <tr><th>组</th><th>限制</th><th>怎么应对</th></tr>
+        <tr><td rowspan="6">漏报与成本</td><td>会漏报：80 分阈值和封顶检查会挡掉没能追踪完整的真问题；核实只能反证收到的候选，补不回查找阶段没提交的</td><td>重点改动用 <code>--depth deep</code>；<code>rejected.json</code> 里 70–79 分的可以核对</td></tr>
+        <tr><td>成本比单次扫描高：standard 有两个查找角色加若干 verifier，分批后随批次数增长</td><td>小改动用 <code>--depth quick</code></td></tr>
+        <tr><td>分批按行数而不是依赖关系，跨批的问题更依赖 deep 的影响面那一遍</td><td>跨模块的大改动用 deep</td></tr>
+        <tr><td>80 分、每批 1000 行、各档条数上限都是经验值，没有在标注数据集上验证；分遍的效果缺同预算的对比数据，分遍之间也不独立</td><td>积累 <code>rejected.json</code> 和判断记录再校准；对比要在同一批改动上做</td></tr>
+        <tr><td>无子代理时隔离变弱（第四节）；依据校验只证明位置真实存在，不证明依据足以支撑结论</td><td>重要结论对照报告里摘出的原文自己确认</td></tr>
+        <tr><td>保存的报告由编排者写入，漏写或写错会不准</td><td>发现的状态由脚本生成，不受影响</td></tr>
+        <tr><td rowspan="5">增量与记录</td><td>增量按文件粒度，依赖识别按符号名匹配；通过配置、反射、间接调用产生的依赖看不到，“旧改动在新上下文里变成问题”可能漏</td><td>环境广泛变化时说“重新审”</td></tr>
+        <tr><td>按历史判断抑制的条目不会自动带入后续增量</td><td>变更或依赖文件的查找再次发现，或用 <code>--full</code> 全量重审</td></tr>
+        <tr><td>进行中标记按审查目标存放：同一个目标并发审查时共用，可能误报“上次没保存”</td><td>同一个目标不要并发审查</td></tr>
+        <tr><td>判断记录是项目级、只在本机：同一段代码在别的 MR / 分支里再出现时也按历史判断处理（第八节）</td><td>团队共享的常见误报写进 <code>REVIEW.md</code> 的“不要报”</td></tr>
+        <tr><td>token 只统计 Claude Code 和 Codex；运行记录只防幻觉，不防刻意伪造</td><td>报告里写明统计不到的原因</td></tr>
+        <tr><td rowspan="5">规则</td><td>规则检查防得了编造，防不了漏看；规则冲突只靠 rules-auditor 提示，脚本不检测</td><td>规则文件保持短；冲突的说明交给负责人处理</td></tr>
+        <tr><td>PR/MR 里新增或修改的规则合并后才生效（从 base 读，有意的取舍）</td><td>先合入规则，再审查依赖它的改动</td></tr>
+        <tr><td>沉淀规则时，GitHub 只翻最近更新的 1000 个已关闭 PR</td><td>范围以 <code>plan.md</code> 开头写的天数和 MR 数为准</td></tr>
+        <tr><td>GitHub 上评论是否已解决（resolved）和之后是否改了代码（changed_after）多数未知，准入清单里“作者照改了”一项显示“?”放行</td><td>“?”项由你自己看；<code>plan.md</code> 的动作默认“待定”，不会整批通过</td></tr>
+        <tr><td>准入清单里“项目特有”“不主观”靠模型自评，脚本管不了</td><td>逐条标“写入”或“跳过”，预演通过再 <code>--apply</code></td></tr>
+        <tr><td rowspan="5">平台与环境</td><td>自建 GitLab 的域名不含 “gitlab” 时认不出；部署在子路径下时 <code>glab</code> 需要的 <code>GITLAB_HOST</code> 没在真实环境验证过</td><td>配置 <code>gitlab_hosts</code> 或带 <code>--platform</code></td></tr>
+        <tr><td><code>glab</code> / <code>gh</code> 相关部分主要用模拟命令测过，GitLab 只在本地实例上端到端跑过一次；<code>tools.code_host</code> 和需求来源的读取只用本地模拟验证过</td><td>首次接入先拿一个 MR 试跑；字段、分页、权限、限流都可能有差异</td></tr>
+        <tr><td>“已合入”：git 回退和 <code>tools.code_host</code> 只认得出 merge commit 合入的，squash / rebase 的改动算得对但不标“已合入”；GitLab 删掉 <code>refs/merge-requests/&lt;编号&gt;/head</code> 时 git 回退取不到 head</td><td>能用 <code>gh</code> / <code>glab</code> 时让它们读平台状态</td></tr>
+        <tr><td>自然语言里的基准由编排者转成 <code>--base</code> / <code>--base-sha</code>，漏掉的意图脚本识别不了；Git 不永久保存分支切出关系</td><td>重要的对比基准直接写 <code>--base</code> / <code>--base-sha</code></td></tr>
+        <tr><td>调用方靠名字匹配：依赖注入、反射、MyBatis XML、跨服务调用、再导出搜不到，同名方法会混在一起；只识别 TS/JS、Go、Python、Java/Kotlin 的定义，多行签名识别不全</td><td>reviewer 拿到的是按名字搜到的线索，自己再读代码确认；其余看 CR 报告</td></tr>
+      </table></div>
+
+      <h3>想调什么，改哪里</h3>
+      <div class="table-wrap"><table>
+        <tr><th>想调什么</th><th>改哪里（路径相对 <code>skills/review/</code>）</th></tr>
+        <tr><td>模型</td><td><code>model.finder</code>（reviewer、rules-auditor）、<code>model.verifier</code>（verifier），默认都是宿主当前的模型；本次的核实模型可说“核实换成某某模型”或用 <code>--verifier-model</code>，优先于配置</td></tr>
+        <tr><td>报告的松紧</td><td>单个项目：<code>REVIEW.md</code> 头部的 <code>limits</code> 和正文里的严重程度、证据要求；所有项目：<code>references/scoring-rubric.md</code></td></tr>
+        <tr><td>不该报的东西</td><td><code>references/false-positives.md</code>；单个项目或目录用 <code>REVIEW.md</code> 的“不要报”</td></tr>
+        <tr><td>项目特有的约定、团队共用的规则</td><td>项目自己的 <code>REVIEW.md</code> / <code>AGENTS.md</code>，不改插件</td></tr>
+        <tr><td>某个维度的关注点、新增审查维度</td><td>对应的 <code>roles/*.md</code>；新增则加 <code>roles/&lt;name&gt;.md</code>，在 <code>SKILL.md</code> 的角色表和 <code>references/finding-schema.md</code> 的 <code>category</code> 里登记</td></tr>
+        <tr><td>每批的大小</td><td>环境变量 <code>CR_BATCH_LINES</code></td></tr>
+        <tr><td>新增规则来源、代码托管平台</td><td><code>scripts/project_rules.py</code> 的 <code>kind()</code>；<code>scripts/collect-diff.sh</code> 加一个 <code>collect_&lt;platform&gt;</code>，认不出的平台走 <code>tools.code_host</code></td></tr>
+        <tr><td>被跳过的文件类型</td><td><code>scripts/collect-diff.sh</code> 里 awk 的 <code>reason()</code></td></tr>
+        <tr><td>报告、回复的处理</td><td>报告：<code>templates/report.md</code>、<code>references/report-format.md</code>、<code>scripts/report_lines.py</code>；回复：<code>references/after-report.md</code></td></tr>
+      </table></div>
+      <p class="muted">默认不改变模型：评测里换用强模型后，查找阶段的高危候选变多。Claude Code 里推荐两项都用 <code>opus</code>，想省钱把 <code>model.finder</code> 换成 <code>sonnet</code>，代价是高危问题可能少找到。宿主不支持为子代理指定模型时照常运行，实际用的模型从会话记录读出，对不上配置时报告提示（第三节）。跨厂商核实只是可选策略，没有证据证明它一定更好，所以不强制。</p>
+
+      <h3>有意不做的</h3>
+      <div class="table-wrap"><table>
+        <tr><th>不做</th><th>原因</th></tr>
+        <tr><td>采纳率统计</td><td>没有团队真实使用前拿不到足够样本。现在看本地的判断和去向、<code>rejected.json</code> 里 70–79 分差一点通过的候选、以及成本；有几十个合并的 MR 后再考虑加回。</td></tr>
+        <tr><td>“待确认”一节，放宽到改动行以外</td><td>离线统计里，被否决的已知问题分数都在 5–20，漏掉的已知问题全在改动行上；放进“待确认”的只会是低分的东西。</td></tr>
+        <tr><td>规则编号和元数据、“证明读过规则”、组织规则包和团队数据同步、创建规则 MR 的脚本、风险分级、simplifier、自动打开报告、借用登录 shell 重试 <code>glab</code>、deep 下同一模型换顺序重复查找</td><td>一个机制要么对应问卷里的痛点或精确率，要么有业界的实际做法支撑；两者都没有的，在有使用数据之前不做。同一模型的盲区相同，重复查找收益有限。</td></tr>
+        <tr><td>按语言罗列的缺陷清单</td><td>曾加过 JS/TS、Python、Go、Java 四份，后来去掉：内容是宿主模型已经知道的，会随版本过时，鼓励“匹配到模式就报”抬高误报，收益也没被验证。值得写的是项目自己的约定，写在 <code>REVIEW.md</code> 里；魔法数字、命名、格式交给 linter。</td></tr>
+      </table></div>
+      <p class="muted">想检验效果：说“拿我们修过的 bug 测一下”，agent 从 <code>git log</code> 找修 bug 的提交、定位引入它的改动，对那次改动跑一次审查看抓没抓到，再用普通改动做对照看误报。模型每次运行都不同，样本少时只能看出明显的问题。</p>
+
+      <details class="design-basis">
+        <summary>设计依据：为什么这些地方先不做、先不验证</summary>
+        <ul>
+          <li><b>公开采用不等于已验证：</b>保留的机制参考了 Claude Code 官方 code-review、Cursor Bugbot、OpenAI 和 Uber 的公开做法；各家数据集、模型与指标不同，公开采用不代表在 CrossCheck 上最优，具体门槛仍需本地数据支持。<a href="https://claude.com/blog/code-review">Anthropic：Claude Code Review</a>；<a href="https://cursor.com/blog/building-bugbot">Cursor：Building Bugbot</a>；<a href="https://alignment.openai.com/scaling-code-verification/">OpenAI：A Practical Approach to Verifying Code at Scale</a>；<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
+          <li><b>80 分以后要校准：</b>没有独立标注数据前保留现门槛；以后应同时抽查通过、拒绝和无候选的审查，区分查找遗漏、核实误杀和裁剪损失，再调整。</li>
+          <li><b>分遍与多 agent 的取舍没有定论：</b>见第四节的设计依据；缺的是同预算下的对比，成本要按实际模型、冷热输入、输出和耗时记录，不能按 agent 数量算。<a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic：Prompt caching</a></li>
+          <li><b>跨厂商核实：</b>Uber 在其特定的数据与模型组合下发现跨厂商生成 / 评分效果较好，这不构成普遍结论，所以只留可配置能力。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
+          <li><b>基准的创建来源线索只是线索：</b>Git 的 reflog 是本地操作记录，不是永久的分支来源属性。<a href="https://git-scm.com/docs/git-reflog">Git：reflog</a></li>
+        </ul>
+      </details>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var themeBtn = document.getElementById('themeBtn');
+
+  function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function write(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
+  var saved = read('cr-design-theme');
+  if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+  var systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+  function currentTheme() {
+    return root.getAttribute('data-theme') || (systemTheme.matches ? 'dark' : 'light');
+  }
+  function updateThemeButton() {
+    var dark = currentTheme() === 'dark';
+    var label = dark ? '切换为浅色模式' : '切换为深色模式';
+    themeBtn.title = label;
+    themeBtn.setAttribute('aria-label', label);
+    document.getElementById('themeMoon').toggleAttribute('hidden', dark);
+    document.getElementById('themeSun').toggleAttribute('hidden', !dark);
+  }
+  updateThemeButton();
+  systemTheme.addEventListener('change', updateThemeButton);
+
+  themeBtn.addEventListener('click', function () {
+    var next = currentTheme() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    write('cr-design-theme', next);
+    updateThemeButton();
+  });
+
+  // 流程演示:按视角分成几条流程;静止时显示当前步骤的完整内容,点播放后逐步推进
+  var demo = document.getElementById('demo');
+  var ACTOR_NAMES = {
+    you: '你', lead: '项目负责人', main: '主 agent', script: '脚本', hook: 'hook',
+    reviewer: 'reviewer', rules: 'rules-auditor', verifier: 'verifier',
+    gitlab: '代码托管', repo: '规则文件'
+  };
+  var tracks = [
+    { id: 'review', label: '开发者', sub: '审查一次改动',
+      info: '谁：每个开发者 · 什么时候：提 MR 之前或审别人的 MR 时',
+      actors: ['you', 'main', 'script', 'hook', 'reviewer', 'rules', 'verifier', 'repo'],
+      // 节点按列排;并行阶段按产出分组,只有查找组向 verifier 交候选
+      nodes: [[['you', '你', '', 'user']], [['main', '主 agent', '', 'agent']], [['script', '脚本', '收集改动 / 规则', 'script']],
+        { group: 'gparallel', kind: 'find', label: '并行任务 · 同时启动', tasks: [
+          { id: 'gfind', label: '查找候选', detail: '两个角色互相独立', members: ['reviewer', 'rules'] }], members: [
+          ['reviewer', 'reviewer', '', 'search', { model: '查找模型', passes: ['正确性', '安全', '需求核对'] }],
+          ['rules', 'rules-auditor', '对照规则', 'rule', { model: '查找模型' }]] },
+        { group: 'gverify', kind: 'verify', label: '独立核实 · 独立上下文', members: [
+          ['verifier', 'verifier', '先推翻再打分', 'shield', { model: '核实模型', strong: true, gauge: true }]] },
+        [['report', '报告', 'CR 报告', 'doc']]],
+      edges: [['you', 'main'], ['main', 'script'], ['script', 'gparallel'], ['gfind', 'verifier', { label: '5 条候选' }],
+        ['verifier', 'report', { label: 'pass' }]],
+      scenes: [
+        { title: '发起审查', actors: ['you', 'main'], pipe: ['you', 'main'],
+          cap: '你用平时说话的方式发起审查，主 agent 把理解到的范围、深度和意图复述一遍，理解错了可以马上纠正。',
+          log: [['你', '/crosscheck:review 帮我看下 MR 128,这次是修复分页丢数据'], ['主 agent', '→ target 128 · --intent "修复分页丢数据" · 深度 standard']] },
+        { title: '拉取改动', actors: ['script', 'hook'], pipe: ['script'],
+          cap: '脚本拉取 MR 的改动，过滤测试和 lock 文件，算出改动行的范围，扫出被削弱的测试和检查；同时记下仓库状态，开始统计用量。',
+          log: [['collect-diff', '拉取 MR !128(code.company.com)'], ['collect-diff', '5 个文件 · +186 −31 · 跳过 2 个'], ['collect-context', '测试削弱 1 处'], ['guard', '审查开始,开始统计用量']] },
+        { title: '意图与规则', actors: ['script', 'repo'], pipe: ['script'],
+          cap: '从 MR 描述、关联需求、提交说明、人工讨论和你的补充里整理出意图和验收标准；规则直接读仓库里的 Markdown，PR/MR 从 base 读。',
+          log: [['collect-context', '→ intent.md(验收标准 2 条)'], ['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc']] },
+        { title: '查找候选', actors: ['main', 'reviewer', 'rules'], pipe: ['reviewer', 'rules'],
+          cap: '同一阶段并行做两类查找：reviewer 和 rules-auditor 互相独立。reviewer 在同一上下文分遍查正确性、安全、需求核对，复用已读材料；rules-auditor 对照规则并引用原文。两个角色把候选交给核实。',
+          log: [['主 agent', '并行启动：候选查找 ×2'], ['reviewer', '5 条候选'], ['rules-auditor', '1 条候选 · 引文 REVIEW.md'], ['主 agent', '合并去重 6 → 5 条(:43 与 :42 同根因)']] },
+        { title: '独立核实', actors: ['verifier', 'script'], pipe: ['verifier'],
+          cap: 'verifier 只拿到候选结论，逐条重新读代码，先尝试推翻再打分，并给出读过的代码和排除的可能。脚本核对依据位置和规则引文，低于 80 分的不报但留档。',
+          log: [['verifier ×1', '5 条候选'], ['aggregate', '依据位置 ✓ · 规则引文 ✓'], ['aggregate', '通过 3 · 否决 2 → rejected.json']] },
+        { title: '出报告', actors: ['main', 'script'], pipe: ['report'],
+          cap: '问题代码由脚本从原文摘取，每条附上依据；测试削弱单列；末尾写明用了哪些规则文件。',
+          log: [['check-state', '仓库未被改动 ✓ · 只读阶段结束'], ['save-review', '报告已保存']] },
+        { title: '你回复', actors: ['you', 'main'], pipe: ['you', 'main', 'report'],
+          cap: '你确认第 1 条、质疑第 2 条。主 agent 重新核对调用方，确认外层有事务后撤回；两条判断都记下来，同一段代码不变时不再报。',
+          log: [['主 agent', '重新核对 handler.go:30-48'], ['feedback', 'valid #1'], ['feedback', 'invalid #2「外层事务整体回滚」']] }
+      ] },
+    { id: 'rules', label: '项目负责人', sub: '用命令沉淀规则',
+      info: '只能用命令 /crosscheck:improve 调用 · 脚本核对证据 · 先出 plan.md、人逐条确认 · 只改工作区',
+      actors: ['lead', 'main', 'script', 'gitlab', 'repo'],
+      nodes: [[['lead', '负责人', '', 'user']], [['main', '主 agent', '', 'agent']], [['src', 'MR 评论', '判断记录', 'chat']],
+        [['cand', '候选规则', 'plan.md 待确认', 'rule']], [['file', '规则文件', '只改工作区', 'doc']]],
+      edges: [['lead', 'main'], ['main', 'src'], ['src', 'cand'], ['cand', 'file']],
+      scenes: [
+        { title: '拉取评论', actors: ['lead', 'main', 'script', 'gitlab'], pipe: ['lead', 'main', 'src'],
+          cap: '只读拉取最近一个季度已合并 MR 的人工评论（去掉机器人和系统消息），加上 CrossCheck 记下的判断；缓存起来，下次只拉新的。',
+          log: [['项目负责人', '/crosscheck:improve 从最近的 MR 评论里整理规则'], ['mine-mrs', '90 天 · 23 个 MR · 41 条评论(只读)']] },
+        { title: '筛选候选', actors: ['main', 'script'], pipe: ['cand'],
+          cap: 'miner 归纳候选，脚本按准入清单核对：证据是评论原文、至少 2 个 MR、评论后代码确实改了、能写成“必须/禁止”并有“不要报”边界、工具查不到、不和已有规则重复。通过的生成 plan.md。',
+          log: [['miner', '候选 4 条'], ['mine-check', '通过 2 · 交给 linter 1 · 证据不足 1']] },
+        { title: '预演后写入', actors: ['lead', 'main', 'repo'], pipe: ['lead', 'file'],
+          cap: '候选先生成 plan.md，每条的动作默认“待定”。你逐条标“写入”或“跳过”，每次改完预演（--check，不写文件），说“确定”才写进 .agents/rules/<主题>.md，或某目录 REVIEW.md 的指定章节：每条带规则、原因、严重级别、正反例、不要报和来源 MR。只改工作区、不提交，规则改动走团队正常的代码评审。',
+          log: [['项目负责人', '两条都写入，确定'], ['rules-write', '--check 无误 → --apply'], ['rules-write', '.agents/rules/payments.md +1 · orders.md +1(未提交)']] }
+      ] }
+  ];
+
+  var ICONS = {
+    user: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.8 3.6-5.6 7-5.6s6.2 1.8 7 5.6"/>',
+    agent: '<rect x="4.5" y="7" width="15" height="11" rx="3"/><path d="M12 3.5V7M9.5 12h.01M14.5 12h.01M9.5 15.2h5"/>',
+    script: '<path d="M8.5 8 4.5 12l4 4M15.5 8l4 4-4 4M13.2 6l-2.4 12"/>',
+    search: '<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4.5 4.5"/>',
+    rule: '<path d="M6 4.5h9l3 3v12H6z"/><path d="M9 11h6M9 14.5h6M9 7.5h3"/>',
+    shield: '<path d="M12 3.5 5.5 6v5.5c0 4 2.8 7.2 6.5 9 3.7-1.8 6.5-5 6.5-9V6z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
+    doc: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4M9.5 12.5h6M9.5 16h6"/>',
+    chat: '<path d="M4.5 6.5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9.5L6.5 16v-2.5a2 2 0 0 1-2-2z"/><path d="M16.5 9h1a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2v2.5l-3-2.5H11a2 2 0 0 1-2-1.6"/>'
+  };
+  var OVERSHOOT = 'cubic-bezier(.34,1.56,.64,1)';
+  var HOLD = 2200;
+
+  var trackEls = {}, termEls = {};
+  sl(demo.querySelectorAll('.track')).forEach(function (el) { trackEls[el.getAttribute('data-track')] = el; });
+  sl(demo.querySelectorAll('.tterm')).forEach(function (el) { termEls[el.getAttribute('data-track')] = el; });
+  // 每一步的完整内容(最终状态)存成模板,每次播放都从模板重建,保证可重播
+  sl(demo.querySelectorAll('.scene, .tc')).forEach(function (el) { el._tpl = el.innerHTML; });
+  // 核实步骤的分数:流水线上的计数和否决数都从这里算,和上面的分数条一致
+  var VSCORES = sl(trackEls.review.querySelectorAll('[data-fx="verify"] .v')).map(function (r) { return +r.getAttribute('data-s'); });
+  var VPASS = VSCORES.filter(function (v) { return v >= 80; }).length, VFAIL = VSCORES.length - VPASS;
+  var pipeEl = document.getElementById('dPipe');
+  var pipeIn = document.getElementById('dPipeIn');
+  var logEl = document.getElementById('dLog');
+  var logCount = document.getElementById('dLogCount');
+  var dotsEl = document.getElementById('dDots');
+  var tabsEl = document.getElementById('dTracks');
+  var playBtn = document.getElementById('dPlay');
+  var speedBtn = document.getElementById('dSpeed');
+  var termPane = document.getElementById('dTerm');
+  var t = 0, cur = 0, speed = 1, mode = 'idle'; // idle | playing | paused | ended
+  var sceneEls = [], chunkEls = [], segBtns = [], nodeEls = {}, nodeState = {}, groupOf = {}, inGroup = {}, linksSvg = null, frozen = [];
+  var elabs = [], passLab = null, binEl = null, passN = 0, binN = 0;
+  var clock = 0, dur = 0, last = 0, raf = 0, tl = null, quiet = false;
+  var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var sceneCaret = mkCaret(), logCaret = mkCaret();
+
+  function sl(list) { return Array.prototype.slice.call(list); }
+  function still() { return reducedMotion.matches; }
+  function mkCaret() { var c = document.createElement('span'); c.className = 'caret'; c.setAttribute('aria-hidden', 'true'); return c; }
+  function rect(el) { return el.getBoundingClientRect(); }
+
+  // 时间线:离散事件 + 连续补间,按虚拟时钟推进;暂停时钟不走,最终状态 = 跑到无穷远
+  function Timeline() { this.ev = []; this.tw = []; this.end = 0; this.i = 0; this.sorted = false; }
+  Timeline.prototype.at = function (time, fn) { this.ev.push({ t: time, fn: fn }); this.end = Math.max(this.end, time); };
+  Timeline.prototype.tween = function (time, len, fn) { this.tw.push({ t: time, len: len, fn: fn, p: -1 }); this.end = Math.max(this.end, time + len); };
+  Timeline.prototype.run = function (now) {
+    if (!this.sorted) { this.ev.sort(function (a, b) { return a.t - b.t; }); this.sorted = true; }
+    while (this.i < this.ev.length && this.ev[this.i].t <= now) this.ev[this.i++].fn();
+    this.tw.forEach(function (w) {
+      if (now < w.t) return;
+      var p = Math.min(1, (now - w.t) / w.len);
+      if (p !== w.p) { w.p = p; w.fn(p); }
+    });
+  };
+
+  function anim(el, frames, ms, delay, easing, fill) {
+    if (quiet || !el || !el.animate) return null;
+    return el.animate(frames, { duration: ms / speed, delay: (delay || 0) / speed, easing: easing || 'cubic-bezier(.2,.7,.2,1)', fill: fill || 'backwards' });
+  }
+  function reveal(el, delay) {
+    el.classList.remove('pending', 'gone');
+    anim(el, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], 420, delay);
+  }
+  function popIn(el, delay) {
+    el.classList.remove('pending');
+    anim(el, [{ opacity: 0, transform: 'scale(.3)' }, { opacity: 1, transform: 'none' }], 440, delay, OVERSHOOT);
+  }
+  function bump(el) { anim(el, [{ transform: 'scale(1.7)' }, { transform: 'none' }], 380, 0, OVERSHOOT); }
+  function flip(els, before) {
+    els.forEach(function (e, k) {
+      var r = rect(e), dx = before[k].left - r.left, dy = before[k].top - r.top;
+      if (dx || dy) anim(e, [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], 520, 0, 'cubic-bezier(.3,.7,.2,1)');
+    });
+  }
+  // 终端:新输出出现时滚到能看见它
+  function follow(el) {
+    if (quiet) return;
+    var d = rect(el).bottom - rect(termPane).bottom + 16;
+    if (d > 0) termPane.scrollTop += d;
+  }
+
+  // 打字:清空文字节点,按进度逐字补回;行内代码有字之后才显示
+  function prepType(el) {
+    var st = { nodes: [], total: 0, boxes: sl(el.querySelectorAll('code')) };
+    var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), n;
+    while ((n = w.nextNode())) {
+      if (!n.nodeValue || n.parentNode.closest('.who, .pr, .bul')) continue;
+      st.nodes.push({ n: n, s: n.nodeValue });
+      st.total += n.nodeValue.length;
+    }
+    st.nodes.forEach(function (x) { x.n.nodeValue = ''; });
+    st.boxes.forEach(function (b) { b.classList.add('gone'); });
+    return st;
+  }
+  function typeTo(st, k, caret) {
+    var left = k, at = null;
+    st.nodes.forEach(function (x) {
+      var m = Math.max(0, Math.min(x.s.length, left));
+      left -= x.s.length;
+      x.n.nodeValue = x.s.slice(0, m);
+      if (m > 0) at = x;
+    });
+    st.boxes.forEach(function (b) { b.classList.toggle('gone', !b.textContent); });
+    if (caret && at) at.n.parentNode.insertBefore(caret, at.n.nextSibling);
+  }
+
+  // 流水线上的小部件:verifier 的分数环、否决箱、连线标注、在节点间移动的候选
+  function pos(el, side) {
+    var r = rect(el), b = rect(pipeIn);
+    return { x: (side === 'right' ? r.right : r.left + r.width / 2) - b.left, y: r.top + r.height / 2 - b.top };
+  }
+  function setRing(v) {
+    var g = nodeEls.verifier && nodeEls.verifier.querySelector('.gauge');
+    if (!g) return;
+    g.querySelector('.g-val').setAttribute('stroke-dasharray', v.toFixed(1) + ' 100');
+    g.classList.toggle('ok', v >= 80);
+  }
+  function setScore(text, cls) {
+    var p = nodeEls.verifier && nodeEls.verifier.querySelector('.pscore');
+    if (!p) return null;
+    p.textContent = text;
+    p.className = 'pscore' + (cls ? ' ' + cls : '');
+    return p;
+  }
+  function updateCounts() {
+    tracks[t].edges.forEach(function (e, k) {
+      if (elabs[k] && e[2].label === 'pass') elabs[k].textContent = passN + ' 条 ≥80';
+    });
+    if (!binEl) return;
+    binEl.querySelector('b').textContent = binN;
+    var sq = binEl.querySelector('.bin-sq');
+    while (sq.children.length < binN) sq.appendChild(document.createElement('i'));
+    while (sq.children.length > binN) sq.removeChild(sq.lastChild);
+  }
+  function moveTo(el, a, b, ms) {
+    el.style.left = b.x + 'px';
+    el.style.top = b.y + 'px';
+    anim(el, [{ left: a.x + 'px', top: a.y + 'px' }, { left: b.x + 'px', top: b.y + 'px' }], ms, 0, 'cubic-bezier(.5,0,.2,1)');
+  }
+  function clearToks() { sl(pipeIn.querySelectorAll('.ptok')).forEach(function (x) { x.remove(); }); }
+  // 一条候选进入 verifier:进环 → 环涨到分数 → 弹出分数 → 过线的流向报告,没过的掉进否决箱
+  function scoreToken(tl, V, v, label) {
+    var tok = null, ok = v >= 80;
+    var gauge = function () { return nodeEls.verifier.querySelector('.gauge'); };
+    tl.at(V - 700, function () {
+      if (quiet) return;
+      tok = document.createElement('span');
+      tok.className = 'ptok';
+      tok.textContent = label;
+      pipeIn.appendChild(tok);
+      moveTo(tok, pos(nodeEls.gfind, 'right'), pos(gauge()), 300);
+    });
+    tl.tween(V - 400, 400, function (p) { setRing(v * (1 - Math.pow(1 - p, 2))); });
+    tl.at(V, function () {
+      popIn(setScore(v + (ok ? ' ✓' : ' ✗'), ok ? 'pass' : 'fail'));
+      if (tok) tok.classList.add(ok ? 'pass' : 'fail');
+    });
+    tl.at(V + 80, function () { if (tok) moveTo(tok, pos(gauge()), pos(ok ? nodeEls.report.firstChild : binEl), 380); });
+    tl.at(V + 460, function () {
+      if (tok) tok.remove();
+      if (ok) passN++; else binN++;
+      updateCounts();
+      bump(ok ? passLab : binEl.querySelector('b'));
+    });
+  }
+
+  // 几个重点步骤的专门动效:先把模板改成初始状态,再往时间线上排事件;返回需要占用的时长
+  var FX = {
+    pop: function (row, tl, s) {
+      sl(row.querySelectorAll('.sev')).forEach(function (b, k) {
+        b.classList.add('pending');
+        tl.at(s + 200 + k * 160, function () { popIn(b); });
+      });
+      return 0;
+    },
+    find: function (box, tl, s) {
+      var lane = sl(box.querySelectorAll('.lanes .cc')), mc = {};
+      var cnt = box.querySelector('.mcount'), plus = box.querySelector('.plus1');
+      sl(box.querySelectorAll('.merge .cc')).forEach(function (c) { mc[c.getAttribute('data-m')] = c; c.classList.add('pending'); });
+      var dup = mc.p43;
+      dup.classList.remove('gone');
+      plus.classList.add('pending');
+      lane.forEach(function (c) { c.classList.remove('sent', 'merged'); c.classList.add('pending'); });
+      cnt.textContent = '0';
+      // 流水线上 reviewer 的三遍依次点亮
+      var passes = nodeEls.reviewer ? sl(nodeEls.reviewer.querySelectorAll('.passes i')) : [];
+      passes.forEach(function (c, k) {
+        tl.at(s + 200 + k * 1100, function () {
+          if (k) { passes[k - 1].classList.remove('on'); passes[k - 1].classList.add('done'); }
+          c.classList.add('on');
+        });
+      });
+      tl.at(s + 200 + passes.length * 1100, function () { passes.forEach(function (c) { c.classList.remove('on'); c.classList.add('done'); }); });
+      // 两个角色交替交出候选
+      var order = [lane[0], lane[1], lane[5], lane[2], lane[3], lane[4]], n = 0;
+      var T = s + 300, F = T + order.length * 260 + 400, M = F + order.length * 190 + 700;
+      order.forEach(function (c, k) {
+        var m = mc[c.getAttribute('data-k')];
+        tl.at(T + k * 260, function () {
+          c.classList.remove('pending');
+          anim(c, [{ opacity: 0, transform: 'translateY(6px) scale(.5)' }, { opacity: 1, transform: 'none' }], 420, 0, OVERSHOOT);
+        });
+        tl.at(F + k * 190, function () {
+          var a = rect(c), b = rect(m);
+          c.classList.add('sent');
+          if (c.getAttribute('data-k') === 'p43') c.classList.add('merged');
+          m.classList.remove('pending');
+          anim(m, [{ transform: 'translate(' + (a.left - b.left) + 'px,' + (a.top - b.top) + 'px)', opacity: .4 }, { transform: 'none', opacity: 1 }], 600, 0, 'cubic-bezier(.5,0,.2,1)');
+          cnt.textContent = String(++n);
+          bump(cnt);
+        });
+      });
+      // 同根因的那条并入 paginate.ts:42
+      tl.at(M, function () {
+        var a = rect(dup), b = rect(mc.p42);
+        anim(dup, [{ transform: 'none', opacity: 1 }, { transform: 'translate(' + (b.left - a.left) + 'px,' + (b.top - a.top) + 'px) scale(.6)', opacity: 0 }], 520, 0, 'ease-in', 'forwards');
+        anim(mc.p42, [{ transform: 'none' }, { transform: 'scale(1.14)' }, { transform: 'none' }], 420, 380);
+      });
+      tl.at(M + 560, function () {
+        var sib = [mc.e55, mc.p12, mc.r1], before = sib.map(rect);
+        dup.classList.add('gone');
+        dup.getAnimations && dup.getAnimations().forEach(function (x) { x.cancel(); });
+        flip(sib, before);
+        cnt.textContent = '5';
+        bump(cnt);
+        popIn(plus);
+      });
+      return M + 1100 - s;
+    },
+    verify: function (box, tl, s) {
+      var rows = sl(box.querySelectorAll('.v')), sep = box.querySelector('.vsep'), finalOrder = sl(box.children);
+      var seq = rows.slice().sort(function (a, b) { return a.getAttribute('data-o') - b.getAttribute('data-o'); });
+      rows.forEach(function (r) {
+        r.classList.remove('pass', 'fail', 'over');
+        r.classList.add('pending');
+        r.querySelector('.fill').style.width = '0%';
+        r.querySelector('.score').textContent = '0';
+        r.querySelector('.verdict').firstChild.classList.add('pending');
+      });
+      sep.classList.add('gone');
+      seq.forEach(function (r) { box.appendChild(r); });
+      seq.forEach(function (r, k) {
+        var v = +r.getAttribute('data-s'), at = s + 200 + k * 480;
+        var fill = r.querySelector('.fill'), sc = r.querySelector('.score'), vd = r.querySelector('.verdict').firstChild;
+        tl.at(at, function () { reveal(r); });
+        tl.tween(at + 150, 1000, function (p) {
+          var x = v * (1 - Math.pow(1 - p, 3));
+          fill.style.width = x + '%';
+          sc.textContent = Math.round(x);
+          r.classList.toggle('over', x >= 80);
+        });
+        tl.at(at + 1200, function () {
+          r.classList.add(v >= 80 ? 'pass' : 'fail');
+          vd.classList.remove('pending');
+          if (v >= 80) anim(vd, [{ opacity: 0, transform: 'scale(2.4) rotate(-24deg)' }, { opacity: 1, transform: 'scale(.9) rotate(-5deg)', offset: .7 }, { opacity: 1, transform: 'rotate(-8deg)' }], 460, 0, 'ease-out');
+          else anim(vd, [{ opacity: 0 }, { opacity: 1 }], 300);
+        });
+        // 流水线上同一时刻给出同一个分数
+        if (nodeEls.verifier) scoreToken(tl, at + 1200, v, r.getAttribute('data-tok'));
+      });
+      var R = s + 200 + (seq.length - 1) * 480 + 1700;
+      tl.at(R, function () {
+        var before = rows.map(rect);
+        finalOrder.forEach(function (c) { box.appendChild(c); });
+        sep.classList.remove('gone');
+        anim(sep, [{ opacity: 0 }, { opacity: 1 }], 400, 250);
+        flip(rows, before);
+        if (nodeEls.verifier) { setRing(0); popIn(setScore('通过 ' + VPASS + ' / ' + VSCORES.length, 'pass')); }
+      });
+      return R + 800 - s;
+    },
+    // 报告里的第 1 条:问题行扫光、标红,修复建议的旧写法划掉,新写法浮出
+    report: function (box, tl, s) {
+      var hot = box.querySelector('.ln.hot'), was = box.querySelector('.was'), plus = box.querySelector('.ln.dp');
+      var sw = box.querySelector('.sweep'), sev = box.querySelector('.rh3 .sev');
+      hot.classList.remove('lit');
+      was.classList.remove('struck');
+      plus.classList.add('pending');
+      sev.classList.add('pending');
+      tl.at(s + 250, function () { popIn(sev); });
+      tl.at(s + 500, function () { anim(sw, [{ transform: 'translateX(-100%)', opacity: 1 }, { transform: 'translateX(240%)', opacity: 1 }], 900, 0, 'ease-in-out'); });
+      tl.at(s + 850, function () { hot.classList.add('lit'); });
+      tl.at(s + 1350, function () { was.classList.add('struck'); anim(was.querySelector('.strike'), [{ transform: 'scaleX(0)' }, { transform: 'none' }], 380, 0, 'ease-out'); });
+      tl.at(s + 1700, function () {
+        plus.classList.remove('pending');
+        anim(plus, [{ opacity: 0, transform: 'translateX(-10px)' }, { opacity: 1, transform: 'none' }], 460, 0, OVERSHOOT);
+      });
+      return 2100;
+    },
+    // 终端里的子 agent:先转圈,到点换成结果
+    agent: function (row, tl, s) {
+      var st = row.querySelector('.st'), sp = row.querySelector('.spin'), fin = st.innerHTML, wait = +row.getAttribute('data-done') || 1500;
+      st.textContent = st.getAttribute('data-run') || '运行中…';
+      st.classList.remove('ok');
+      sp.classList.remove('ok');
+      tl.at(s + wait, function () {
+        st.innerHTML = fin;
+        st.classList.add('ok');
+        sp.classList.add('ok');
+        popIn(st);
+      });
+      return wait + 200;
+    }
+  };
+
+  function buildScene(el, tl) {
+    el.innerHTML = el._tpl;
+    // 终端里还没出现的行不占位置;细节视角里先占好位置,避免跳动
+    var term = el.classList.contains('tc'), hide = term ? 'gone' : 'pending';
+    var block = 0, prev = -1e9;
+    var showIt = function (it) { reveal(it); if (term) follow(it); };
+    sl(el.querySelectorAll('.a')).forEach(function (it) {
+      var base = parseFloat(it.style.getPropertyValue('--i')) || 0;
+      var start = Math.max(base * 220, prev + (term ? 200 : 160), block);
+      prev = start;
+      it.classList.add(hide);
+      var fx = it.getAttribute('data-fx');
+      var len = fx && FX[fx] ? FX[fx](it, tl, start) : 0;
+      if (it.classList.contains('ty')) {
+        var st = prepType(it), ms = +it.getAttribute('data-ms') || 22, tlen = st.total * ms;
+        tl.at(start, function () { showIt(it); });
+        tl.tween(start + 200, tlen, function (p) {
+          typeTo(st, Math.round(p * st.total), quiet ? null : sceneCaret);
+          if (term) follow(it);
+        });
+        block = start + 200 + tlen + 250;
+      } else {
+        tl.at(start, function () {
+          showIt(it);
+          sl(it.querySelectorAll('.fbar > span')).forEach(function (b) { anim(b, [{ width: '0%' }, { width: b.style.width }], 700, 120, 'ease-out'); });
+        });
+        if (len) block = Math.max(block, start + len);
+      }
+    });
+  }
+
+  function buildLog(i, tl) {
+    var scenes = tracks[t].scenes, n = 0, at = 300;
+    logEl.textContent = '';
+    for (var s = 0; s <= i; s++) {
+      scenes[s].log.forEach(function (line) {
+        var li = document.createElement('li'), who = document.createElement('span'), txt = document.createElement('span');
+        who.className = 'who';
+        txt.className = 'txt';
+        who.textContent = line[0];
+        txt.textContent = line[1];
+        li.appendChild(who);
+        li.appendChild(txt);
+        logEl.appendChild(li);
+        n++;
+        if (s < i) { li.className = 'old'; return; }
+        var full = line[1], len = full.length * 16, start = at;
+        li.classList.add('pending');
+        txt.textContent = '';
+        tl.at(start, function () { reveal(li); logEl.scrollTop = logEl.scrollHeight; });
+        tl.tween(start + 100, len, function (p) {
+          txt.textContent = full.slice(0, Math.round(p * full.length));
+          if (!quiet) txt.appendChild(logCaret);
+        });
+        at = start + 100 + len + 280;
+      });
+    }
+    logCount.textContent = n + ' 行';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // 流水线图
+  var GAUGE = '<svg class="ring" viewBox="0 0 58 58" aria-hidden="true"><circle class="g-tr" cx="29" cy="29" r="26"/>' +
+    '<circle class="g-val" cx="29" cy="29" r="26" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 29 29)"/>' +
+    // 80 分刻度:从顶部顺时针 288°
+    '<line class="g-tick" x1="' + (29 - 21.9 * 0.951) + '" y1="' + (29 - 21.9 * 0.309) + '" x2="' + (29 - 30.6 * 0.951) + '" y2="' + (29 - 30.6 * 0.309) + '"/>' +
+    '<text x="' + (29 - 36 * 0.951) + '" y="' + (29 - 36 * 0.309 + 3) + '" text-anchor="middle">80</text></svg>';
+  function nodeHTML(n) {
+    var x = n[4] || {};
+    var pic = '<span class="pic"><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONS[n[3]] + '</svg></span>';
+    if (x.gauge) pic = '<span class="gauge" title="0–100 分，80 分过线">' + GAUGE + pic + '<span class="pscore"></span></span>';
+    var name = '<span class="pn-name">' + n[1] + (x.model ? '<em class="mdl' + (x.strong ? ' strong' : '') + '">' + x.model + '</em>' : '') + '</span>';
+    var passes = x.passes ? '<span class="passes">' + x.passes.map(function (p) { return '<i>' + p + '</i>'; }).join('<span class="ar">→</span>') + '</span>' : '';
+    return pic + '<span class="pn-t">' + name + (n[2] ? '<small>' + n[2] + '</small>' : '') + passes + '</span>';
+  }
+  function buildPipe(tr) {
+    pipeIn.textContent = '';
+    nodeEls = {};
+    nodeState = {};
+    groupOf = {};
+    inGroup = {};
+    binEl = null;
+    linksSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    linksSvg.setAttribute('class', 'links');
+    linksSvg.setAttribute('aria-hidden', 'true');
+    pipeIn.appendChild(linksSvg);
+    tr.nodes.forEach(function (col) {
+      var c = document.createElement('div'), host = c, list = col;
+      c.className = 'pcol';
+      if (col.group) {
+        host = document.createElement('div');
+        host.className = 'pgrp ' + col.kind;
+        host.innerHTML = '<span class="pgrp-l">' + col.label + '</span>';
+        nodeEls[col.group] = host;
+        groupOf[col.group] = col.members.map(function (m) { inGroup[m[0]] = col.group; return m[0]; });
+        c.appendChild(host);
+        list = col.members;
+      }
+      var taskHosts = {};
+      (col.tasks || []).forEach(function (task) {
+        var box = document.createElement('div');
+        box.className = 'ptask' + (task.kind ? ' ' + task.kind : '');
+        box.setAttribute('role', 'group');
+        box.setAttribute('aria-label', task.label + ' · ' + task.detail);
+        box.innerHTML = '<span class="ptask-l"><b>' + task.label + '</b> · ' + task.detail + '</span>';
+        nodeEls[task.id] = box;
+        groupOf[task.id] = task.members;
+        task.members.forEach(function (id) { taskHosts[id] = box; });
+        host.appendChild(box);
+      });
+      list.forEach(function (n) {
+        var d = document.createElement('div');
+        d.className = 'pnode' + (col.kind === 'find' ? ' m' : '');
+        d.innerHTML = nodeHTML(n);
+        nodeEls[n[0]] = d;
+        (taskHosts[n[0]] || host).appendChild(d);
+      });
+      if (col.kind === 'verify') {
+        binEl = document.createElement('span');
+        binEl.className = 'bin';
+        binEl.innerHTML = '<span>否决 <b>0</b> · 低于 80</span><span class="bin-sq"></span>';
+        host.appendChild(binEl);
+      }
+      pipeIn.appendChild(c);
+    });
+    elabs = tr.edges.map(function (e) {
+      if (!e[2] || !e[2].label) return null;
+      var s = document.createElement('span');
+      s.className = 'elab';
+      s.textContent = e[2].label;
+      pipeIn.appendChild(s);
+      if (e[2].label === 'pass') passLab = s;
+      return s;
+    });
+    pipeIn.classList.toggle('has-under', tr.edges.some(function (e) { return e[2] && e[2].under; }));
+  }
+
+  function setNodes(i) {
+    var sc = tracks[t].scenes, done = {};
+    for (var s = 0; s < i; s++) sc[s].pipe.forEach(function (id) { done[id] = 1; });
+    Object.keys(nodeEls).forEach(function (id) {
+      if (groupOf[id]) return;
+      var on = sc[i].pipe.indexOf(id) !== -1;
+      nodeState[id] = on ? 'on' : done[id] ? 'done' : '';
+      nodeEls[id].classList.toggle('on', on);
+      nodeEls[id].classList.toggle('done', !on && !!done[id]);
+    });
+    // 框的状态跟着框里的角色走
+    Object.keys(groupOf).forEach(function (g) {
+      var st = groupOf[g].map(function (id) { return nodeState[id]; });
+      nodeState[g] = st.indexOf('on') !== -1 ? 'on' : st.indexOf('done') !== -1 ? 'done' : '';
+      nodeEls[g].classList.toggle('on', nodeState[g] === 'on');
+      nodeEls[g].classList.toggle('done', nodeState[g] === 'done');
+    });
+    clearToks();
+    if (nodeEls.reviewer) sl(nodeEls.reviewer.querySelectorAll('.passes i')).forEach(function (c) { c.classList.remove('on'); c.classList.toggle('done', nodeState.reviewer === 'done'); });
+    if (nodeEls.verifier) {
+      var vd = nodeState.verifier === 'done';
+      passN = vd ? VPASS : 0;
+      binN = vd ? VFAIL : 0;
+      setRing(0);
+      setScore('');
+    }
+    updateCounts();
+    pipeEl.setAttribute('aria-label', '流水线，这一步在工作：' + sc[i].actors.map(function (a) { return ACTOR_NAMES[a]; }).join('、'));
+    drawLinks();
+    focusPipe();
+  }
+
+  function anchor(id) {
+    if (groupOf[id]) return nodeEls[id];
+    var g = nodeEls[id].querySelector('.gauge');
+    return g || nodeEls[id].firstChild;
+  }
+  function drawLinks() {
+    if (!linksSvg) return;
+    var box = rect(pipeIn);
+    if (!box.width) return;
+    linksSvg.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
+    var html = '';
+    tracks[t].edges.forEach(function (e, k) {
+      var o = e[2] || {}, a = rect(anchor(e[0])), b = rect(anchor(e[1])), d, tip;
+      var sa = nodeState[e[0]], sb = nodeState[e[1]];
+      var cls = sb === 'on' && sa ? 'on' : sa && sb ? 'done' : '';
+      if (o.under) {
+        // 从框的右边出来,走到最下面,再从下方进入目标
+        var gx = rect(nodeEls[inGroup[e[0]]]).right - box.left, y1 = a.top + a.height / 2 - box.top;
+        var tb = rect(nodeEls[e[1]]), x2 = b.left + b.width / 2 - box.left, y2 = tb.bottom - box.top + 6, yl = box.height - 9, xv = gx + 18;
+        d = 'M' + gx + ' ' + y1 + ' H' + (xv - 8) + ' Q' + xv + ' ' + y1 + ' ' + xv + ' ' + (y1 + 8) + ' V' + (yl - 8) + ' Q' + xv + ' ' + yl + ' ' + (xv + 8) + ' ' + yl +
+          ' H' + (x2 - 8) + ' Q' + x2 + ' ' + yl + ' ' + x2 + ' ' + (yl - 8) + ' V' + y2;
+        tip = 'M' + (x2 - 4) + ' ' + (y2 + 5) + ' L' + x2 + ' ' + y2 + ' L' + (x2 + 4) + ' ' + (y2 + 5);
+      } else {
+        var x1 = a.right - box.left + 5, ya = a.top + a.height / 2 - box.top;
+        var xb = b.left - box.left - 7, yb = b.top + b.height / 2 - box.top, mx = (x1 + xb) / 2;
+        d = 'M' + x1 + ' ' + ya + ' C' + mx + ' ' + ya + ' ' + mx + ' ' + yb + ' ' + xb + ' ' + yb;
+        tip = 'M' + (xb - 5) + ' ' + (yb - 4) + ' L' + xb + ' ' + yb + ' L' + (xb - 5) + ' ' + (yb + 4);
+        if (elabs[k]) {
+          elabs[k].style.left = mx + 'px';
+          elabs[k].style.top = (Math.min(ya, yb) - 5) + 'px';
+          elabs[k].className = 'elab' + (cls ? ' show ' + cls : '');
+        }
+      }
+      var id = 'dLink' + k;
+      html += '<path id="' + id + '" class="' + cls + '" d="' + d + '"/><path class="' + cls + '" d="' + tip + '"/>';
+      if (cls === 'on' && !still()) {
+        for (var j = 0; j < 3; j++) {
+          html += '<g><circle class="pth" r="5"/><circle class="pt" r="2.2"/><animateMotion dur="1.5s" begin="' + (-j * 0.5) + 's" repeatCount="indefinite" calcMode="spline" keyTimes="0;1" keySplines=".45 0 .55 1"><mpath href="#' + id + '" xlink:href="#' + id + '"/></animateMotion></g>';
+        }
+      }
+    });
+    linksSvg.innerHTML = html;
+    if (mode === 'paused') linksSvg.pauseAnimations();
+  }
+
+  function focusPipe() {
+    if (pipeEl.scrollWidth <= pipeEl.clientWidth + 1) return;
+    var l = Infinity, r = -Infinity;
+    Object.keys(nodeEls).forEach(function (id) {
+      if (nodeState[id] !== 'on' || groupOf[id]) return;
+      var b = rect(nodeEls[id]);
+      l = Math.min(l, b.left);
+      r = Math.max(r, b.right);
+    });
+    if (l === Infinity) return;
+    var p = rect(pipeEl);
+    pipeEl.scrollTo({ left: pipeEl.scrollLeft + (l + r) / 2 - (p.left + p.width / 2), behavior: still() ? 'auto' : 'smooth' });
+  }
+
+  tracks.forEach(function (tr, i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    b.id = 'dTab-' + tr.id;
+    b.appendChild(document.createTextNode(tr.label));
+    var small = document.createElement('small');
+    small.textContent = tr.sub;
+    b.appendChild(small);
+    b.addEventListener('click', function () { var resume = mode === 'playing'; stop(); setTrack(i); show(0, false); if (resume) start(); });
+    tabsEl.appendChild(b);
+  });
+  var tabBtns = sl(tabsEl.querySelectorAll('button'));
+
+  function setTrack(i) {
+    t = i;
+    var tr = tracks[i];
+    tabBtns.forEach(function (b, k) { b.setAttribute('aria-selected', k === i ? 'true' : 'false'); });
+    Object.keys(trackEls).forEach(function (id) { trackEls[id].hidden = id !== tr.id; });
+    Object.keys(termEls).forEach(function (id) { termEls[id].hidden = id !== tr.id; });
+    sceneEls = sl(trackEls[tr.id].querySelectorAll('.scene'));
+    chunkEls = sl(termEls[tr.id].querySelectorAll('.tc'));
+    document.getElementById('dTrackInfo').textContent = tr.info;
+    buildPipe(tr);
+    dotsEl.textContent = '';
+    tr.scenes.forEach(function (sc, k) {
+      var li = document.createElement('li');
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg';
+      b.setAttribute('aria-label', '第 ' + (k + 1) + ' 步：' + sc.title);
+      b.innerHTML = '<span class="seg-bar"><span class="seg-fill"></span></span><span class="seg-t"><span class="seg-n">' + (k + 1) + '</span><span class="seg-l">' + sc.title + '</span></span>';
+      b.addEventListener('click', function () { stop(); show(k, true); });
+      li.appendChild(b);
+      dotsEl.appendChild(li);
+    });
+    segBtns = sl(dotsEl.querySelectorAll('.seg'));
+    setBtn();
+  }
+
+  function paintSegs() {
+    var running = (mode === 'playing' || mode === 'paused') && !still();
+    segBtns.forEach(function (b, k) {
+      var f = k < cur ? 1 : k > cur ? 0 : running ? Math.min(1, clock / dur) : 1;
+      b.firstChild.firstChild.style.transform = 'scaleX(' + f + ')';
+    });
+  }
+
+  function show(i, animate) {
+    cur = i;
+    animate = animate && !still();
+    var scenes = tracks[t].scenes, sc = scenes[i];
+    sceneEls.forEach(function (el, k) { el.hidden = k !== i; });
+    segBtns.forEach(function (b, k) { if (k === i) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+    document.getElementById('dNo').textContent = (i + 1) + ' / ' + scenes.length;
+    document.getElementById('dTitle').textContent = sc.title;
+    document.getElementById('dCap').textContent = sc.cap;
+    // 终端保留之前几步的输出,当前这步从头播放
+    chunkEls.forEach(function (el, k) {
+      el.hidden = k > i;
+      el.classList.toggle('past', k < i);
+      if (k < i) el.innerHTML = el._tpl;
+    });
+    setNodes(i);
+    tl = new Timeline();
+    buildScene(sceneEls[i], tl);
+    buildScene(chunkEls[i], tl);
+    buildLog(i, tl);
+    termPane.scrollTop = chunkEls[i].offsetTop - 12;
+    clock = 0;
+    dur = (animate ? tl.end : 0) + HOLD;
+    if (animate) { tl.run(0); kick(); }
+    else { quiet = true; tl.run(Infinity); quiet = false; }
+    paintSegs();
+  }
+
+  function kick() { if (!raf && mode !== 'paused') { last = performance.now(); raf = requestAnimationFrame(tick); } }
+  function tick(now) {
+    raf = 0;
+    if (mode === 'paused') return;
+    clock += Math.min(64, Math.max(0, now - last)) * speed;
+    last = now;
+    tl.run(clock);
+    if (mode === 'playing' && clock >= dur) {
+      if (cur < tracks[t].scenes.length - 1) show(cur + 1, true);
+      else show(0, true);   // 播完从第一步重新开始,循环播放
+    }
+    paintSegs();
+    if (mode === 'playing' || clock < tl.end) { last = now; raf = requestAnimationFrame(tick); }
+  }
+
+  function setBtn() {
+    playBtn.textContent = mode === 'playing' ? '❚❚ 暂停' : mode === 'paused' ? '▶ 继续' : mode === 'ended' ? '↻ 重新播放' : '▶ 播放';
+  }
+  // 暂停:时钟停住,正在跑的动画(含光点、光标、光晕)停在当前帧
+  function freeze(on) {
+    if (on) {
+      frozen = [];
+      if (demo.getAnimations) demo.getAnimations({ subtree: true }).forEach(function (a) { if (a.playState === 'running') { a.pause(); frozen.push(a); } });
+      if (linksSvg) linksSvg.pauseAnimations();
+    } else {
+      frozen.forEach(function (a) { try { a.play(); } catch (e) {} });
+      frozen = [];
+      if (linksSvg) linksSvg.unpauseAnimations();
+    }
+  }
+  function stop() {
+    if (mode === 'paused') freeze(false);
+    mode = 'idle';
+    setBtn();
+  }
+  function start() {
+    var restart = mode === 'ended' || cur === tracks[t].scenes.length - 1;
+    if (mode === 'paused') freeze(false);
+    mode = 'playing';
+    setBtn();
+    show(restart ? 0 : cur, true);
+    kick();
+  }
+  function pause() {
+    mode = 'paused';
+    freeze(true);
+    setBtn();
+    paintSegs();
+  }
+  function resume() {
+    freeze(false);
+    mode = 'playing';
+    setBtn();
+    kick();
+  }
+
+  playBtn.addEventListener('click', function () {
+    if (mode === 'playing') pause(); else if (mode === 'paused') resume(); else start();
+  });
+  function step(d) { stop(); show(Math.max(0, Math.min(tracks[t].scenes.length - 1, cur + d)), true); }
+  document.getElementById('dPrev').addEventListener('click', function () { step(-1); });
+  document.getElementById('dNext').addEventListener('click', function () { step(1); });
+  speedBtn.addEventListener('click', function () {
+    speed = speed === 1 ? 2 : 1;
+    speedBtn.textContent = speed + '×';
+  });
+  demo.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+  });
+  demo.tabIndex = -1;
+
+  var redrawQueued = false;
+  function queueRedraw() {
+    if (redrawQueued) return;
+    redrawQueued = true;
+    requestAnimationFrame(function () { redrawQueued = false; drawLinks(); });
+  }
+  if ('ResizeObserver' in window) new ResizeObserver(queueRedraw).observe(pipeIn);
+  window.addEventListener('resize', queueRedraw);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueRedraw);
+
+  setTrack(0);
+  show(0, false);
+  if (!still()) start();
+  reducedMotion.addEventListener("change", function (e) { if (e.matches) { stop(); show(cur, false); } });
+
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  if ('IntersectionObserver' in window) {
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove('active'); });
+          var a = map[e.target.id];
+          if (a) a.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-10% 0px -80% 0px' });
+    document.querySelectorAll('main section[id]').forEach(function (s) { obs.observe(s); });
+  }
+})();
+</script>
+<script>
+// improve 动画演示:步骤内容来自 #crDemo 里的 <template>,每次切换都重新生成,所以可以反复重播
+(function () {
+  var root = document.getElementById('crDemo');
+  if (!root) return;
+  var $ = function (sel) { return root.querySelector(sel); };
+  var pane = $('#crPane'), stepsBox = $('#crSteps'), segList = $('#crSegs');
+  var playBtn = $('[data-act="play"]'), prevBtn = $('[data-act="prev"]'), nextBtn = $('[data-act="next"]');
+  var trackBtns = Array.prototype.slice.call(root.querySelectorAll('.tracks button'));
+  var noEl = $('#crNo'), titleEl = $('#crTitle'), whoEl = $('#crWho'), capEl = $('#crCap'), infoEl = $('#crInfo');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var INFO = {
+    rules: '谁：项目负责人 · 什么时候：同一类问题被人工指出两次以上 · 一次触发，同时产出规则文件和 REVIEW.md 的追加行',
+    review: '谁：REVIEW.md 的负责人 · 什么时候：文件乱了，或者还没有 · 起草或整理整份根目录文件，和左边的沉淀是两个用法'
+  };
+  var tpls = {};
+  Array.prototype.forEach.call(root.querySelectorAll('template'), function (tp) {
+    var k = tp.getAttribute('data-track');
+    (tpls[k] = tpls[k] || []).push(tp);
+  });
+  var track = 'rules', cur = 0, playing = false, timer = 0, segBtns = [];
+  var userPaused = false; // 你点过暂停或手动切过步骤之后,滚回来也不再自动播放
+
+  function list() { return tpls[track]; }
+  function stopTimer() { clearTimeout(timer); timer = 0; }
+  function setPlaying(on) {
+    playing = on;
+    playBtn.textContent = on ? '⏸ 暂停' : '▶ 播放';
+    playBtn.setAttribute('aria-label', on ? '暂停' : '播放');
+    if (!on) stopTimer();
+  }
+  function atEdge() {
+    prevBtn.setAttribute('aria-disabled', cur === 0 ? 'true' : 'false');
+    nextBtn.setAttribute('aria-disabled', cur === list().length - 1 ? 'true' : 'false');
+  }
+
+  function buildSegs() {
+    segList.textContent = '';
+    segBtns = list().map(function (tp, i) {
+      var li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg';
+      b.setAttribute('aria-label', '跳到第 ' + (i + 1) + ' 步：' + tp.getAttribute('data-title'));
+      b.innerHTML = '<span class="seg-bar"><span class="seg-fill"></span></span>' +
+        '<span class="seg-t"><span class="seg-n">' + (i + 1) + '</span><span class="seg-l"></span></span>';
+      b.querySelector('.seg-l').textContent = tp.getAttribute('data-title');
+      b.addEventListener('click', function () { manualStop(); go(i, true); });
+      li.appendChild(b);
+      segList.appendChild(li);
+      return b;
+    });
+  }
+  function paintSegs() {
+    segBtns.forEach(function (b, i) {
+      if (i === cur) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+      b.querySelector('.seg-fill').style.transform = i <= cur ? 'scaleX(1)' : 'scaleX(0)';
+    });
+  }
+
+  // 到第 n 步:前面的步骤原样显示(变淡),当前步骤逐行出现
+  function go(n, animate) {
+    var items = list();
+    cur = Math.max(0, Math.min(items.length - 1, n));
+    stepsBox.textContent = '';
+    var now = null;
+    for (var j = 0; j <= cur; j++) {
+      var frag = items[j].content.cloneNode(true);
+      var tc = frag.firstElementChild;
+      if (j < cur) tc.classList.add('past');
+      else {
+        now = tc;
+        if (animate && !reduced.matches) {
+          tc.classList.add('now');
+          Array.prototype.forEach.call(tc.children, function (el, k) { el.style.setProperty('--i', k); });
+        }
+      }
+      stepsBox.appendChild(frag);
+    }
+    var tp = items[cur];
+    noEl.textContent = '步骤 ' + (cur + 1) + ' / ' + items.length;
+    titleEl.textContent = tp.getAttribute('data-title');
+    whoEl.textContent = '谁：' + tp.getAttribute('data-who');
+    capEl.textContent = tp.getAttribute('data-cap');
+    paintSegs();
+    atEdge();
+    pane.scrollTop = cur === 0 ? 0 : Math.max(0, Math.min(now.offsetTop - 8, pane.scrollHeight - pane.clientHeight));
+  }
+
+  function schedule() {
+    stopTimer();
+    if (!playing) return;
+    var lines = stepsBox.querySelectorAll('.tc.now > *').length;
+    timer = setTimeout(function () {
+      go(cur >= list().length - 1 ? 0 : cur + 1, true);
+      schedule();
+    }, Math.min(6500, 2400 + lines * 380));
+  }
+  function stop() { setPlaying(false); }
+  function manualStop() { userPaused = true; stop(); }
+  function startAuto() {
+    if (playing || reduced.matches) return;
+    go(cur, true);
+    setPlaying(true);
+    schedule();
+  }
+  function togglePlay() {
+    if (playing) { manualStop(); return; }
+    userPaused = false;
+    if (cur >= list().length - 1) go(0, true);
+    setPlaying(true);
+    schedule();
+  }
+  function setTrack(name) {
+    var wasPlaying = playing;
+    stop();
+    track = name;
+    trackBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-track') === name ? 'true' : 'false'); });
+    infoEl.textContent = INFO[name];
+    buildSegs();
+    go(0, false);
+    if (wasPlaying) startAuto();
+  }
+
+  playBtn.addEventListener('click', togglePlay);
+  prevBtn.addEventListener('click', function () { manualStop(); go(cur - 1, true); });
+  nextBtn.addEventListener('click', function () { manualStop(); go(cur + 1, true); });
+  trackBtns.forEach(function (b) { b.addEventListener('click', function () { setTrack(b.getAttribute('data-track')); }); });
+  root.addEventListener('keydown', function (e) {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); manualStop(); go(cur + 1, true); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); manualStop(); go(cur - 1, true); }
+  });
+
+  // 系统要求减少动态效果时不自动播放、不自动推进,只能手动切步骤
+  function syncMotion() {
+    playBtn.hidden = reduced.matches;
+    if (reduced.matches) { stop(); go(cur, false); }
+  }
+  reduced.addEventListener('change', syncMotion);
+  // 进入视口自动开始并循环播放,滚出视口暂停;你手动暂停或切过步骤后,滚回来不再自动播放
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      if (entries[0].intersectionRatio >= 0.25) { if (!userPaused) startAuto(); }
+      else if (playing) stop();
+    }, { threshold: 0.25 }).observe(root);
+  }
+
+  setTrack('rules');
+  syncMotion();
+})();
+</script>
+</body>
+</html>

@@ -30,7 +30,7 @@ class PipelineRegressions(fixture.ProjectFixture):
 class ContextRegressions(fixture.Base):
     def test_range_collects_issue_and_preserves_commit_body(self):
         self.use_mock_glab()
-        self.config('gitlab_hosts=code.example.test\n')
+        self.config('gitlab_hosts=code.example.test:8929\n')
         repo = self.make_repo('shop', {'a.ts': 'old\n'}, remote='http://code.example.test:8929/eng/shop.git')
         base = self.git(repo, 'rev-parse', 'HEAD')
         head = self.commit(repo, {'a.ts': 'new\n'}, 'fix pagination\n\nCloses #1\n保留这段正文')

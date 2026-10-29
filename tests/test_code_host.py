@@ -28,6 +28,8 @@ class Remote(fixture.Base):
         self.git(self.repo, "push", "-q", "origin", "%s:refs/merge-requests/12/head" % self.head)
         self.git(self.repo, "switch", "-q", "main")
         self.change = self.git(self.repo, "diff", self.base, self.head)
+        self.git(self.repo, "config", "crosscheck.testLocalOrigin", self.origin)
+        self.git(self.repo, "remote", "set-url", "origin", "https://code.example.com/acme/shop.git")
 
     def advance_remote_main(self, files, msg):
         """在远端 main 上加一个提交,本地的 main 和 origin/main 都不动(模拟本地过期)。"""
@@ -52,6 +54,8 @@ class CodeHost(Remote):
     def setUp(self):
         super().setUp()
         self.config(PROMPT)
+        self.git(self.repo, "config", "crosscheck.testLocalOrigin", self.origin)
+        self.git(self.repo, "remote", "set-url", "origin", "https://code.example.com/acme/shop.git")
         self.advance_remote_main({"other.ts": "export const o = 2\n"}, "别人的改动")
 
     def record(self, **kw):
@@ -154,9 +158,6 @@ class CodeHost(Remote):
         self.assertIn("已合入", r.stdout)
         out = self.run_script("report-lines.sh", rd).stdout
         self.assertIn("MERGED: 这个 MR 已合入 main", out)
-        note = self.run_py("mr_note.py", rd).stdout
-        self.assertIn("这个 MR 已合入", note)
-        self.assertIn("状态:已合入 main", Path(rd, "mr.md").read_text(encoding="utf-8"))
 
     def test_squash_merged_mr_keeps_the_original_change(self):
         self.advance_remote_main({"src/p.ts": "export const a = 2\n"}, "修复分页 (squash)")
@@ -291,6 +292,8 @@ class LatestTarget(Remote):
 
     def test_code_host_path_uses_the_latest_remote_branch(self):
         self.config(PROMPT)
+        self.git(self.repo, "config", "crosscheck.testLocalOrigin", self.origin)
+        self.git(self.repo, "remote", "set-url", "origin", "https://code.example.com/acme/shop.git")
         r = self.collect(LINK)
         stage = r.stdout.split("NEED_CODE_HOST: ", 1)[1].splitlines()[0].strip()
         Path(stage, "code-host.json").write_text(json.dumps({
@@ -341,6 +344,7 @@ class PlatformMerged(Remote):
             Path(ghmock, "pr_title_url_baseRefOid_headRefOid_headRefName_baseRefName.txt").write_text(
                 "\t".join(["改 a", "https://github.com/acme/shop/pull/5", base_ref_oid, self.head, "feature", "main"]) + "\n", encoding="utf-8")
             Path(ghmock, "pr_state.txt").write_text("MERGED\n", encoding="utf-8")
+            self.git(self.repo, "remote", "set-url", "origin", "https://github.com/acme/shop.git")
             r = self.collect("https://github.com/acme/shop/pull/5", "--platform", "github")
             rd = self.review_dir(r.stdout)
             m = self.meta(rd)

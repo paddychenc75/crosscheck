@@ -3,17 +3,17 @@
   "hooks": {
     "beforeShellExecution": [
       {
-        "command": "sh ./skills/cr/scripts/guard.sh"
+        "command": "sh ./skills/review/scripts/guard.sh"
       }
     ],
     "afterShellExecution": [
       {
-        "command": "sh ./skills/cr/scripts/guard.sh"
+        "command": "sh ./skills/review/scripts/guard.sh"
       }
     ],
     "beforeSubmitPrompt": [
       {
-        "command": "sh ./skills/cr/scripts/guard.sh"
+        "command": "sh ./skills/review/scripts/guard.sh"
       }
     ]
   }
