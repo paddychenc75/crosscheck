@@ -34,7 +34,10 @@ elif tb and mode != "pr":
     what += ",对比 %s" % tb
 scope = "全量"
 if m.get("review_scope") == "incremental":
-    scope = "增量(上次审过的 %s 个文件没变)" % m.get("unchanged_files", "0")
+    prev = m.get("prev_review", "")
+    prev_meta = crlib.read_kv(os.path.join(m.get("store_dir", ""), prev, "meta.txt"))
+    scope = "增量(对比 %s-%s %s:%s 的%s审查,%s 个文件没变)" % (
+        prev[4:6], prev[6:8], prev[9:11], prev[11:13], DEPTH.get(prev_meta.get("depth"), ""), m.get("unchanged_files", "0"))
 ref_note = ""
 if m.get("base_desc"):
     ref_note += " · 对比基准:%s" % m["base_desc"]
@@ -113,19 +116,21 @@ if m.get("verifier_model", "host") not in ("", "host"):
     extra.append("核实模型配置:%s(实际执行模型由宿主说明)" % m["verifier_model"])
 if final.get("ignored_by_history"):
     extra.append("按历史处理判断抑制重复提醒 %d 条(保留当前事实结论,不计为已解决)" % len(final["ignored_by_history"]))
+if m.get("depth") == "deep" and m.get("may_run_checks") != "yes":
+    extra.append("没有运行检查:工作区不是被审查的版本")
 rs = final.get("runs") or {}
 if rs.get("total") or rs.get("failed_claims"):
     part = "运行 %d 次 · 复现成功 %d" % (rs.get("total", 0), rs.get("reproduced", 0))
     if rs.get("failed_claims"):
         part += " · 声称执行但没有运行记录 %d" % rs["failed_claims"]
     extra.append(part)
-print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), m.get("depth"), "增量" if m.get("review_scope") == "incremental" else "全量",
+print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), DEPTH.get(m.get("depth"), m.get("depth")), "增量" if m.get("review_scope") == "incremental" else "全量",
       " · " + " · ".join(extra) if extra else ""))
 
 tr = final.get("trimmed", {})
 if tr:
     NAMES2 = {"defects": "缺陷", "intent": "需求核对", "rules": "规范"}
-    print("TRIMMED: 因条数上限没有展示:" + "、".join("%s %d 条" % (NAMES2.get(k, k), v) for k, v in tr.items()) + "(仍记在记录里,下次会继续跟踪)")
+    print("TRIMMED: 因条数上限没有展示:" + "、".join("%s %d 条" % (NAMES2.get(k, k), v) for k, v in tr.items()) + "(仍记在记录里,下次会继续跟踪;说「还有哪些没展示」可以查看)")
 
 # 流程不完整:查找角色的回复或核实结果没有落盘(completeness.py 写出)。报告照出,但要说清缺了什么
 gaps = []

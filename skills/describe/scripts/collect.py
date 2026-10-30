@@ -13,9 +13,9 @@
   collect-diff.sh 自己输出的 SOURCES_MISSING 丢掉,不转出。
 
 不往审查记录里留东西:collect-diff.sh 开始审查时会写 reviews/<项目>/<目标>/pending(「进行中」标记),
---source、--intent 会写进 reviews/<项目>/sources/<分支>.json(review 之后要不要再问需求单看它)。
+--source 会写进 reviews/<项目>/sources/<分支>.json(review 之后要不要再问需求单看它);--intent、--doc 只用于这次描述,不记也不沿用。
 这里在它结束后把这两处恢复成运行前的样子(原来没有就删掉,目录是这次新建的也删掉):review 下次运行不会把这次描述
-当成没保存的审查,也不会因为这里的回答少问或多问。审查记录(baseline、latest、各次记录目录)只由 save-review.sh 写,这里不调用它。
+当成没保存的审查,也不会因为这里的回答少问或多问。审查记录(latest、各次记录目录)只由 save-review.sh 写,这里不调用它。
 """
 import glob
 import os
@@ -42,7 +42,7 @@ DOC_OPTIONS = {"--doc", "--plan", "--source-dir"}
 
 
 def has_source(argv, kind):
-    if kind == "doc" and DOC_OPTIONS & set(argv):
+    if kind == "doc" and any(a in DOC_OPTIONS and "".join(argv[i + 1:i + 2]).strip() for i, a in enumerate(argv)):
         return True
     return any(a == "--source" and i + 1 < len(argv) and argv[i + 1].startswith(kind + "=") for i, a in enumerate(argv))
 

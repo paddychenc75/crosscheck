@@ -79,14 +79,56 @@ def read_issue(api, meta, iid):
     return api.glab("projects/%s/issues/%s" % (api.project, iid)) if api.has_glab else None
 
 
+def user_material(meta, review_dir):
+    """作者的一句话和本地文档:这次给了就记下,没给就沿用同一审查目标的记录,写回 intent-arg.txt、doc-files.txt 让后面的步骤照常读。
+    两个文件不存在表示没传参数,存在但为空表示清除。记录文件按分支名存放,不同 fork 的同名分支会共用,所以只认自己 target_key 的条目。
+    返回 (意图, 文档, 意图的记录时间, 文档的记录时间),时间只在沿用时有值。describe 按当次参数,不读也不写记录。"""
+    arg_file, doc_file = os.path.join(review_dir, "intent-arg.txt"), os.path.join(review_dir, "doc-files.txt")
+    arg = crlib.read_text(arg_file)
+    text = (arg or "").strip()
+    doc_arg = crlib.read_text(doc_file)
+    docs = [x.strip() for x in (doc_arg or "").split("\n") if x.strip()]
+    if not docs and meta.get("plan_file"):
+        docs = [meta["plan_file"]]
+    path = srcmod.store_path(meta)
+    if not path or srcmod.current_skill() == "describe":
+        return text, docs, "", ""
+    st = srcmod.load_store(path)
+    before = dict(st)
+    target = meta.get("target_key", "")
+    mine = lambda key: st.get(key, {}).get("target") == target
+    intent_at = docs_at = ""
+    if text:
+        st["intent"] = srcmod.saved(text=text, target=target)
+    elif mine("intent"):
+        if arg is None:
+            text, intent_at = st["intent"]["text"], st["intent"]["at"]
+            with open(arg_file, "w", encoding="utf-8") as f:
+                f.write(text)
+        else:
+            del st["intent"]
+    if docs:
+        st["docs"] = srcmod.saved(files=docs, target=target)
+    elif mine("docs"):
+        if doc_arg is None:
+            docs, docs_at = st["docs"]["files"], st["docs"]["at"]
+            with open(doc_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(docs) + "\n")
+        else:
+            del st["docs"]
+    if st != before:
+        srcmod.save_store(path, st)
+    return text, docs, intent_at, docs_at
+
+
 def collect(api, meta, review_dir):
     """返回 (Intent, 需求来源结果 (missing, conf), 是否找到需求编号)。"""
     it = Intent()
     root = meta.get("repo_root", "")
     mode = meta.get("mode")
-    user_intent = (crlib.read_text(os.path.join(review_dir, "intent-arg.txt")) or "").strip()
+    user_intent, docs, intent_at, docs_at = user_material(meta, review_dir)
     if user_intent:
-        it.add("你补充的意图", user_intent, "你的补充")
+        it.add("你补充的意图", user_intent, "沿用 %s 的补充" % intent_at if intent_at else "你的补充")
     desc = (crlib.read_text(os.path.join(review_dir, "description.md")) or "").strip()
     if desc and mode == "pr" and not desc.startswith(("(未能读取", "(MR 信息没有读到")):
         name = "PR 描述" if meta.get("platform") == "github" else "MR 描述"
@@ -111,18 +153,17 @@ def collect(api, meta, review_dir):
         else:
             it.notes.append("关联需求 #%s 没有读到(%s);可用 --intent 或 --doc 补充" % (iid, api.why_unreadable()))
 
-    docs = [x.strip() for x in (crlib.read_text(os.path.join(review_dir, "doc-files.txt")) or "").split("\n") if x.strip()]
-    if not docs and meta.get("plan_file"):
-        docs = [meta["plan_file"]]
+    has_doc = False   # 读不到的文档不算提供过,该问的需求文档照常问
     for doc in docs[:5]:
         text = crlib.read_text(doc if os.path.isabs(doc) else os.path.join(root, doc))
         if text is None:
             it.notes.append("文档 %s 读不到" % doc)
             continue
-        it.add("文档 %s" % doc, crlib.clip(text, 4000), "文档 %s" % os.path.basename(doc))
+        has_doc = True
+        it.add("文档 %s" % doc, crlib.clip(text, 4000), ("沿用 %s 的文档 %s" % (docs_at, os.path.basename(doc))) if docs_at else "文档 %s" % os.path.basename(doc))
         it.take_acceptance(doc, text)
 
-    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), user_intent, first_issue, bool(docs))
+    missing, conf = collect_sources(it, meta, review_dir, "\n".join([desc, commits, user_intent, meta.get("source_branch", "")]), bool(refs), first_issue, has_doc)
     if user_intent:
         it.take_acceptance("你的补充", user_intent)
     if mode == "pr" and desc:
@@ -130,7 +171,7 @@ def collect(api, meta, review_dir):
     return it, (missing, conf)
 
 
-def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent, issue=None, has_doc_files=False):
+def collect_sources(it, meta, review_dir, text, has_issue_ref, issue=None, has_doc_files=False):
     """需求单、需求文档:参数、记录、自动识别的链接,以及 agent 用配置的工具读到的内容。"""
     args = {}
     for line in (crlib.read_text(os.path.join(review_dir, "source-args.txt")) or "").split("\n"):
@@ -145,9 +186,4 @@ def collect_sources(it, meta, review_dir, text, has_issue_ref, user_intent, issu
         label = conf["kinds"].get(doc["kind"], {}).get("label", doc["kind"])
         it.add("%s%s" % (label, ":" + doc["title"] if doc["title"] else ""), crlib.clip(doc["text"], 4000), label)
         it.take_acceptance(label, doc["text"])
-    store_path = srcmod.store_path(meta)
-    if store_path and user_intent:
-        st = srcmod.load_store(store_path)
-        st["intent"] = user_intent
-        srcmod.save_store(store_path, st)
     return missing, conf

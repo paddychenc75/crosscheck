@@ -10,12 +10,15 @@
 显示名固定为「需求单」「需求文档」;识别链接用的关键字取自说明里出现的网址的域名,没写网址就只能靠用户给的链接。
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
-  {"requirement": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...}, "intent": "...", "updated_at": "..."}
+  {"requirement": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...},
+   "intent": {"status": "given", "text", "target", "at"}, "docs": {"status": "given", "files", "target", "at"}, "updated_at": "..."}
+  intent、docs 是作者给的一句话和本地文档,review 不传时沿用(见 intent.py),沿用不刷新时间。
+  target 是写入时的审查目标(target_key):不同 fork 的同名分支共用这个文件,只有同一目标才沿用。
 
 用法(审查之外由 agent 调用):
   python3 sources.py stage                    新建一个暂存目录,打印路径;读到的文档写在这里
   python3 sources.py show DIR                 打印这次审查(或记录)对应分支的来源记录
-  python3 sources.py set DIR KEY VALUE        记下 intent、需求来源(requirement/doc=链接|skip|none:类型)
+  python3 sources.py set DIR KEY VALUE        记下 intent、docs(多个文件换行分隔)、需求来源(requirement/doc=链接|skip|none:类型);intent、docs 的值为空时清除
 审查时由 collect-context.sh 调用 resolve()。
 """
 import datetime
@@ -75,9 +78,15 @@ def load_store(path):
     limit = (datetime.datetime.now() - datetime.timedelta(days=EXPIRE_DAYS)).strftime("%Y-%m-%d %H:%M")
     for k in list(data):
         v = data[k]
-        if isinstance(v, dict) and v.get("status") and str(v.get("at", "")) < limit:
+        if k != "updated_at" and not isinstance(v, dict):
+            del data[k]
+        elif isinstance(v, dict) and v.get("status") and str(v.get("at", "")) < limit:
             del data[k]
     return data
+
+
+def saved(**fields):
+    return dict(fields, status="given", at=_now())
 
 
 def save_store(path, data):
@@ -212,12 +221,18 @@ def main(argv):
             print(json.dumps(store, ensure_ascii=False, indent=2))
             return 0
         kinds = settings()["kinds"]
-        if len(argv) < 4 or argv[2] not in ("intent",) + tuple(kinds):
-            sys.exit("sources: 用法 set DIR intent|%s VALUE" % "|".join(kinds))
-        value = argv[3]
-        if argv[2] in kinds:
-            value = dict({k: v for k, v in parse_arg(value).items()}, at=_now())
-        store[argv[2]] = value
+        if len(argv) < 4 or argv[2] not in ("intent", "docs") + tuple(kinds):
+            sys.exit("sources: 用法 set DIR intent|docs|%s VALUE" % "|".join(kinds))
+        key, value = argv[2], argv[3]
+        if key in kinds:
+            store[key] = dict(parse_arg(value), at=_now())
+        elif not value.strip():
+            if store.get(key, {}).get("target") == meta.get("target_key", ""):
+                store.pop(key, None)
+        elif key == "intent":
+            store[key] = saved(text=value.strip(), target=meta.get("target_key", ""))
+        else:
+            store[key] = saved(files=[x.strip() for x in value.splitlines() if x.strip()], target=meta.get("target_key", ""))
         save_store(path, store)
         print("已记下 %s" % argv[2])
         return 0

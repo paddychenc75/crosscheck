@@ -208,6 +208,7 @@ class TestPipeline(ProjectFixture):
         self.run_pipeline(rd, cands, {"A": (90, [{"file": P, "lines": "2"}]), "B": (90, [{"file": L, "lines": "1"}])})
         with open(os.path.join(rd, "report.md"), "w") as f:
             f.write("报告\n")
+        Path(rd, "completeness.txt").write_text("OK\n", encoding="utf-8")
         r = self.run_script("save-review.sh", rd)
         self.assertIn("cost=", r.stdout)
         self.assertIn("hook 没有运行", r.stdout)
@@ -224,7 +225,8 @@ class TestPipeline(ProjectFixture):
         a = next(p for p in prev if p["summary"] == "A")
         cand = dict(a, from_prev=True)
         cand.pop("confidence"); cand.pop("verdict")
-        final, _ = self.run_pipeline(rd2, [cand], {"A": (10, [{"file": P, "lines": "2"}])})
+        final, _ = self.run_pipeline(rd2, [cand], {"A": (10, [{"file": P, "lines": "2"}]),
+                                                   "B": (90, [{"file": L, "lines": "1"}])})
         self.assertEqual([x["summary"] for x in final["resolved"]], ["A"])
         carried = [x for g in final["groups"].values() for x in g if x["status"] == "carried"]
         self.assertEqual([x["summary"] for x in carried], ["B"])
@@ -238,6 +240,7 @@ class TestPipeline(ProjectFixture):
         self.run_pipeline(rd, cands, {"A": (90, [{"file": P, "lines": "2"}]), "B": (90, [{"file": L, "lines": "1"}])})
         with open(os.path.join(rd, "report.md"), "w") as f:
             f.write("报告\n")
+        Path(rd, "completeness.txt").write_text("OK\n", encoding="utf-8")
         self.run_script("save-review.sh", rd)
         self.git(self.repo, "switch", "-q", "feature")
         self.write(self.repo, {"src/orders/paginate.ts": "export function page(t: number, s: number) {\n  return Math.round(t / s)\n}\n// TODO\n"})
@@ -270,7 +273,7 @@ class TestDependents(Base):
                            "src/b.ts": "import { computeTotal } from './a'\nexport const v = computeTotal(2)\n",
                            "src/c.ts": "export const other = 2\n"}, "f1")
         rd = self.review_dir(self.run_script("collect-diff.sh", cwd=repo).stdout)
-        for name, text in (("report.md", "r\n"), ("findings.json", "[]")):
+        for name, text in (("report.md", "r\n"), ("findings.json", "[]"), ("completeness.txt", "OK\n")):
             with open(os.path.join(rd, name), "w") as f:
                 f.write(text)
         self.run_script("save-review.sh", rd)

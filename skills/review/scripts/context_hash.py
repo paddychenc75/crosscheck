@@ -15,17 +15,16 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import crlib
+import project_rules
 
 NOT_REVIEW_INPUT = re.compile(r'(^|/)(mine[-_][^/]*|rules[-_]write[^/]*)$')
-RULE_FILES = re.compile(r'(^|/)(REVIEW\.md|CLAUDE\.md|AGENTS(\.override)?\.md)$'
-                        r'|(^|/)(\.claude|\.cursor)/|^\.agents/rules/|^\.github/(instructions/|copilot-instructions\.md)')
 
 
 def review_context(directory):
     d = Path(directory)
     meta = crlib.read_kv(str(d / 'meta.txt'))
     src = crlib.Source(meta['repo_root'], meta.get('base_sha') if meta.get('mode') != 'local' else None)
-    rule_files = {f: src.read(f) for f in src.files() if RULE_FILES.search(f)}
+    rule_files = {f: src.read(f) for f in src.files() if project_rules.kind(f)}
     skill = Path(__file__).resolve().parent.parent
     plugin = skill.parent.parent
     implementation = {str(f.relative_to(plugin)): f.read_text(encoding='utf-8')

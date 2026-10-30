@@ -1,7 +1,7 @@
 {
   "name": "crosscheck",
-  "version": "0.3.1",
-  "description": "高信噪比的 code review:多个专项 reviewer 并行审查,独立核实,只保留经得起核实的发现。支持本地 diff、GitHub PR 和 GitLab MR。",
+  "version": "0.3.2",
+  "description": "本地运行的 AI 代码审查:先找可疑问题,再独立核实,只报有依据的发现。支持本地分支、GitHub PR 和 GitLab MR。",
   "author": {
     "name": "PaddyChen"
   },

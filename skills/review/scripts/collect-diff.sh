@@ -19,8 +19,9 @@
 #                无明确基准时沿用已有规则,PR/MR 用已知目标,本地尝试验证创建来源线索;无法确认才 BASE_UNSET
 #                非交互无可靠来源用推荐项并标「基准未确认」;计算失败 BASE_FAILED 非零停止,不能编基准
 #   --ask-base   忽略已有规则和创建来源,重新问一次;回答默认仅本次,明确记住才用 --base-rule 更新记录
-#   --depth      不传时为 standard,并按风险分级给出建议(只建议,不改变深度)
+#   --depth      不传时为 standard
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
+#                都记进来源记录,同一审查目标之后不传时沿用;--intent ""、--doc "" 分别清除
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 requirement(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
 #                skip(作者跳过)、none:<类型>(没有需求单,如 none:hotfix)或 unasked(非交互,没有问)
 #   --source-dir DIR  agent 用配置的工具读到的需求单、需求文档(sources.py stage 建的目录)
@@ -96,6 +97,7 @@ gap_vars=""
 gap_file=""
 with_tests=no
 intent_arg=""
+intent_set=no
 plan_arg=""
 verifier_model=""
 source_args=""
@@ -113,7 +115,7 @@ while [ $# -gt 0 ]; do
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; shift 2 ;;
-    --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; shift 2 ;;
+    --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; intent_set=yes; shift 2 ;;
     --plan|--doc) [ $# -ge 2 ] || die "$1 需要一个值"; doc_files="${doc_files}$2
 "; [ -n "$plan_arg" ] || plan_arg=$2; shift 2 ;;
     --source) [ $# -ge 2 ] || die "--source 需要一个值"
@@ -139,7 +141,7 @@ while [ $# -gt 0 ]; do
     --base-target) base_target=yes; shift ;;
     --ask-base) ask_base=yes; shift ;;
     --allow-large) allow_large=yes; shift ;;
-    -h|--help) sed -n '2,68p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -826,12 +828,13 @@ finder_model=$(sh "$script_dir/../../../scripts/config.sh" get model.finder)
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
   printf 'with_tests=%s\nonly=%s\nbase_sha_arg=%s\n' "$with_tests" "$only" "$base_sha_arg"
   printf 'source_branch=%s\ntarget_key=%s\nrepo=%s\n' "$source_branch" "$target_key" "$repo"
-  # 风险分级要看整个目标的改动大小,这时还没有按增量裁剪。
   printf 'changed_lines=%s\n' "$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)"
 } > "$out/meta.txt"
-printf '%s' "$intent_arg" > "$out/intent-arg.txt"
+# 没有这个文件表示没传 --intent(沿用分支记录里的),空文件表示 --intent "" (清除记录)。
+if [ "$intent_set" = yes ]; then printf '%s' "$intent_arg" > "$out/intent-arg.txt"; else rm -f "$out/intent-arg.txt"; fi
 printf '%s' "$source_args" > "$out/source-args.txt"
-printf '%s' "$doc_files" | sed '/^$/d' > "$out/doc-files.txt"
+# doc-files.txt 同理:--doc "" 时 doc_files 只有换行,写出空文件。
+if [ -n "$doc_files" ]; then printf '%s' "$doc_files" | sed '/^$/d' > "$out/doc-files.txt"; else rm -f "$out/doc-files.txt"; fi
 printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
@@ -839,25 +842,17 @@ printf '%s\n' "$context_out" > "$out/context-notes.txt"
 grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 
-# 增量:上次的审查覆盖了所有维度、深度不低于本次时,只留下 diff 变了的文件。
-rank() { case "$1" in quick) echo 1 ;; deep) echo 3 ;; *) echo 2 ;; esac; }
+# 增量:和能代表这次审查的最近一次记录比较(见 incremental.py pick),只留下 diff 变了的文件。
 review_scope=full
 prev_review=""
 unchanged_count=0
-if [ "$full" = no ] && [ -f "$store_dir/baseline" ]; then
-  prev_review=$(head -n 1 "$store_dir/baseline")
+[ "$full" = yes ] || prev_review=$(python3 "$script_dir/incremental.py" pick "$store_dir" "$out" "$depth")
+if [ -n "$prev_review" ]; then
+  review_scope=incremental
   prev="$store_dir/$prev_review"
-  if [ -f "$prev/hashes.txt" ] && [ -f "$prev/meta.txt" ]; then
-    prev_depth=$(sed -n 's/^depth=//p' "$prev/meta.txt" | head -n 1)
-    if [ "$(rank "$prev_depth")" -ge "$(rank "$depth")" ] &&
-       cmp -s "$prev/context-hash.txt" "$out/context-hash.txt"; then review_scope=incremental; fi
-  fi
-  [ "$review_scope" = incremental ] || prev_review=""
-fi
-if [ "$review_scope" = incremental ]; then
   # 依赖扩散:变了的文件里定义的符号,如果有没变的文件在用,那些文件也重审。
   dep_ref=""
-  [ "$code_ref" = WORKTREE ] || dep_ref=$code_ref
+  [ "$code_ref" = WORKTREE ] || dep_ref=$head_sha
   python3 "$script_dir/incremental.py" "$out" "$prev" "$root" "$dep_ref"
   unchanged_count=$(grep -c "^unchanged$tab" "$out/incremental.txt" || true)
   mv "$out/diff.patch" "$out/diff.full.patch"
@@ -942,6 +937,8 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'head_sha=%s\n' "$head_sha"
   printf 'code_ref=%s\n' "$code_ref"
   printf 'head_checked_out=%s\n' "$head_checked_out"
+  # 运行检查只在 deep 且工作区就是被审查的版本时才有意义:其他版本上的结果不属于这次的代码。
+  if [ "$depth" = deep ] && [ "$head_checked_out" = yes ]; then printf 'may_run_checks=yes\n'; else printf 'may_run_checks=no\n'; fi
   printf 'repo_root=%s\n' "$root"
   printf 'files=%s\n' "$file_count"
   printf 'changed_lines=%s\n' "$changed_lines"
@@ -971,6 +968,7 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'plan_file=%s\n' "$plan_arg"
   printf 'started_at=%s\n' "$(date '+%Y-%m-%d %H:%M')"
   printf 'started_epoch=%s\n' "$(date +%s)"
+  printf 'started_id=%s\n' "$(date +%Y%m%d%H%M%S)"
 } > "$out/meta.txt"
 
 cat "$out/context-meta.txt" >> "$out/meta.txt"
@@ -988,9 +986,6 @@ sh "$script_dir/check-state.sh" --save "$out"
 # 写进 history.json 交给 verifier 参考。不在这里删除任何候选。
 rm -f "$out/history.json"
 sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 || true
-
-# 意图、MR 上的人工讨论、测试削弱、风险分级。读不到的部分跳过,不影响审查。
-
 
 # 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
 if [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \

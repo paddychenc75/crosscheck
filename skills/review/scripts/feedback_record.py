@@ -12,7 +12,6 @@ import sys
 import crlib
 
 NAMES = {"invalid": "不成立", "wontfix": "成立但不修", "valid": "成立", "disputed": "有争议"}
-STAMP = re.compile(r"\d{8}-\d{6}")
 
 
 def fail(msg):
@@ -31,7 +30,7 @@ def parse(argv):
     return repo, rest
 
 
-def find(pdir, target):
+def find(pdir, target, record="findings.json"):
     """在项目的各次审查记录里找这条发现,每条取最近一次出现:{key: (目标目录, 发现)}。"""
     m = re.fullmatch(r"(.+):(\d+)", target)
 
@@ -43,9 +42,9 @@ def find(pdir, target):
         tdir = os.path.join(pdir, tname)
         if not os.path.isdir(tdir):
             continue
-        for stamp in sorted((d for d in os.listdir(tdir) if STAMP.fullmatch(d)), reverse=True):
+        for stamp in sorted((d for d in os.listdir(tdir) if crlib.STAMP.fullmatch(d)), reverse=True):
             rdir = os.path.join(tdir, stamp)
-            for f in crlib.load_json(os.path.join(rdir, "findings.json"), []):
+            for f in crlib.load_json(os.path.join(rdir, record), []):
                 if matches(f) and crlib.finding_key(f) not in hits:
                     hits[crlib.finding_key(f)] = (tdir, f)
     return hits
@@ -68,7 +67,8 @@ def main(argv):
     repo_id = crlib.repo_identity(repo)
     pdir = crlib.project_dir(repo_id) or fail("这个项目还没有审查记录")
 
-    hits = find(pdir, target)
+    # 没通过核实的候选只在发现里找不到时才搜,否则同一个 file:line 会多出歧义
+    hits = find(pdir, target) or find(pdir, target, "rejected.json")
     if not hits:
         fail("在这个项目的审查记录里找不到 %s。请用报告里的 id 再试一次" % target)
     if len(hits) > 1:

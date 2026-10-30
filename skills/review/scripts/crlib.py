@@ -61,6 +61,9 @@ def ctx_hash(lines, n):
     return hashlib.sha1("\n".join(norm(x) for x in lines[max(0, n - 3):n + 2]).encode("utf-8")).hexdigest()[:12]
 
 
+STAMP = re.compile(r"\d{8}-\d{6}")   # 审查记录的目录名
+
+
 def short_hash(s, n=8):
     return hashlib.sha1(str(s).encode("utf-8")).hexdigest()[:n]
 

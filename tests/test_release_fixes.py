@@ -1,16 +1,21 @@
 """0.2.0 发布前调研发现的问题的回归测试。"""
 import json
 import os
+import sys
+import time
 from pathlib import Path
 
 import fixture
+sys.path.insert(0, fixture.SCRIPTS)
+import intent
 
 
 def save_baseline(t, rd):
-    for name, text in (("report.md", "r\n"), ("findings.json", "[]")):
+    for name, text in (("report.md", "r\n"), ("findings.json", "[]"), ("completeness.txt", "OK: 查找角色和核实结果都已落盘\n")):
         if not os.path.exists(os.path.join(rd, name)):
             Path(rd, name).write_text(text, encoding="utf-8")
     t.run_script("save-review.sh", rd)
+    time.sleep(1.1)   # 记录目录精确到秒
 
 
 class IncrementalScope(fixture.Base):
@@ -41,6 +46,116 @@ class IncrementalScope(fixture.Base):
     def test_user_intent_change_forces_full(self):
         save_baseline(self, self.collect())
         self.assertEqual(self.scope(self.collect("--intent", "修复分页")), "full")
+
+    def test_intent_and_docs_carry_over_until_cleared(self):
+        Path(self.repo, "plan.md").write_text("方案\n", encoding="utf-8")
+        save_baseline(self, self.collect("--intent", "修复分页", "--doc", "plan.md"))
+        rd = self.collect()
+        self.assertEqual(self.scope(rd), "incremental")
+        sources = self.kv(os.path.join(rd, "meta.txt"))["intent_sources"]
+        self.assertIn("的补充", sources)
+        self.assertIn("的文档 plan.md", sources)
+        self.assertIn("修复分页", Path(rd, "intent.md").read_text(encoding="utf-8"))
+        rd = self.collect("--intent", "")
+        self.assertEqual(self.scope(rd), "full")
+        self.assertNotIn("修复分页", Path(rd, "intent.md").read_text(encoding="utf-8"))
+        self.assertNotIn("修复分页", Path(self.collect(), "intent.md").read_text(encoding="utf-8"))
+
+    def test_quick_in_between_keeps_the_standard_comparison_point(self):
+        first = self.collect()
+        save_baseline(self, first)
+        quick = self.collect("--depth", "quick")
+        self.assertEqual(self.scope(quick), "incremental")
+        save_baseline(self, quick)
+        rd = self.collect()
+        self.assertEqual(self.scope(rd), "incremental")
+        self.assertIn("标准审查", self.run_script("report-lines.sh", rd, check=False).stdout)
+        store = self.kv(os.path.join(first, "meta.txt"))["store_dir"]
+        standard = sorted(p for p in os.listdir(store) if p[0].isdigit())[0]
+        self.assertEqual(self.kv(os.path.join(rd, "meta.txt"))["prev_review"], standard)
+
+    def test_quick_stays_comparable_with_quick(self):
+        save_baseline(self, self.collect("--depth", "quick"))
+        self.assertEqual(self.scope(self.collect("--depth", "quick")), "incremental")
+        self.assertEqual(self.scope(self.collect()), "full")
+
+    def test_review_missing_a_finder_is_not_a_comparison_point(self):
+        rd = self.collect()
+        Path(rd, "completeness.txt").write_text("INCOMPLETE: 缺 finders/reviewer.json\n", encoding="utf-8")
+        save_baseline(self, rd)
+        self.assertEqual(self.scope(self.collect()), "full")
+
+    def test_any_incomplete_review_is_not_a_comparison_point(self):
+        for line in ("finders/reviewer.json 覆盖受限:没看完 a.ts", "finders/reviewer.json 达到候选预算,覆盖可能受限(未交候选数量未知)",
+                     "finders/reviewer.json 未声明覆盖限制(落盘或读过不代表完整覆盖)", "缺 analysis-facts.json"):
+            with self.subTest(line=line):
+                rd = self.collect()
+                Path(rd, "completeness.txt").write_text("INCOMPLETE: %s\n" % line, encoding="utf-8")
+                save_baseline(self, rd)
+                self.assertEqual(self.scope(self.collect()), "full")
+
+    def test_review_without_completeness_is_not_a_comparison_point(self):
+        rd = self.collect()
+        save_baseline(self, rd)
+        os.remove(os.path.join(Path(rd, "record.txt").read_text(encoding="utf-8").strip(), "completeness.txt"))
+        self.assertEqual(self.scope(self.collect()), "full")
+
+    def test_incomplete_review_falls_back_to_the_last_complete_one(self):
+        good = self.collect()
+        save_baseline(self, good)
+        stamp = os.path.basename(Path(good, "record.txt").read_text(encoding="utf-8").strip())
+        limited = self.collect()
+        Path(limited, "completeness.txt").write_text("INCOMPLETE: finders/reviewer.json 覆盖受限:x\n", encoding="utf-8")
+        save_baseline(self, limited)
+        self.assertEqual(self.kv(os.path.join(self.collect(), "meta.txt"))["prev_review"], stamp)
+
+    def test_saved_intent_and_docs_stay_with_their_target(self):
+        """整个分支和只审一个路径是两个目标,但共用同一份分支记录,相当于不同 fork 的同名分支。"""
+        Path(self.repo, "plan.md").write_text("路径的方案\n", encoding="utf-8")
+        self.collect("a.ts", "--intent", "路径的意图", "--doc", "plan.md")
+        rd = self.collect()
+        self.assertNotIn("路径的", Path(rd, "intent.md").read_text(encoding="utf-8"))
+        self.collect("--intent", "", "--doc", "")   # 别的目标清除自己的,不动这一条
+        self.assertIn("路径的意图", Path(self.collect("a.ts"), "intent.md").read_text(encoding="utf-8"))
+
+    def test_same_branch_name_in_two_prs_does_not_share_intent(self):
+        store = os.path.join(self.tmp, "records", "pr-1")
+        for name in ("one", "two"):
+            os.makedirs(os.path.join(self.tmp, name))
+        one = dict(store_dir=store, source_branch="patch-1", target_key="pr-1")
+        Path(self.tmp, "one", "intent-arg.txt").write_text("第一个 PR 的意图", encoding="utf-8")
+        Path(self.tmp, "one", "doc-files.txt").write_text("one.md\n", encoding="utf-8")
+        intent.user_material(one, os.path.join(self.tmp, "one"))
+        two = dict(one, target_key="pr-2")
+        self.assertEqual(intent.user_material(two, os.path.join(self.tmp, "two")), ("", [], "", ""))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "two", "intent-arg.txt")))
+
+    def test_docs_can_be_cleared(self):
+        Path(self.repo, "plan.md").write_text("方案内容\n", encoding="utf-8")
+        self.collect("--doc", "plan.md")
+        self.assertIn("方案内容", Path(self.collect(), "intent.md").read_text(encoding="utf-8"))
+        self.assertNotIn("方案内容", Path(self.collect("--doc", ""), "intent.md").read_text(encoding="utf-8"))
+        self.assertNotIn("方案内容", Path(self.collect(), "intent.md").read_text(encoding="utf-8"))
+
+    def test_unreadable_doc_does_not_count_as_provided(self):
+        self.config("tools.doc_reader = 用 acme-kit:doc-reader 读文档\nreview.ask = doc\n")
+        plan = Path(self.repo, "plan.md")
+        plan.write_text("方案\n", encoding="utf-8")
+        self.assertNotIn("SOURCES_MISSING", self.run_script("collect-diff.sh", "--doc", "plan.md", cwd=self.repo).stdout)
+        self.assertNotIn("SOURCES_MISSING", self.run_script("collect-diff.sh", cwd=self.repo).stdout)
+        plan.unlink()
+        self.assertIn("SOURCES_MISSING: 需求文档", self.run_script("collect-diff.sh", cwd=self.repo).stdout)
+
+    def test_help_lists_full(self):
+        self.assertIn("--full 忽略历史", self.run_script("collect-diff.sh", "--help").stdout)
+
+    def test_only_rule_files_change_the_context(self):
+        save_baseline(self, self.collect())
+        self.commit(self.repo, {".claude/settings.json": "{}\n"}, "宿主设置")
+        rd = self.collect()
+        self.assertEqual(self.scope(rd), "incremental")
+        self.commit(self.repo, {".claude/rules/a.md": "- 规则\n"}, "规则")
+        self.assertEqual(self.scope(self.collect()), "full")
 
 
 class RiskAndHead(fixture.Base):
@@ -102,6 +217,26 @@ class PipelineFixes(fixture.ProjectFixture):
         self.assertNotIn("GUARD:", out)
 
 
+class RejectedFeedback(fixture.ProjectFixture):
+    def test_rejected_candidate_can_be_confirmed(self):
+        rd, _ = self.collect("feature")
+        P = "src/orders/paginate.ts"
+        cands = [{"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "A", "failure_scenario": "x"}]
+        self.run_pipeline(rd, cands, {"A": (70, [{"file": P, "lines": "2"}])})
+        Path(rd, "report.md").write_text("r\n")
+        saved = self.kv_stdout(self.run_script("save-review.sh", rd).stdout)["dir"]
+        row = self.load(os.path.join(saved, "rejected.json"))[0]
+        self.assertRegex(row["id"], r"^\d{14}-r1$")
+        self.assertTrue(row["context_hash"])
+        self.run_script("feedback.sh", "valid", row["id"], cwd=self.repo)
+        store = os.path.dirname(os.path.dirname(saved))
+        entry = json.loads(Path(store, "feedback.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual((entry["verdict"], entry["summary"]), ("valid", "A"))
+
+    def kv_stdout(self, text):
+        return dict(l.split("=", 1) for l in text.splitlines() if "=" in l)
+
+
 class JudgedAfterReview(fixture.ProjectFixture):
 
     def test_judged_carried_finding_is_dropped_and_renumbered(self):
@@ -111,6 +246,10 @@ class JudgedAfterReview(fixture.ProjectFixture):
                  {"file": L, "line": 1, "category": "bug", "severity": "critical", "summary": "B", "failure_scenario": "x"},
                  {"file": L, "line": 1, "category": "security", "severity": "major", "summary": "C", "failure_scenario": "x"}]
         self.run_pipeline(rd, cands, {k: (90, [{"file": f, "lines": l}]) for k, f, l in (("A", P, "2"), ("B", L, "1"), ("C", L, "1"))})
+        os.makedirs(os.path.join(rd, "finders"))
+        for name in ("reviewer.json", "rules-auditor.json"):
+            Path(rd, "finders", name).write_text('{"candidates": [], "coverage": {"limited": false}}')
+        self.run_script("aggregate.sh", rd)
         Path(rd, "report.md").write_text("r\n")
         self.run_script("save-review.sh", rd)
         b = next(x for x in self.load(os.path.join(rd, "findings.json")) if x["summary"] == "B")

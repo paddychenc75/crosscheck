@@ -110,9 +110,10 @@ class Sources(fixture.ShopRepo):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("KIND=VALUE", r.stderr)
 
-    def test_set_only_accepts_intent_and_source_kinds(self):
+    def test_set_only_accepts_intent_docs_and_source_kinds(self):
         _, rd = self.collect("--source", "requirement=skip")
         self.run_py("sources.py", "set", rd, "intent", "订单列表改为游标分页")
+        self.run_py("sources.py", "set", rd, "docs", "docs/plan.md")
         self.run_py("sources.py", "set", rd, "doc", "skip")
         for key in ("tested", "focus", "page_url"):
             with self.subTest(key=key):

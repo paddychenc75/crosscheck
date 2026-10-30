@@ -1,7 +1,7 @@
 ---
 name: review
 allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git rev-parse *), Bash(git ls-files *), Bash(git cat-file *), Bash(git merge-base *)
-description: 代码审查(code review / CR):检查一次代码改动中的 bug、安全问题、是否做到了需求、违反团队规则之处,只报告经独立核实后仍成立的发现,每条附依据。支持本地分支、commit 范围、路径,以及 GitHub pull request / GitLab merge request(含私有化 GitLab)。当用户要求 review 或审查代码、分支、diff、PR、MR 时使用;也用于审查之后记录用户对发现的判断、按用户要求当场加一条规则、查看审查效果和采纳率、用历史 bug 检验效果。
+description: 代码审查(code review / CR):检查一次代码改动中的 bug、安全问题、是否做到了需求、违反团队规则之处,只报告经独立核实后仍成立的发现,每条附依据。支持本地分支、commit 范围、路径,以及 GitHub pull request / GitLab merge request(含私有化 GitLab)。当用户要求 review 或审查代码、分支、diff、PR、MR 时使用;也用于审查之后记录用户对发现的判断、按用户要求当场加一条规则、用历史 bug 检验效果。
 ---
 
 # review — 代码审查
@@ -35,10 +35,10 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | `--base-target` | 「仅本次按目标分支」「就用推荐项」:本次使用 MR/PR 的目标分支,没有 MR 信息时使用默认分支,不记项目规则。回答后补充需求资料、重新运行时继续带上它,避免重复问基准 |
 | `--base-rule <规则>` | **只有明确说「记住项目规则」「以后都这样」才用**:`target` 跟随每个 MR/PR 各自的目标分支,无 MR 时跟随默认分支;`branch:<分支>` 固定对比指定分支。每次重新解析远端最新版本,不记提交。默认仅本次,不回答是否记住也不保存 |
 | `--ask-base` | 「换个基准」「重新选对比基准」:忽略已有规则和自动来源,重新问一次;回答默认仅本次,明确记住才更新记录 |
-| `--depth quick` / `--depth deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,脚本按 standard 跑并按风险给出建议 |
+| `--depth quick` / `--depth deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,按 standard 跑 |
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules` 中的若干项。默认三项都查 |
-| `--intent "…"` | 「这次是为了修复分页丢数据」 |
-| `--doc <文件>`(可多次) | 「方案在 docs/plan.md」「接口文档在 docs/api.md」。`--plan` 是同一个意思 |
+| `--intent "…"` | 「这次是为了修复分页丢数据」。意图和 `--doc` 按审查目标记录,同一目标之后不说就沿用,报告写明「沿用」;说「之前的意图不算了」就传 `--intent ""` |
+| `--doc <文件>`(可多次) | 「方案在 docs/plan.md」「接口文档在 docs/api.md」。`--plan` 是同一个意思。说「之前的文档不算了」就传 `--doc ""` |
 | `--source <类别>=<值>`(可多次) | 「需求单是 <链接>」「没有需求文档」「这是 hotfix,没有需求单」→ `requirement=<链接>`、`doc=skip`、`requirement=none:hotfix`。类别只有 `requirement`(需求单,工具见 `tools.requirement`)和 `doc`(需求文档,工具见 `tools.doc_reader`),开始前问哪几类见 `review.ask`,默认只有 `doc`;类别要配了对应读取工具才会问 |
 | `--verifier-model <模型>` | 「核实换成某某模型」。没说就用配置里的 `model.verifier`,再没有就用当前宿主的模型 |
 | `--with-tests` | 「测试也一起看」 |
@@ -50,7 +50,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | 用户说 | 去读 |
 |---|---|
 | 对某条发现表态、质疑、要求修、问没报的、要求定规则 | `references/after-report.md` |
-| 「看看 review 的统计」「拿修过的 bug 测一下」 | `references/maintenance.md` |
+| 「拿修过的 bug 测一下」 | `references/maintenance.md` |
 | 「以后这种别报了」「以后都要查 X」 | 在 review 里当场加一条,见 `references/after-report.md` |
 | 「从最近一个季度的 MR 里沉淀规则」「检查一下我们的规则」「帮我起草 / 整理 REVIEW.md」 | 不在这里做。从 MR 评论沉淀规则、检查规则、起草或整理整份 `REVIEW.md` 用规则维护命令:Claude Code 里 `/crosscheck:improve`(拷贝安装时 `/improve`),Codex 里 `$crosscheck:improve`(拷贝安装时 `$improve`),Cursor 里 `/improve`。只有 review 可以用自然语言触发 |
 
@@ -167,15 +167,15 @@ sh <skill_dir>/scripts/prepare-verify.sh <review_dir>
 
 **有子代理时**(standard 和 deep):每批启动一个 verifier,全部同时启动:
 
-> 阅读 `<skill_dir>/roles/verifier.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。`may_run_checks` 是 `<deep 为 yes,否则为 no>`。`candidates` 在 `<review_dir>/verify/batch-<n>.json`。只回复 JSON 数组。
+> 阅读 `<skill_dir>/roles/verifier.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。`may_run_checks` 是 `<meta.txt 的 may_run_checks>`。`candidates` 在 `<review_dir>/verify/batch-<n>.json`。只回复 JSON 数组。
 
 **模型。** `meta.txt` 的 `verifier_model` 不是 `host` 时(用户这次指定的,或配置里的 `model.verifier`),启动 verifier 时使用那个模型。能用另一家的模型核实效果更好,两者的盲区不同;宿主不支持指定模型时照常运行,并在报告里说明。
 
-deep 下 verifier 的所有运行都经 `sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命令>...`,运行记录在 `review_dir/runs/`;`aggregate.sh` 核对声称的运行都有记录,再按 outcome 区分已复现、运行反证、结果未定和读代码推断(照抄 `MARK:`)。记录存在或非零退出不证明复现,`reproduced` 需实际观察说明;`refuted` 不得作为确认展示,`inconclusive` 仍按代码证据评分。展示的输出取自运行日志,保存记录时保留 runs/。
+`may_run_checks` 只在 deep 且 `head_checked_out=yes` 时为 yes:工作区不是被审查的版本时,运行结果不属于这份代码,`run-check.sh` 会拒绝,verifier 只读代码。允许运行时,verifier 的所有运行都经 `sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命令>...`,运行记录在 `review_dir/runs/`;`aggregate.sh` 核对声称的运行都有记录,再按 outcome 区分已复现、运行反证、结果未定和读代码推断(照抄 `MARK:`)。记录存在或非零退出不证明复现,`reproduced` 需实际观察说明;`refuted` 不得作为确认展示,`inconclusive` 仍按代码证据评分。展示的输出取自运行日志,保存记录时保留 runs/。
 
 把每个 verifier 的回复原样写成 `<review_dir>/verify/result-<n>.json`。不要附上查找者的推理或你自己的意见 —— verifier 必须依据代码判断。
 
-**宿主没有启动子代理的工具,或者是 quick 时(由主线程自己执行)**:阅读 `roles/verifier.md` 并自己执行。对每条候选重新打开文件,先为反方辩护再打分。读完所有 `verify/batch-*.json`,按批次顺序合并输出到 `verify/result-1.json`。同一宿主无法清除查找阶段的上下文;报告里写明「同一宿主顺序核实」和实际执行的模型。
+**宿主没有启动子代理的工具,或者是 quick 时(由主线程自己执行)**:阅读 `roles/verifier.md` 并自己执行,`may_run_checks` 同样取 `meta.txt` 的值。对每条候选重新打开文件,先为反方辩护再打分。读完所有 `verify/batch-*.json`,按批次顺序合并输出到 `verify/result-1.json`。同一宿主无法清除查找阶段的上下文;报告里写明「同一宿主顺序核实」和实际执行的模型。
 
 ### 5. 汇总
 
@@ -209,7 +209,7 @@ sh <skill_dir>/scripts/report-lines.sh <review_dir>
 
 **保存记录是流程的一部分**,不能跳过;只有用户明确说只测试、只报告或不保存记录时例外。
 
-按 `references/report-format.md` 的「保存记录」完成 `report.md` 和 `save-review.sh`。保存失败也展示报告并披露原因。照抄实际 `cost`、`incomplete`、`model_note`,token 未统计不得估算,不得省略模型回退或流程限制。
+按 `references/report-format.md` 的「保存记录」完成 `report.md` 和 `save-review.sh`。保存失败也展示报告并披露原因。照抄实际 `cost`、`incomplete`、`model_note`、`subagent_note`,token 未统计不得估算,不得省略模型回退或流程限制。
 
 交付本地 `report.md` 及链接。
 

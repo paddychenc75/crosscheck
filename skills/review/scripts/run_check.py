@@ -50,6 +50,8 @@ if bad:
     die("不运行会改写文件的参数:%s" % " ".join(bad))
 
 meta = crlib.read_kv(os.path.join(d, "meta.txt"))
+if meta.get("may_run_checks") != "yes":
+    die("这次审查不运行检查:只有 deep、且工作区就是被审查的版本时才运行(见 meta.txt 的 may_run_checks)。请按读代码核实")
 root = meta.get("repo_root") or os.getcwd()
 runs = os.path.join(d, "runs")
 os.makedirs(runs, exist_ok=True)   # 写记录目录的例外:runs/ 在审查目录(collect-diff.sh 的输出,默认临时目录)下

@@ -10,9 +10,8 @@
 #        settings.json、rules-index.json、rules-meta.txt、rules-notes.json、sources.json、analysis-facts.json、
 #        completeness.txt,还有 finders/ 和 verify/ 下的回复原件
 #
-# 写入 ~/.crosscheck/reviews/<项目名>/<目标>/<时间>/,并更新同级的两个指针文件:
+# 写入 ~/.crosscheck/reviews/<项目名>/<目标>/<时间>/,并更新同级的指针文件:
 #   latest    最近一次审查
-#   baseline  最近一次覆盖所有维度的审查,增量审查以它为基准(--only 的审查不会成为基准)
 # 输出:
 #   report=<报告的路径>
 #   link=<报告的 file:// 链接>
@@ -24,7 +23,7 @@
 # 查找角色数取自 finders/ 里的文件数,核实数取自 verify/result-*.json 的文件数,不用宿主自报。
 # --finders、--verifiers 是旧的自报参数,仍接受但忽略。候选和通过的条数没给时取自 final.json。
 # 用时、token 用量、实际模型和上面的数字一起记进保存的 meta.txt。流程缺项记成 meta.txt 的 incomplete=。
-# 流程缺项 = completeness.txt 里的缺项,加上 standard/deep 下没看到子代理用量(多半是子代理没有真的运行)。
+# 流程缺项 = completeness.txt 里的缺项。
 #
 # review_dir 里的 record.txt 指向它保存到的记录目录。
 # 保存成功后删掉 store 里的 pending 标记(collect-diff.sh 开始审查时写下的「进行中」标记)。
@@ -144,7 +143,7 @@ fi
 [ -z "$cost" ] || printf '\n消耗:%s\n' "$cost" >> "$dest/report.md"
 [ -z "$model_note" ] || printf '\n模型与配置不一致:%s\n' "$model_note" >> "$dest/report.md"
 
-# 流程缺项:completeness.txt 的缺项,加上 standard/deep 下没看到子代理用量。报告里已经写了的不重复;
+# 流程缺项:completeness.txt 的缺项。报告里已经写了的不重复;
 # 没写的补一行「流程不完整」,并在输出里给出 incomplete=,让宿主在展示的报告里也说明。
 all_issues=""; missing=""
 add_issue() {
@@ -156,15 +155,22 @@ if [ -f "$dir/completeness.txt" ]; then
     case "$line" in INCOMPLETE:*) add_issue "${line#INCOMPLETE: }" ;; esac
   done < "$dir/completeness.txt"
 fi
-case "$(saved depth)" in standard|deep) [ "$(saved usage_subagents)" = none-seen ] && add_issue "没有看到子代理用量" ;; esac
 if [ -n "$all_issues" ]; then
   printf 'incomplete=%s\n' "$all_issues" >> "$dest/meta.txt"
   [ -z "$missing" ] || printf '\n流程不完整:%s\n' "$missing" >> "$dest/report.md"
 fi
 
+# 宿主没有子代理时由主线程顺序执行是合法降级,不算缺项;但这也是唯一能看出子代理可能没跑的信号,要单独说明。
+subagent_note=""
+case "$(saved depth)" in standard|deep)
+  if [ "$(saved usage_subagents)" = none-seen ]; then
+    subagent_note="会话记录里没有看到子代理用量:宿主不支持子代理时属于正常;否则查找和核实可能不是独立完成的"
+    printf '\n独立性存疑:%s\n' "$subagent_note" >> "$dest/report.md"
+  fi ;;
+esac
+
 printf '%s\n' "$stamp" > "$store/latest"
 rm -f "$store/pending"   # 进行中的标记到这里结束
-if [ "$(meta only)" = all ]; then printf '%s\n' "$stamp" > "$store/baseline"; fi
 report="$dest/report.md"
 link="file://$(printf '%s' "$report" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g')"
 
@@ -174,3 +180,4 @@ printf 'dir=%s\n' "$dest"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
 [ -z "$missing" ] || printf 'incomplete=%s\n' "$missing"
 [ -z "$model_note" ] || printf 'model_note=%s\n' "$model_note"
+[ -z "$subagent_note" ] || printf 'subagent_note=%s\n' "$subagent_note"

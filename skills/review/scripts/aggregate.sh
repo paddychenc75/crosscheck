@@ -27,7 +27,7 @@
 #   final.json     报告要用的全部内容:groups(defects/intent/rules,每条带 no 和 status:new|carried)、
 #                  resolved、ignored_by_history、trimmed、counts、notes
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量
-#   rejected.json  没通过的候选,带分数和理由,用于校准阈值
+#   rejected.json  没通过的候选,带分数和理由,用户问起时查看
 # 最后一行输出:passed=… rejected=… new=… carried=… resolved=… trimmed=… ignored_by_history=…
 
 set -eu

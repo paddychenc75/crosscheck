@@ -13,7 +13,7 @@ class RunCheckScript(fixture.ProjectFixture):
     def setUp(self):
         super().setUp()
         self.git(self.repo, "switch", "-q", "feature")
-        self.rd, _ = self.collect()
+        self.rd, _ = self.collect("--depth", "deep")
 
     def run_check(self, *argv, kind="repro", check=True):
         return self.run_script("run-check.sh", self.rd, "--kind", kind, "--", *argv, check=check)
@@ -25,6 +25,20 @@ class RunCheckScript(fixture.ProjectFixture):
                 r = self.run_check(*argv, check=False)
                 self.assertEqual(r.returncode, 2, r.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.rd, "runs")) and os.listdir(os.path.join(self.rd, "runs")))
+
+    def test_only_deep_on_the_reviewed_version_may_run(self):
+        self.assertEqual(self.kv(os.path.join(self.rd, "meta.txt"))["may_run_checks"], "yes")
+        standard, _ = self.collect()
+        self.git(self.repo, "switch", "-q", "main")
+        other, _ = self.collect("feature", "--depth", "deep")
+        for rd in (standard, other):
+            with self.subTest(rd=rd):
+                self.assertEqual(self.kv(os.path.join(rd, "meta.txt"))["may_run_checks"], "no")
+                r = self.run_script("run-check.sh", rd, "--kind", "repro", "--", "python3", "-c", "pass", check=False)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("may_run_checks", r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(rd, "runs")))
+        self.assertIn("没有运行检查:工作区不是被审查的版本", self.run_script("report-lines.sh", other, check=False).stdout)
 
     def test_records_run(self):
         code = "print('===== 2 passed, 1 failed in 0.10s ====='); raise SystemExit(1)"
@@ -39,7 +53,7 @@ class RunVerification(fixture.ProjectFixture):
     def setUp(self):
         super().setUp()
         self.git(self.repo, "switch", "-q", "feature")
-        self.rd, _ = self.collect()
+        self.rd, _ = self.collect("--depth", "deep")
 
     def repro(self, code="raise SystemExit(1)", kind="repro"):
         out = self.run_script("run-check.sh", self.rd, "--kind", kind, "--", "python3", "-c", code).stdout

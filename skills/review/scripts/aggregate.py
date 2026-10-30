@@ -421,7 +421,7 @@ for k, items in groups.items():
         for x in cut: x["status"] = x["status"] + "-trimmed"
     groups[k] = keep + cut
 
-stamp = re.sub(r"\D", "", meta.get("started_at", "")) or "0"
+stamp = meta.get("started_id") or "0"
 seq = 0
 no = 0
 # 编号只属于这次展示的发现;带入的发现身上上次的编号要先去掉,否则"第 2 条"可能对应两条。
@@ -449,6 +449,8 @@ def record(x):
         y.pop("no", None)
     return y
 crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
+for i, x in enumerate(rejected, 1):
+    x["id"] = x.get("id") or "%s-r%d" % (stamp, i)
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
           "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings,

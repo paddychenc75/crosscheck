@@ -1,7 +1,7 @@
 """保存审查记录时补全跨审查识别所需的信息。由 save-review.sh 调用。
 
 用法: python3 review_store.py REVIEW_DIR DEST
-- 给 DEST/findings.json 里每条发现记下它指向的那一行代码(code_line)和上下文哈希(context_hash),
+- 给 DEST/findings.json、rejected.json 里每条记下它指向的那一行代码(code_line)和上下文哈希(context_hash),
   作为跨审查识别「同一个问题」的依据;
 - 增量审查时写 DEST/transitions.json:上次的每条发现去哪了(代码改了、代码没变但这次没报、文件已不在改动里)。
 """
@@ -55,10 +55,12 @@ def transitions(review_dir, findings, prev, src):
 def main(review_dir, dest):
     meta = crlib.read_kv(os.path.join(review_dir, "meta.txt"))
     src = crlib.code_source(meta)
-    fp = os.path.join(dest, "findings.json")
-    findings = crlib.load_json(fp, [])
-    fill_context(findings, src)
-    crlib.save_json(fp, findings)
+    for name in ("findings.json", "rejected.json"):
+        fp = os.path.join(dest, name)
+        items = crlib.load_json(fp, [])
+        fill_context(items, src)
+        crlib.save_json(fp, items)
+    findings = crlib.load_json(os.path.join(dest, "findings.json"), [])
     prev = crlib.load_json(os.path.join(review_dir, "prev-findings.json"), [])
     if meta.get("review_scope") == "incremental" and prev:
         crlib.save_json(os.path.join(dest, "transitions.json"), transitions(review_dir, findings, prev, src))

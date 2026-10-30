@@ -639,6 +639,18 @@ class Isolation(Describe):
         self.assertEqual((meta["review_scope"], meta["prev_review"]), ("full", ""))
         self.assertTrue(os.path.exists(os.path.join(self.home, "reviews", "shop", "branch-feature", "pending")))
 
+    def test_describe_ignores_intent_and_docs_saved_by_review(self):
+        Path(self.repo, "plan.md").write_text("保存的方案\n", encoding="utf-8")
+        self.review("--intent", "保存的意图", "--doc", "plan.md")
+        files = self.reviews_files()
+        _, rd = self.collect()
+        intent = Path(rd, "intent.md").read_text(encoding="utf-8")
+        self.assertNotIn("保存的意图", intent)
+        self.assertNotIn("保存的方案", intent)
+        self.assertFalse(os.path.exists(os.path.join(rd, "intent-arg.txt")))
+        self.assertFalse(os.path.exists(os.path.join(rd, "doc-files.txt")))
+        self.assertEqual(self.reviews_files(), files)
+
     def test_describe_does_not_clear_or_replace_a_review_in_progress(self):
         r = self.review()
         pending = Path(self.home, "reviews", "shop", "branch-feature", "pending")
@@ -654,16 +666,17 @@ class Isolation(Describe):
         rd = self.review_dir(self.review().stdout)
         Path(rd, "report.md").write_text("报告\n")
         Path(rd, "findings.json").write_text("[]")
+        Path(rd, "completeness.txt").write_text("OK\n")
         self.run_script("save-review.sh", rd)
         files = self.reviews_files()
-        self.assertTrue(any(k.endswith("/baseline") for k in files), sorted(files))
+        self.assertTrue(any(k.endswith("/latest") for k in files), sorted(files))
         self.commit(self.repo, {"report/daily.ts": "export const x = 2\n"}, "再改")
         r, drd = self.collect("--intent", "订单列表改为游标分页")
         self.assertIn("scope=full", r.stdout)
         self.assertEqual(self.reviews_files(), files)
         facts = self.load(os.path.join(drd, "describe-facts.json"))
         self.assertIn("report/daily.ts", {h["file"] for h in facts["hunks"]})
-        # review 之后的增量照常:describe 没有动过 baseline
+        # review 之后的增量照常:describe 没有动过审查记录
         r = self.review()
         self.assertNotIn("scope=full", r.stdout)
 

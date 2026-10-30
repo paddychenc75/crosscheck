@@ -58,13 +58,16 @@ class FlowCompleteness(fixture.ProjectFixture):
         with open(os.path.join(saved, "report.md"), encoding="utf-8") as f:
             self.assertIn("流程不完整:缺 finders/reviewer.json", f.read())
 
-    def test_standard_without_seen_subagent_usage_is_flagged(self):
-        self.finders("rules-auditor.json")
+    def test_standard_without_seen_subagent_usage_is_noted_apart_from_gaps(self):
+        self.finders("reviewer.json", "rules-auditor.json")
         self.run_pipeline(self.rd, CAND, SCORE)
         with open(os.path.join(self.rd, "usage.txt"), "w", encoding="utf-8") as f:
             f.write("usage_total_tokens=100\nusage_subagents=none-seen\n")
         r = self.save()
-        self.assertIn("incomplete=缺 finders/reviewer.json；没有看到子代理用量", r.stdout)
+        self.assertNotIn("incomplete=", r.stdout)
+        self.assertIn("subagent_note=会话记录里没有看到子代理用量", r.stdout)
+        with open(os.path.join(r.stdout.split("dir=")[1].splitlines()[0], "report.md"), encoding="utf-8") as f:
+            self.assertIn("独立性存疑:", f.read())
 
     def test_facts_failure_is_noted_and_recorded_as_missing_step(self):
         installed = self.install_plugin()
