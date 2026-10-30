@@ -54,8 +54,8 @@ class Sources(Describe):
         self.config(TEAM)
         _, rd = self.collect(requirement=TICKET)
         _, md = self.describe(rd)
-        self.assertIn("需求单:" + TICKET, md)
-        self.assertNotIn("需求文档", md)   # 没人给,不问也不列
+        self.assertIn("| 需求单 | %s |" % TICKET, md)
+        self.assertIn("| 需求文档 |  |", md)   # 没人给:行还在,值留空
 
     def test_staged_documents_join_intent_and_title(self):
         self.config(TEAM)
@@ -69,23 +69,23 @@ class Sources(Describe):
         self.assertIn("接口支持 cursor 参数(来自 需求文档)", intent)
         self.assertIn("需求单 https://tickets.acme.example.com/story/42 没有读到(没有权限)", r.stdout)
         _, md = self.describe(rd)
-        self.assertIn("- 需求文档:[订单游标分页 PRD](https://docs.acme.example.com/d/abc)", md)
+        self.assertIn("| 需求文档 | [订单游标分页 PRD](https://docs.acme.example.com/d/abc) |", md)
         self.assertIn("内容未读取:没有权限", md)
 
-    def test_local_document_paths_appear_in_description(self):
+    def test_local_documents_are_not_listed_in_description(self):
+        """需求文档只放链接:给的是本地文件时这一行空着(md 和网页版都不写)。"""
         self.write(self.repo, {"plan.md": "# 方案\n", "api.md": "# 接口\n"})
         _, rd = self.collect("--doc", "plan.md", "--doc", "api.md")
         _, md = self.describe(rd)
-        self.assertIn("- 需求文档:plan.md、api.md", md)
-        self.assertIn("plan.md、api.md", Path(self.out_dir(), "describe.html").read_text(encoding="utf-8"))
+        self.assertIn("| 需求文档 |  |", md)
 
-    def test_local_documents_show_only_the_file_name(self):
-        """本地需求文档只写文件名,描述里不出现本机的绝对路径。"""
+    def test_local_documents_never_leak_absolute_paths(self):
+        """本地需求文档不写进描述,更不出现本机的绝对路径。"""
         self.write(self.repo, {"docs/spec.md": "# 方案\n"})
         _, rd = self.collect("--doc", os.path.join(self.repo, "docs", "spec.md"))
         _, md = self.describe(rd)
         page = Path(self.out_dir(), "describe.html").read_text(encoding="utf-8")
-        self.assertIn("- 需求文档:spec.md\n", md)
+        self.assertIn("| 需求文档 |  |", md)
         for text in (md, page):
             self.assertNotIn(self.repo, text)
             self.assertNotIn(self.tmp, text)
@@ -98,7 +98,7 @@ class Sources(Describe):
     def test_no_criteria_means_no_requirements_section(self):
         _, rd = self.collect()
         _, md = self.describe(rd)
-        self.assertIn("需求单:未提供(作者跳过)", md)
+        self.assertIn("| 需求单 |  |", md)
         self.assertNotIn("需求对照", md)
         self.assertNotIn("需求对照", Path(self.out_dir(), "describe.html").read_text(encoding="utf-8"))
 
@@ -141,7 +141,7 @@ class RequirementQuestion(Describe):
                 self.assertTrue(os.path.exists(os.path.join(rd, "describe-facts.json")))
         _, rd = self.collect("--source", "requirement=none:hotfix", requirement=None)
         _, md = self.describe(rd)
-        self.assertIn("需求单:无需求单:hotfix", md)
+        self.assertIn("| 需求单 |  |", md)
 
     def test_document_is_not_asked_unless_describe_ask_lists_it(self):
         r, rd = self.collect()                          # review.ask 里有 doc:review 会问,describe.ask 没有:describe 不问
@@ -149,7 +149,7 @@ class RequirementQuestion(Describe):
         doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
         self.assertEqual(doc["status"], "missing")
         _, md = self.describe(rd)
-        self.assertNotIn("需求文档", md)
+        self.assertIn("| 需求文档 |  |", md)
         r = self.run_script("collect-diff.sh", "--base", "main", "--source", "requirement=skip", cwd=self.repo)
         self.assertIn("SOURCES_MISSING: 需求文档", r.stdout)   # review 的问法不变
 
@@ -162,7 +162,7 @@ class RequirementQuestion(Describe):
         self.assertNotIn("SOURCES_", r.stdout)               # 需求单没配工具:不问
         self.assertTrue(os.path.exists(os.path.join(rd, "describe-facts.json")))
         _, md = self.describe(rd)
-        self.assertNotIn("需求单", md)                        # 描述里也不写这一项
+        self.assertIn("| 需求单 |  |", md)                   # 没配工具:行还在,值留空
         self.config("describe.ask = requirement, doc\n")      # 两个工具都没配:什么都不问
         r, _ = self.collect(requirement=None)
         self.assertNotIn("SOURCES_", r.stdout)
@@ -208,7 +208,7 @@ class RequirementQuestion(Describe):
                 requirement = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "requirement")
                 self.assertEqual(requirement["status"], "unasked")
                 _, md = self.describe(rd)
-                self.assertIn("需求单:未提供(非交互运行,没有询问)", md)
+                self.assertIn("| 需求单 |  |", md)
                 self.assertNotIn("需求对照", md)
                 self.assertNotIn(TICKET, md)            # 没问就不编:提交说明里的链接不当作用户的回答
         self.env.pop("CR_NONINTERACTIVE")
@@ -273,15 +273,69 @@ class AnalystCheck(Describe):
         self.assertIn("STATUS: failed", out)
 
     def test_only_known_fields_are_kept(self):
-        """analysis.json 只有一句话、需求对照、改了什么和怎么验证;回复里多写的字段不进去。"""
+        """analysis.json 只有一句话、需求对照、改了什么、怎么验证和链接;回复里多写的字段不进去。"""
         _, a = self.check({"summary": {"text": "改成游标分页", "quote": "订单列表改为游标分页"},
                            "groups": [{"title": "接口", "hunks": self.hunks[:1]}], "risks": ["x"]})
-        self.assertEqual(sorted(a), ["changes", "dropped", "requirements", "status", "summary", "verify"])
+        self.assertEqual(sorted(a), ["changes", "dropped", "links", "requirements", "status", "summary", "verify"])
         text = Path(fixture.DESCRIBE_SCRIPTS, "..", "roles", "analyst.md").read_text(encoding="utf-8")
         self.assertNotIn("groups", text)
         for phrase in ("不能出现任何对错、风险或建议", "已实现、已覆盖、没问题、无风险、建议、可能出错、行为变化这类结论",
                        "diff.patch", "skipped.patch", '"changes"', '"verify"', '"anchors"'):
             self.assertIn(phrase, text)
+
+    def test_change_sentence_length_limit(self):
+        for size in (60, 61):
+            with self.subTest(size=size):
+                out, a = self.check({"changes": [dict(self.CHANGE, text="改" * (size - len("listOrders")) + "`listOrders`", anchors=["listOrders"])]})
+                self.assertEqual(len(a["changes"]), 1 if size == 60 else 0)
+                if size == 61:
+                    self.assertIn("超过 60 字", out)
+
+    def test_too_many_code_names_in_one_sentence_is_dropped(self):
+        """一句话里反引号标出的代码名最多 4 个,再多就是在罗列字段,整条删掉。"""
+        c = dict(self.CHANGE, text="改了 `listOrders` `cursor` `aaa` `bbb` `ccc`", anchors=["listOrders", "cursor", "aaa", "bbb", "ccc"])
+        out, a = self.check({"changes": [c]})
+        self.assertEqual(a["changes"], [])
+        self.assertIn("反引号里的代码名超过 4 个", out)
+
+    def test_group_of_only_localization_files_is_left_to_the_script(self):
+        """只含多语言文案文件的组不收(脚本汇总成一条),不算被删,也不占序号。"""
+        self.write(self.repo, {"res/en.lproj/Localizable.strings": '"a" = "A";\n'})
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-qm", "文案")
+        _, rd = self.collect("--source", "doc=skip", "--intent", "订单列表改为游标分页,解决翻页超时")
+        hunks = self.load(os.path.join(rd, "describe-facts.json"))["hunks"]
+        strings = next(h["id"] for h in hunks if h["file"].endswith("Localizable.strings"))
+        Path(rd, "analyst.json").write_text(json.dumps({"changes": [
+            {"title": "文案", "text": "新增英文文案", "hunks": [strings], "anchors": ["Localizable"]}, self.CHANGE]}, ensure_ascii=False), encoding="utf-8")
+        out = self.run_describe("analysis_check.py", rd).stdout
+        a = self.load(os.path.join(rd, "analysis.json"))
+        self.assertEqual([c["text"] for c in a["changes"]], [self.CHANGE["text"]])
+        self.assertNotIn("DROPPED", out)
+        _, md = self.describe(rd)
+        self.assertIn("\n1. `listOrders` 改收 `cursor` 参数\n2. 多语言文案 1 个文件(en)\n", md)
+
+    def test_links_must_appear_in_the_material(self):
+        """需求文档、设计稿链接:必须是网页链接、原样出现在需求材料里,类别只有 doc 和 design;对不上的整条删掉。"""
+        _, a = self.check({"links": [
+            {"kind": "doc", "url": TICKET, "label": "需求单里的链接"},
+            {"kind": "design", "url": "https://www.figma.com/file/not-in-material", "label": "编的"},
+            {"kind": "design", "url": "ftp://x/y", "label": "不是网页"},
+            {"kind": "wiki", "url": TICKET, "label": "类别不对"}]})
+        self.assertEqual(a["links"], [{"kind": "doc", "url": TICKET, "label": "需求单里的链接"}])
+        whys = sorted(x["why"] for x in a["dropped"])
+        self.assertEqual(len(whys), 3)
+        self.assertTrue(any("原文" in w for w in whys) and any("网页链接" in w for w in whys) and any("类别" in w for w in whys))
+
+    def test_link_prefixes_and_joined_lines_are_rejected(self):
+        with Path(self.rd, "intent.md").open("a", encoding="utf-8") as f:
+            f.write("\n文档 https://docs.example.com/full-name\n拆开的链接 https://split.example.com/\npart\n")
+        out, a = self.check({"links": [
+            {"kind": "doc", "url": "https://docs.example.com/full"},
+            {"kind": "doc", "url": "https://split.example.com/part"},
+            {"kind": "doc", "url": "https://docs.example.com/full-name"}]})
+        self.assertEqual([x["url"] for x in a["links"]], ["https://docs.example.com/full-name"])
+        self.assertEqual(len(a["dropped"]), 2)
 
     CHANGE = {"title": "游标分页", "text": "`listOrders` 改收 `cursor` 参数", "hunks": ["H1"], "anchors": ["listOrders", "cursor"]}
     VERIFY = {"change": 1, "text": "订单列表翻页 → 请求里带 `cursor`", "hunks": ["H1"], "anchors": ["cursor"]}
@@ -361,7 +415,7 @@ class AnalystCheck(Describe):
         self.assertEqual([v["change"] for v in a["verify"]], [1, 2])
         self.assertEqual(a["summary"]["text"], "改成游标分页")
         out, md = self.describe(self.rd)
-        self.assertIn("1. `listOrders` 改收 `cursor` 参数(H1)\n2. 新增配置 `enabled`(H2)\n", md)
+        self.assertIn("1. `listOrders` 改收 `cursor` 参数\n2. 新增配置 `enabled`\n", md)
 
     def test_criteria_must_be_in_intent(self):
         out, a = self.check({"requirements": [{"criterion": "接口返回 next_cursor", "hunks": self.hunks[:1]}]})
@@ -372,7 +426,7 @@ class AnalystCheck(Describe):
         out = self.run_describe("analysis_check.py", self.rd).stdout
         self.assertIn("STATUS: failed", out)
         out, md = self.describe(self.rd)
-        self.assertIn("**订单列表改为游标分页,解决翻页超时**", md)
+        self.assertIn("### 改了什么\n订单列表改为游标分页,解决翻页超时\n", md)
 
     def test_injected_instructions_in_material_are_not_followed(self):
         """材料里的指令只是数据:analyst 即使复述了也过不了校验,脚本自己不执行材料里的任何东西。"""
@@ -393,12 +447,13 @@ class Note(Describe):
 
     def test_markdown_has_facts_links_and_no_conclusions(self):
         out, md = self.describe(self.rd, "--tested", "本地跑了 jest")
-        self.assertTrue(md.startswith("**订单列表改为游标分页**\n"))
+        self.assertTrue(md.startswith("| 资料 | 链接 |\n|---|---|\n"))
+        self.assertIn("### 改了什么\n订单列表改为游标分页\n", md)
         self.assertTrue(md.endswith("### CR负责人:\n\n@xx\n"))
         for word in ("<!--", "crosscheck", "在本地生成", "基于提交"):
             self.assertNotIn(word, md)
-        self.assertIn("需求单:https://tickets.acme.example.com/story/42", md)
-        self.assertNotIn("需求文档", md)          # 跳过的需求文档不列
+        self.assertIn("| 需求单 | https://tickets.acme.example.com/story/42 |", md)
+        self.assertIn("| 需求文档 |  |", md)          # 跳过的需求文档:行还在,值留空
         self.assertIn("签名变化 `listOrders`", md)
         self.assertIn("diff 外 1 处调用", md)   # 调用方位置只在完整版里列
         self.assertIn("- 执行记录:作者提供:本地跑了 jest", md)
@@ -476,16 +531,16 @@ class Note(Describe):
         Path(self.rd, "analysis.json").write_text(json.dumps({"summary": {"text": "起草的一句话"}}, ensure_ascii=False), encoding="utf-8")
         out, md = self.describe(self.rd)
         self.assertEqual(out.count("AI 按需求材料起草"), 1)
-        self.assertIn("**起草的一句话**", md)
+        self.assertIn("### 改了什么\n起草的一句话\n", md)
 
     def test_changes_section_and_other_group(self):
         """改了什么:analyst 的组在前,没被任何组引用的非测试代码块由脚本补一条「其他」;有 AI 写的验证就提醒核对。"""
         _, md = self.describe(self.rd)
-        self.assertIn("### 改了什么\n1. 改动:2 处(orders.ts、app.yml)\n", md)    # analyst 没写:全部列在一条里
+        self.assertIn("### 改了什么\n订单列表改为游标分页\n1. 改动:2 处(orders.ts、app.yml)\n", md)    # analyst 没写:全部列在一条里;一句话在最前
         Path(self.rd, "analyst.json").write_text(json.dumps({"changes": [AnalystCheck.CHANGE], "verify": [AnalystCheck.VERIFY]},
                                                             ensure_ascii=False), encoding="utf-8")
         out, md = self.describe(self.rd)
-        self.assertIn("### 改了什么\n1. `listOrders` 改收 `cursor` 参数(H1)\n2. 其他:1 处(app.yml)\n", md)
+        self.assertIn("### 改了什么\n订单列表改为游标分页\n1. `listOrders` 改收 `cursor` 参数\n2. 其他:1 处(app.yml)\n", md)
         self.assertIn("- 订单列表翻页 → 请求里带 `cursor`\n", md)
         self.assertIn("NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对", out)
         self.assertLess(md.index("### 改了什么"), md.index("### 影响面"))
@@ -505,7 +560,6 @@ class Note(Describe):
                 page = Path(self.out_dir(), "describe.html").read_text(encoding="utf-8")
                 for text in (md, page):
                     self.assertNotIn("可能相关的测试文件", text)
-                    self.assertIn("由代码推断,未执行", text)
                 self.assertIn("accepts a cursor", page)
                 self.assertIn('<code>expect(listOrders({ cursor: &quot;a&quot; })).toBeTruthy()</code>', page)
                 self.assertNotIn("accepts a cursor", md)
@@ -551,8 +605,10 @@ class GitHubContext(fixture.Base):
         out = Path(self.home, "describe", "gh")
         md = next(out.glob("*/describe.md")).read_text(encoding="utf-8")
         self.assertIn("https://github.com/acme/gh/issues/7", md)
-        self.assertIn("- a.ts 内容为 b(来自 #7):", md)
-        self.assertIn("https://github.com/acme/gh/blob/", next(out.glob("*/describe.html")).read_text(encoding="utf-8"))
+        page = next(out.glob("*/describe.html")).read_text(encoding="utf-8")
+        self.assertNotIn("需求对照", md)         # 需求对照只在网页版
+        self.assertIn("a.ts 内容为 b(来自 #7)", page)
+        self.assertIn("https://github.com/acme/gh/blob/", page)
         calls = Path(self.ghmock, "calls.log")
         if calls.exists():
             for line in calls.read_text(encoding="utf-8").splitlines():
@@ -707,7 +763,7 @@ class Packaging(Describe):
             self.assertIn(phrase, desc)
         self.assertTrue((self.skill_dir() / "agents" / "openai.yaml").is_file())
         self.assertFalse(re.search(r"PR/MR 报告|MR 说明", text), "对外叫法统一为「PR/MR 描述」")
-        for phrase in ("改了什么", "影响面", "怎么验证", "由代码推断,未执行"):
+        for phrase in ("改了什么", "影响面", "怎么验证"):
             self.assertIn(phrase, desc)
         self.assertNotIn("请重点看", desc)
         for old in ("阅读顺序", "需注意", "可跳过", "审查量", "可能相关的测试", "不下结论", "可能值得重点看", "groups", "--untested",
@@ -718,7 +774,7 @@ class Packaging(Describe):
         text = (self.skill_dir() / "SKILL.md").read_text(encoding="utf-8")
         step = text.split("### 1. 采集")[1].split("### 2.")[0]
         self.assertLess(step.index("先问资料链接"), step.index("collect.sh"))
-        for phrase in ("describe.ask", "requirement=none", "requirement=skip", "非交互", "未提供(非交互运行,没有询问)"):
+        for phrase in ("describe.ask", "requirement=none", "requirement=skip", "非交互", "表格对应值留空"):
             self.assertIn(phrase, step)
         self.assertIn("不问「怎么验证的」", step)
 

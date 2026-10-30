@@ -724,7 +724,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         </div>
 
         <div class="wpane tbody" id="dTerm" role="tabpanel" aria-labelledby="dTabTerm" tabindex="0">
-          <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck 0.3.0</span><span class="muted">~/demo-shop · main</span></div>
+          <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck 0.3.1</span><span class="muted">~/demo-shop · main</span></div>
 
           <div class="tterm" data-track="review">
             <div class="tc" data-scene="0">
@@ -964,7 +964,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
           <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
-          <li><b>描述单独成技能，只在本地生成：</b>review 只回答“有没有问题”，描述回答“这次改了什么、影响哪些地方、怎么验证”，读者和时机都不同，所以拆成 <code>/describe</code>，review 不带描述。描述在一句话和基本信息之后先写“改了什么”（按功能分组，每组带代码块编号，锚点必须出现在所引代码块的改动行里，没归组的代码块补一条“其他”），再写影响面（接口、迁移、配置与依赖、资源、函数签名，各层一行，删除优先，写明检查范围，认不出的语言写“未检查”而不是“未发现”），怎么验证每组一行“入口 → 能看到什么”并标注“由代码推断，未执行”，没有可写的就整段不出现，不问作者“怎么验证的”。描述只列事实和链接、不下结论，不发布、不改平台上的描述，由作者自己复制粘贴；采集直接调用 review 的脚本（origin 绑定、只读、基准问答一致），描述目录不放在 <code>reviews/</code> 下，采集后恢复“进行中”标记和需求来源记录，所以两者互不依赖、互不影响。开始前问哪些资料由 <code>describe.ask</code> 定（默认需求单），要配了对应的读取工具才问，每次生成都问一次，和 review 的 <code>review.ask</code> 互不影响。</li>
+          <li><b>描述单独成技能，只在本地生成：</b>review 只回答“有没有问题”，描述回答“这次改了什么、影响哪些地方、怎么验证”，读者和时机都不同，所以拆成 <code>/describe</code>，review 不带描述。描述顶部用表格保留需求单、需求文档、设计稿三行，没有链接就留空，本地文档不写入；可从需求材料里寻找文档和设计稿链接，并核对链接确实出现在材料原文中。接着写“改了什么”，先放一句话总结，再按功能分组，只写文字，代码块编号和出处保留在网页版；锚点必须出现在所引代码块的改动行里，多语言文案由脚本按文件数和语言汇总，没归组的非资源代码块补一条“其他”，文件较多时按目录汇总，再写影响面（接口、迁移、配置与依赖、资源、函数签名，各层一行，删除优先，写明检查范围，认不出的语言写“未检查”而不是“未发现”），怎么验证每组一行“入口 → 能看到什么”，没有可写的就整段不出现，不问作者“怎么验证的”；需求对照和规模保留在网页版，合入状态和采集提示只在终端显示。描述只列事实和链接、不下结论，不发布、不改平台上的描述，由作者自己复制粘贴；采集直接调用 review 的脚本（origin 绑定、只读、基准问答一致），描述目录不放在 <code>reviews/</code> 下，采集后恢复“进行中”标记和需求来源记录，所以两者互不依赖、互不影响。开始前问哪些资料由 <code>describe.ask</code> 定（默认需求单），要配了对应的读取工具才问，每次生成都问一次，和 review 的 <code>review.ask</code> 互不影响。</li>
           <li><b>脚本、角色、编排三层：</b>脚本做有唯一答案的事（取 diff、算行范围、装配规则、校验、过滤排序、增量、调平台 API），角色做需要判断的事，<code>SKILL.md</code> 只负责把你的话翻译成选项、调度角色、按格式出报告。过滤、排序、增量、编号原来写在 <code>SKILL.md</code> 里让 agent 执行，现在都在脚本里，结果可复现、能写测试。</li>
           <li><b>脚本入口是 sh，实现是 python3：</b>每个 <code>.sh</code> 只检查参数后交给同名的 <code>.py</code> 模块，一个模块只做一件事，公共函数只在 <code>crlib.py</code> 有一份。核心流程需要 python3 3.8+（只用标准库），没有时 <code>collect-diff.sh</code> 一开始就停下并提示安装；规则装配、依据校验、汇总都涉及 JSON 和文本处理，用 awk 和 sed 拼既难读也容易出错。<code>git</code> 必需，<code>gh</code> / <code>glab</code> 只在对应功能里才需要。</li>
           <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，PR/MR 描述在 <code>skills/describe/</code> 下（采集直接调用 review 的脚本，不依赖审查结果），规则维护在 <code>skills/improve/</code> 下，三者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>

@@ -1,15 +1,18 @@
-**订单列表改为游标分页**
-- 需求单:[订单游标分页](https://tickets.acme.example.com/story/42)
-- 规模:2 个文件 +5/−2 · `feature` → `main`
+| 资料 | 链接 |
+|---|---|
+| 需求单 | [订单游标分页](https://tickets.acme.example.com/story/42) |
+| 需求文档 |  |
+| 设计稿 |  |
 ### 改了什么(另有 7 处未归组,见完整版)
-1. 改动 1 的 `listOrders`(H1)
-2. 改动 2 的 `listOrders`(H1)
-3. 改动 3 的 `listOrders`(H1)
-4. 改动 4 的 `listOrders`(H1)
-5. 改动 5 的 `listOrders`(H1)
-6. 改动 6 的 `listOrders`(H1)
-7. 改动 7 的 `listOrders`(H1)
-8. 改动 8 的 `listOrders`(H1)
+订单列表改为游标分页
+1. 改动 1 的 `listOrders`
+2. 改动 2 的 `listOrders`
+3. 改动 3 的 `listOrders`
+4. 改动 4 的 `listOrders`
+5. 改动 5 的 `listOrders`
+6. 改动 6 的 `listOrders`
+7. 改动 7 的 `listOrders`
+8. 改动 8 的 `listOrders`
 ### 影响面
 - 接口:删除路由 `GET /orders/legacy`(`api/routes.ts`);新增路由 `POST /orders/export`(`api/routes.ts:4`) 另 1 项
 - 数据库与迁移:删除迁移 `db/001.sql`;新增迁移 `db/002.sql`
@@ -19,13 +22,11 @@
 ### 请重点看
 1. `api/orders.ts:1` — 问题1
 2. `api/orders.ts:2` — 问题2
-### 怎么验证(由代码推断,未执行)
+### 怎么验证
 - 请求 `POST /orders/export`(`api/routes.ts:4`)
 - 命令行带上 `--cursor`(`bin/cli.ts:8`)
 - 定时任务 `0 3 * * *` 到点触发(`jobs/nightly.ts:2`)
 - 执行记录:作者提供:本地跑了 jest
-### 需求对照
-- 6 条验收标准,1 条标出了对应改动,逐条见完整版
 ### CR负责人:
 
 @xx

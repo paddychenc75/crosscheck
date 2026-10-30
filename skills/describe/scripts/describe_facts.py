@@ -50,7 +50,7 @@ PROJECT_CONFIG = re.compile(r'\.(plist|entitlements|xcconfig|pbxproj)$', re.I)
 DEP_EXTRA = re.compile(r'(^|/)(Podfile(\.lock)?|Package\.swift|Package\.resolved|pubspec\.(yaml|lock)|Cargo\.(toml|lock)|'
                        r'Cartfile(\.resolved)?|[^/]+\.csproj|packages\.config)$')
 RESOURCE_DIR = re.compile(r'^(.*?[^/]+\.(?:xcassets|lproj|bundle))/|^(.*?(?:^|/)res/(?:drawable|mipmap|values|layout|raw|font)[^/]*)/')
-RESOURCE_FILE = re.compile(r'\.(strings|stringsdict|xib|storyboard|png|jpe?g|gif|webp|svg|ttf|otf|mp3|mp4)$', re.I)
+RESOURCE_FILE = re.compile(r'\.(strings|stringsdict|xcstrings|xib|storyboard|png|jpe?g|gif|webp|svg|ttf|otf|mp3|mp4)$', re.I)
 # 不在语言识别范围的源码扩展名 → 读者认得的语言名;没列出的用扩展名本身
 LANG_NAME = {'.swift': 'Swift', '.m': 'Objective-C', '.mm': 'Objective-C', '.h': 'C/Objective-C 头文件', '.dart': 'Dart',
              '.rs': 'Rust', '.cs': 'C#', '.rb': 'Ruby', '.php': 'PHP', '.c': 'C', '.cc': 'C++', '.cpp': 'C++', '.hpp': 'C++',
@@ -66,6 +66,24 @@ def resource_of(p):
     if m:
         return m.group(1) or m.group(2)
     return p if RESOURCE_FILE.search(p) else None
+
+
+# 多语言文案只认文案文件本身;同目录里的 storyboard、colors.xml、styles.xml、图片等是其他资源
+I18N_FILE = re.compile(r'\.strings(?:dict)?$|\.xcstrings$|(?:^|/)res/values[^/]*/(?:strings|plurals|arrays)[^/]*\.xml$', re.I)
+# Android 的 values-night、values-v21 这类不是语言;iOS 的 Base.lproj 也不是
+LANG_DIR = re.compile(r'([^/]+)\.lproj(?:/|$)|/values-((?!car(?:/|$))[a-z]{2,3}(?:-r[A-Z]{2})?|b\+[A-Za-z+]+)(?:/|$)')
+
+
+def is_i18n(p):
+    """多语言文案文件(.strings、.stringsdict、.xcstrings、Android 的 strings/plurals/arrays.xml);描述里由脚本按文件数汇总,不逐条写。"""
+    return bool(I18N_FILE.search(p or ''))
+
+
+def lang_of(p):
+    """从路径认语言目录(en.lproj → en,values-zh-rCN → zh-rCN);Base.lproj、values-night 这类不是语言,返回 None。"""
+    m = LANG_DIR.search(p or '')
+    lang = (m.group(1) or m.group(2)) if m else None
+    return None if lang == 'Base' else lang
 
 
 def path_rule(p):
@@ -202,7 +220,7 @@ class Facts(af.Facts):
             change = {'added': 'added', 'deleted': 'removed'}.get(st, 'modified')
             rule = path_rule(p) if not af.is_test(p) else None
             if rule == 'resource':
-                resources.setdefault(resource_of(p), []).append(change)
+                resources.setdefault(resource_of(p), []).append((p, change))
                 continue
             if rule == 'project_config':
                 out.append({'type': 'project_config', 'change': change, 'name': p, 'file': p, 'line': None,
@@ -230,11 +248,13 @@ class Facts(af.Facts):
         in_patch = {f['path'] for f in self.files}
         for p, r in self.skipped:
             if r == 'binary' and resource_of(p) and p not in in_patch:
-                resources.setdefault(resource_of(p), []).append('modified')
-        for p, changes in resources.items():
-            change = changes[0] if len(set(changes)) == 1 else 'modified'
-            out.append({'type': 'resource', 'change': change, 'name': p, 'file': p, 'line': None, 'files': len(changes),
-                        'detail': '资源 %s(%d 个文件)' % (p, len(changes))})
+                resources.setdefault(resource_of(p), []).append((p, 'modified'))
+        for p, entries in resources.items():
+            changes = {c for _, c in entries}
+            change = changes.pop() if len(changes) == 1 else 'modified'
+            out.append({'type': 'resource', 'change': change, 'name': p, 'file': p, 'line': None, 'files': len(entries),
+                        'paths': [{'path': f, 'change': c} for f, c in entries],   # 容器里实际改的文件,影响面据此分类
+                        'detail': '资源 %s(%d 个文件)' % (p, len(entries))})
         verb = {'added': '新增', 'removed': '删除', 'body_only': '修改'}
         for s in symbols:
             if s['kind'] == 'config_key' and s['change'] in verb:

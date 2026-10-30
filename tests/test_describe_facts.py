@@ -177,6 +177,21 @@ class AttentionAndSkip(Facts):
         self.assertEqual(data["coverage"], {"checked": 0, "unchecked": [{"lang": "Swift", "files": 1}]})
         self.assertNotIn("batches", data)
 
+    def test_resource_attention_lists_actual_files_per_container(self):
+        """同一个容器里文案和其他资源混着改:attention 记下容器里实际改的文件,影响面据此分类。"""
+        res = "app/src/main/res/values-zh"
+        _, data = self.feature("mixed_res", {
+            res + "/strings.xml": "<resources></resources>\n",
+            res + "/colors.xml": "<resources></resources>\n",
+        }, {
+            res + "/strings.xml": '<resources><string name="a">A</string></resources>\n',
+            res + "/colors.xml": '<resources><color name="c">#fff</color></resources>\n',
+        })
+        item = next(a for a in data["attention"] if a["type"] == "resource")
+        self.assertEqual((item["name"], item["files"]), (res, 2))
+        self.assertEqual(sorted((x["path"], x["change"]) for x in item["paths"]),
+                         [(res + "/colors.xml", "modified"), (res + "/strings.xml", "modified")])
+
     def test_coverage_counts_checked_files(self):
         _, data = self.feature("cov", {"src/a.ts": "export const a = 1\n", "src/b.swift": "let b = 1\n"},
                                {"src/a.ts": "export const a = 2\n", "src/b.swift": "let b = 2\n"})

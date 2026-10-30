@@ -1,7 +1,7 @@
 ---
 name: describe
 allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git rev-parse *), Bash(git ls-files *), Bash(git cat-file *), Bash(git merge-base *)
-description: 生成 PR/MR 描述(pull request / merge request description):按改动和需求材料写出一句话、基本信息、改了什么(按功能分组,每组带代码块编号)、影响面(接口、迁移、配置与依赖、资源、函数签名,写明检查范围)、怎么验证(入口 → 能看到什么,标注「由代码推断,未执行」)和需求对照,只列事实和链接,不写对错、风险和建议。支持当前分支、提交范围,以及 GitHub PR / GitLab MR 链接或编号。只在本地生成 describe.md 和网页版,由用户自己复制粘贴,不发布、不修改平台上的描述。当用户说「写 PR 描述」「写 MR 描述」「生成描述」「帮我写一下这个 PR/MR 的说明」时使用。不做代码审查,审查用 review。
+description: 生成 PR/MR 描述(pull request / merge request description):按改动和需求材料写出顶部表格(需求单、需求文档、设计稿)、改了什么(先一句话,再按功能分组,每组一句文字)、影响面(接口、迁移、配置与依赖、资源、函数签名,写明检查范围)、怎么验证(入口 → 能看到什么),只列事实和链接,不写对错、风险和建议。支持当前分支、提交范围,以及 GitHub PR / GitLab MR 链接或编号。只在本地生成 describe.md 和网页版,由用户自己复制粘贴,不发布、不修改平台上的描述。当用户说「写 PR 描述」「写 MR 描述」「生成描述」「帮我写一下这个 PR/MR 的说明」时使用。不做代码审查,审查用 review。
 ---
 
 # describe — PR/MR 描述
@@ -13,7 +13,7 @@ description: 生成 PR/MR 描述(pull request / merge request description):按�
 `skill_dir` 是本文件所在目录的物理绝对路径(符号链接安装时先解析链接),`plugin_dir` 是 `<skill_dir>/../..`。采集直接复用 `<plugin_dir>/skills/review/scripts/` 的脚本,安装时必须保留 `<plugin_dir>/config/`、`<plugin_dir>/scripts/`、`<plugin_dir>/skills/review/` 和本目录的布局;缺少时提示重新完整安装并停止。命令中的路径替换为实际路径后用双引号包住。
 
 - `scripts/` — `collect.sh`(采集)、`describe.sh`(校验 analyst 的回复并渲染)
-- `roles/analyst.md` — 起草一句话、改了什么、怎么验证和需求对照的角色
+- `roles/analyst.md` — 起草一句话、改了什么、怎么验证和需求对照的角色(需求对照只进网页版)
 - `templates/` — `describe.md`(贴进 PR/MR 描述的那份)、`describe.html`(完整版)
 
 ## 用户怎么说
@@ -28,7 +28,7 @@ description: 生成 PR/MR 描述(pull request / merge request description):按�
 | `--tested "…"`(给 `describe.sh`,可选) | 用户主动说「本地跑过 jest,手工测了翻页」:原样写进执行记录;没给就没有执行记录这一行 |
 | `--focus '<JSON>'`(给 `describe.sh`) | 「请评审人重点看 api/orders.ts:42 的兼容期」→ `[{"where":"api/orders.ts:42","ask":"兼容期够不够"}]`,最多 3 条;只有作者点名才有「请重点看」 |
 
-`--tested`、`--focus` 记在这个目标的描述目录里,之后重新生成时沿用,传空字符串清除。不问「怎么验证的」:验证步骤由 analyst 依据代码起草、脚本从代码认出入口,都标「由代码推断,未执行」。
+`--tested`、`--focus` 记在这个目标的描述目录里,之后重新生成时沿用,传空字符串清除。不问「怎么验证的」:验证步骤由 analyst 依据代码起草、脚本从代码认出入口。
 
 ## 只读与不发布
 
@@ -51,7 +51,7 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
 
 它调用 review 的 `collect-diff.sh`(总是全量、不分批),输出原样转出,最后一行是材料目录 `dir`;材料齐全时还写出 `describe-facts.json`(代码块摘要、影响面、检查范围、入口、新增用例、调用方)。要问的类别没带 `--source <类别>=…` 且不是非交互运行时,它输出 `SOURCES_MISSING: 需求单 …`(或 `需求文档 …`):按上面问用户,再带答案重新运行。运行后它把审查记录里的 `pending` 和来源记录恢复原样,描述不影响 review 之后问不问需求单。
 
-非交互运行(`claude -p`、`codex exec`、CI)从第一次就带 `--non-interactive`:不提问、不编造,需求单记为未询问,描述里写「未提供(非交互运行,没有询问)」,退出码照常。
+非交互运行(`claude -p`、`codex exec`、CI)从第一次就带 `--non-interactive`:不提问、不编造,需求单记为未询问,没有资料链接时表格对应值留空,退出码照常。
 
 出现 `BASE_UNSET:`、`NEED_CODE_HOST:`、`BASE_FAILED:` 或 `NOTE:`、`HINT:` 时,按 `<plugin_dir>/skills/review/references/collection-protocol.md` 处理:协议里的 `<skill_dir>` 指 `<plugin_dir>/skills/review`,提前结束时运行 `<plugin_dir>/skills/review/scripts/check-state.sh <dir>`,重新运行时用本技能的 `collect.sh` 并保留原参数。问询合并成一轮,不问「怎么验证的」。`EMPTY` 时运行 check-state,告诉用户没有可描述的改动,然后停止。
 
@@ -73,7 +73,7 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
 sh <skill_dir>/scripts/describe.sh <dir> [--tested "<作者给的执行记录>"] [--focus '<JSON>']
 ```
 
-它先校验 `analyst.json`(分批时是各个 `analyst-<id>.json`,按文件名合并):引文对不上需求材料、含结论性用语、代码块编号不存在、锚点不在所引代码块的改动行里、反引号里的词不是锚点、验证条目对应的改动组不存在、验收标准不在 `intent.md` 里的,整条删掉(`DROPPED:`),不要自己补回。然后写出 `describe.md`(正文约 30 行,仅作参考,不含负责人固定填写区,超出时脚本按固定顺序裁剪:其他一条并进标题、资源明细改成一行汇总、需求对照改成一行汇总、验证只留 3 行、去掉段落空行,裁完仍超出也照样输出;改了什么的分组不裁)和 `describe.html`。「改了什么」里没被任何一组引用的非测试代码块,脚本补一条「其他」。「影响面」写明检查范围:脚本认不出的语言写成「未检查」,不写「无影响」。「怎么验证」每组一行「入口 → 能看到什么」,最多 5 行,脚本认出的路由、命令行、定时任务入口排在前面;没有可写的就整段不出现;有 analyst 起草的条目时输出 `NOTE:` 提醒核对。需求单里没有验收标准时不出现「需求对照」。
+它先校验 `analyst.json`(分批时是各个 `analyst-<id>.json`,按文件名合并):引文对不上需求材料、含结论性用语、代码块编号不存在、锚点不在所引代码块的改动行里、反引号里的词不是锚点、验证条目对应的改动组不存在、验收标准不在 `intent.md` 里、链接不是需求材料中完整出现的网页链接,整条删掉(`DROPPED:`),不要自己补回。然后写出 `describe.md`(正文约 30 行,仅作参考,不含负责人固定填写区,超出时脚本按固定顺序裁剪:其他一条并进标题、资源明细改成一行汇总、验证只留 3 行、去掉段落空行,裁完仍超出也照样输出;改了什么的分组不裁)和 `describe.html`。「改了什么」里多语言文案文件脚本按文件数汇总成一条(只含文案文件的组不收);没被任何一组引用的其他非测试代码块,脚本补一条「其他」,文件多时按所在目录汇总。「影响面」写明检查范围:脚本认不出的语言写成「未检查」,不写「无影响」。「怎么验证」每组一行「入口 → 能看到什么」,最多 5 行,脚本认出的路由、命令行、定时任务入口排在前面;没有可写的就整段不出现;有 analyst 起草的条目时输出 `NOTE:` 提醒核对。需求单里没有验收标准时不出现「需求对照」。
 
 ### 4. 交付
 

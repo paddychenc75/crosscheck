@@ -27,7 +27,7 @@ describe.ask = requirement
 """
 PR_META = {"mode": "pr", "url": "http://localhost:8080/eng/shop/-/merge_requests/7", "repo_id": "localhost/eng/shop",
            "number": "7", "source_branch": "feature", "target_branch": "main"}
-VERIFY = "### 怎么验证(由代码推断,未执行)"
+VERIFY = "### 怎么验证"
 OWNER = "### CR负责人:\n\n@xx\n"
 
 
@@ -54,6 +54,11 @@ def att(type_, change, name, file, line=None, **over):
     a = {"type": type_, "change": change, "name": name, "file": file, "line": line, "detail": "%s %s" % (change, name)}
     a.update(over)
     return a
+
+
+def res_att(change, container, *files):
+    """影响面的一条资源:容器(xcassets、lproj、res/values)和里面实际改的文件。"""
+    return att("resource", change, container, container, files=len(files), paths=[{"path": p, "change": change} for p in files])
 
 
 def entrypoints(**over):
@@ -103,8 +108,8 @@ def swift(c):
     f["scope"] = {"diff": "diff.patch", "files": 6, "added": 40, "deleted": 12}
     f["attention"] = [att("project_config", "modified", "App/Info.plist", "App/Info.plist"),
                       att("dependency", "modified", "Podfile", "Podfile", parts=[]),
-                      att("resource", "added", "App/Assets.xcassets", "App/Assets.xcassets", files=2),
-                      att("resource", "modified", "App/zh-Hans.lproj", "App/zh-Hans.lproj", files=1)]
+                      res_att("added", "App/Assets.xcassets", "App/Assets.xcassets/icon_history_v2.imageset/Contents.json", "App/Assets.xcassets/icon_history_v2.imageset/icon.png"),
+                      res_att("modified", "App/zh-Hans.lproj", "App/zh-Hans.lproj/Localizable.strings")]
     f["coverage"] = {"checked": 0, "unchecked": [{"lang": "Swift", "files": 2}]}
     f["entrypoints"] = entrypoints()
 
@@ -269,6 +274,29 @@ def scenarios():
         c.author = {}
 
     @case
+    def i18n_and_other_by_dir(c):
+        """多语言文案汇总成一条(带语言);其他文件多时按目录汇总;影响面的资源按类型汇总文件数。"""
+        f = c.facts
+        langs = ("en", "zh-Hans", "zh-Hant", "ja", "ko")
+        f["hunks"] = ([hunk(1, "App/Feature/VoucherView.swift", 5)] + [hunk(2 + i, "App/Models/M%d.swift" % i) for i in range(4)] +
+                      [hunk(6 + i, "App/Services/S%d.swift" % i) for i in range(3)] +
+                      [hunk(9 + i, "res/ios/%s.lproj/Localizable.strings" % lang, kind="resource") for i, lang in enumerate(langs)])
+        f["symbols"] = []
+        f["scope"] = {"diff": "diff.patch", "files": 13, "added": 60, "deleted": 8}
+        f["attention"] = ([res_att("modified", "res/ios/%s.lproj" % lang, "res/ios/%s.lproj/Localizable.strings" % lang) for lang in langs] +
+                          [res_att("removed", "App/Assets.xcassets", "App/Assets.xcassets/icon_history_v2.imageset/Contents.json", "App/Assets.xcassets/icon_history_v2.imageset/icon.png")])
+        f["coverage"] = {"checked": 0, "unchecked": [{"lang": "Swift", "files": 8}]}
+        f["entrypoints"] = entrypoints()
+        c.analysis = {"changes": [change("展示券的不可用原因", ["H1"], ["VoucherView"])]}
+
+    @case
+    def links_found_in_ticket(c):
+        """作者没给需求文档:用 analyst 从需求单里找到的需求文档和设计稿链接。"""
+        c.sources = {"requirement": {"status": "given", "url": TICKET}}
+        c.analysis = {"links": [{"kind": "doc", "url": "https://docs.acme.example.com/d/abc", "label": "订单 PRD"},
+                                {"kind": "design", "url": "https://www.figma.com/file/xyz", "label": "列表页设计稿"}]}
+
+    @case
     def local_docs_absolute_paths(c):
         c.sources = {"requirement": {"status": "given", "url": TICKET},
                      "doc": {"status": "given", "source": "本地文档", "local_files": ["/Users/someone/work/shop/docs/spec.md", "prd.md"]}}
@@ -356,6 +384,16 @@ class Templates(fixture.Base):
                 notes = "".join(x + "\n" for x in out.splitlines() if x.startswith("NOTE:"))
                 self.compare(name, {k: normalize(v, self.version, c.meta["head_sha"]) for k, v in (("md", md), ("html", page), ("notes", notes))})
 
+    def test_changes_section_is_plain_text(self):
+        """md 的「改了什么」只写文字:不带文件链接,也不带代码块编号(出处只在网页版)。"""
+        for f in sorted(os.listdir(GOLDEN)):
+            if not f.endswith(".md"):
+                continue
+            text = open(os.path.join(GOLDEN, f), encoding="utf-8").read()
+            m = re.search(r"### 改了什么.*?\n(.*?)\n\n", text, re.S)
+            if m:
+                self.assertNotRegex(m.group(1), r"\]\(|\(H\d", f)
+
     def test_golden_files_are_exactly_the_scenarios(self):
         names = {"%s.%s" % (n, ext) for n in scenarios() for ext in ("md", "html", "notes")}
         self.assertEqual(set(os.listdir(GOLDEN)), names)
@@ -363,43 +401,49 @@ class Templates(fixture.Base):
     def test_golden_scenarios_cover_the_branches(self):
         """场景覆盖了已合入、PR/MR 信息没读到、作者点名的重点、需求单各种状态、改了什么、不认识的语言、裁剪等分支。"""
         md = {name: Path(GOLDEN, "%s.md" % name).read_text(encoding="utf-8") for name in scenarios()}
-        self.assertIn("\n- 状态:已合入 main,描述已无法影响合入\n", md["merged"])
-        self.assertIn("\n- PR/MR 信息:没有读到(tools.code_host:glab 未登录)\n", md["code_host_failed"])
+        for name in ("merged", "code_host_failed"):      # 工具状态不贴进描述,只在终端 NOTE
+            self.assertNotIn("状态", md[name])
+            self.assertNotIn("PR/MR 信息", md[name])
         self.assertIn("### 请重点看\n1. ", md["pr_links_and_author_focus"])
         self.assertNotIn("重点看", md["basic"])
-        self.assertIn("- 需求单:未提供(非交互运行,没有询问)\n", md["ticket_unasked_non_interactive"])
-        self.assertIn("- 需求单:无需求单:hotfix\n", md["ticket_none_and_docs"])
-        self.assertIn("- 需求文档:plan.md、api.md\n", md["ticket_none_and_docs"])
-        self.assertIn("- 需求文档:spec.md、prd.md\n", md["local_docs_absolute_paths"])
+        self.assertIn("| 需求单 |  |\n| 需求文档 |  |\n| 设计稿 |  |\n", md["ticket_unasked_non_interactive"])
+        self.assertIn("| 需求单 |  |\n| 需求文档 |  |\n", md["ticket_none_and_docs"])   # 本地文档不写
+        self.assertIn("| 需求文档 |  |", md["local_docs_absolute_paths"])
         self.assertNotIn("/Users/", md["local_docs_absolute_paths"])
-        self.assertIn("- 需求单:%s\n" % TICKET, md["local_docs_absolute_paths"])           # 没有标题时直接给链接
-        self.assertIn("- 需求单:未提供(作者跳过)", md["sources_variants"])
-        self.assertIn("- 需求文档:[PRD](https://docs.acme.example.com/d/abc)(内容未读取:没有权限)\n", md["sources_variants"])
-        self.assertNotIn("需求文档", md["doc_skipped_is_not_listed"])
-        self.assertIn("**分支 feature 的改动**", md["no_summary_no_tested"])
-        self.assertIn("### 需求对照\n- 接口支持 cursor <参数>(来自 需求单):`api/orders.ts`\n- 旧参数继续可用(来自 需求单):没有标出对应的改动\n",
-                      md["criteria_mapped"])
-        self.assertIn("**订单列表改为游标分页**\n- 需求单:[订单游标分页](%s)\n- 规模:2 个文件 +5/−2 · `feature` → `main`\n\n" % TICKET,
+        self.assertIn("| 需求单 | %s |\n" % TICKET, md["local_docs_absolute_paths"])           # 没有标题时直接给链接
+        self.assertIn("| 需求单 |  |", md["sources_variants"])
+        self.assertIn("| 需求文档 | [PRD](https://docs.acme.example.com/d/abc)(内容未读取:没有权限) |\n", md["sources_variants"])
+        self.assertIn("| 需求文档 |  |", md["doc_skipped_is_not_listed"])   # 跳过:行还在,值留空
+        self.assertIn("### 改了什么\n分支 feature 的改动\n", md["no_summary_no_tested"])   # 一句话是这一段的开头
+        self.assertIn("\n1. 展示券的不可用原因\n2. 多语言文案 5 个文件(en、zh-Hans、zh-Hant 另 2 种语言)\n3. 其他:7 处(Models 4、Services 3)\n",
+                      md["i18n_and_other_by_dir"])
+        self.assertIn("- 资源:多语言文案 5 个文件(en、zh-Hans、zh-Hant 另 2 种语言);图片等资源 2 个文件(删除 2 个)\n", md["i18n_and_other_by_dir"])
+        self.assertNotIn("Localizable.strings", md["i18n_and_other_by_dir"])      # 逐个路径只在完整版
+        self.assertIn("Localizable.strings", Path(GOLDEN, "i18n_and_other_by_dir.html").read_text(encoding="utf-8"))
+        self.assertIn("| 需求文档 | [订单 PRD](https://docs.acme.example.com/d/abc) |\n| 设计稿 | [列表页设计稿](https://www.figma.com/file/xyz) |\n", md["links_found_in_ticket"])
+        self.assertNotIn("需求对照", md["criteria_mapped"])      # 需求对照只在网页版
+        self.assertIn("旧参数继续可用(来自 需求单)", Path(GOLDEN, "criteria_mapped.html").read_text(encoding="utf-8"))
+        self.assertIn("| 资料 | 链接 |\n|---|---|\n| 需求单 | [订单游标分页](%s) |\n| 需求文档 |  |\n| 设计稿 |  |\n\n" % TICKET,
                       md["basic"])
-        self.assertIn("### 改了什么\n1. 改动:2 处(orders.ts、app.yml)\n", md["basic"])
+        self.assertIn("### 改了什么\n订单列表改为游标分页\n1. 改动:2 处(orders.ts、app.yml)\n", md["basic"])
         self.assertNotIn("签名变 1", md["basic"])      # 总览只在完整版
         self.assertIn(VERIFY + "\n- 开启配置 `order.cursor.enabled`(`config/app.yml:3`)\n- 执行记录:作者提供:本地跑了 jest\n", md["basic"])
-        self.assertIn("### 改了什么\n1. `listOrders` 改收 `cursor` 参数(H1)\n2. 其他:2 处(app.yml、export.ts)\n", md["changes_and_verify"])
+        self.assertIn("\n1. `listOrders` 改收 `cursor` 参数\n2. 其他:2 处(app.yml、export.ts)\n", md["changes_and_verify"])
         self.assertIn("- 订单列表翻页 → 请求带 `cursor`\n", md["changes_and_verify"])
         # 不认识的语言:写明检查范围,不写「未发现」;资源和工程配置按路径认出来
         self.assertIn("- 接口、迁移、签名:Swift 文件不在自动识别范围,未检查\n", md["swift_unchecked"])
         self.assertIn("- 接口、迁移、签名:已检查 3 个文件,没有认出;另有 3 个 Swift、Objective-C 文件不在自动识别范围,未检查\n",
                       md["swift_partial"])
-        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`\n- 资源:修改资源 `App/zh-Hans.lproj`(1 个文件);"
-                      "新增资源 `App/Assets.xcassets`(2 个文件)\n", md["swift_unchecked"])
-        self.assertIn("1. `XViewController` 右上角加 `rightBarButtonItem`(H1、H2)\n2. 新增图标 `icon_history_v2`(H5)\n"
+        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`\n- 资源:多语言文案 1 个文件(zh-Hans);"
+                      "图片等资源 2 个文件\n", md["swift_unchecked"])
+        self.assertIn("1. `XViewController` 右上角加 `rightBarButtonItem`\n2. 新增图标 `icon_history_v2`\n"
                       "3. 其他:2 处(YView.swift、Info.plist)\n", md["swift_unchecked"])     # 测试代码块不进「其他」
         self.assertIn(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n\n", md["swift_unchecked"])
         self.assertNotIn("怎么验证", md["swift_partial"])
         self.assertNotIn("怎么验证", md["no_verify_no_tested"])
         for name, text in md.items():
             with self.subTest(scenario=name):
-                self.assertTrue(text.startswith("**") and text.endswith(OWNER), text)
+                self.assertTrue(text.startswith("| 资料 | 链接 |\n|---|---|\n| 需求单 |") and text.endswith(OWNER), text)
                 self.assertLessEqual(len(text.replace(OWNER, "").strip().splitlines()), 30)
                 self.assertEqual("- 执行记录:" in text, bool(scenarios()[name].author.get("tested")))
                 for word in ("已实现", "已覆盖", "无风险", "建议", "无影响", "预期通过", "不下结论", "阅读顺序", "可跳过", "需注意", "审查量",
@@ -416,6 +460,52 @@ class Templates(fixture.Base):
 
 class Sections(Templates):
     """各段的规则:改了什么的分组和「其他」、影响面分层排序和检查范围,验证段每组一行。"""
+
+    def test_resource_paths_and_language_counts(self):
+        sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
+        import describe
+        import describe_facts
+        for path, lang in (("App/en.lproj/Localizable.strings", "en"),
+                           ("app/src/main/res/values-zh-rCN/strings.xml", "zh-rCN"),
+                           ("App/Localizable.xcstrings", None)):
+            with self.subTest(path=path):
+                self.assertEqual(describe_facts.path_rule(path), "resource")
+                self.assertTrue(describe_facts.is_i18n(path))
+                self.assertEqual(describe_facts.lang_of(path), lang)
+        self.assertFalse(describe_facts.is_i18n("App/icon.png"))
+        # 同目录里不是文案的文件不算多语言,values-night、values-v21、Base.lproj 也不是语言
+        for path in ("app/src/main/res/values/colors.xml", "app/src/main/res/values-night/styles.xml",
+                     "App/Base.lproj/Main.storyboard", "App/zh-Hans.lproj/Main.xib"):
+            with self.subTest(path=path):
+                self.assertFalse(describe_facts.is_i18n(path))
+        for path in ("app/src/main/res/values-night/colors.xml", "app/src/main/res/values-v21/styles.xml",
+                     "app/src/main/res/values-sw600dp/dimens.xml", "App/Base.lproj/Main.storyboard"):
+            with self.subTest(path=path):
+                self.assertIsNone(describe_facts.lang_of(path))
+        self.assertIsNone(describe_facts.lang_of("App/Base.lproj/Localizable.strings"))
+        self.assertEqual(describe.Note.resource_text(["App/en.lproj/a.strings", "App/en.lproj/b.strings",
+                                                     "App/zh.lproj/a.strings", "App/icon.png"]),
+                         "多语言文案 3 个文件(en、zh);图片等资源 1 个文件")
+
+    def test_impact_resources_are_classified_by_file_not_container(self):
+        """同一个容器里的文案和其他资源分开计数;Android 的 values 容器不带斜杠也能认出文案;限定符目录不算语言,非文案文件不带语言。"""
+        sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
+        import describe
+        items = [res_att("modified", "app/src/main/res/values-zh-rCN", "app/src/main/res/values-zh-rCN/strings.xml",
+                         "app/src/main/res/values-zh-rCN/colors.xml"),
+                 res_att("modified", "app/src/main/res/values-night", "app/src/main/res/values-night/colors.xml"),
+                 res_att("removed", "App/en.lproj", "App/en.lproj/Localizable.strings"),
+                 res_att("removed", "App/Base.lproj", "App/Base.lproj/Main.storyboard")]
+        self.assertEqual(describe.Note.res_summary(None, items), "多语言文案 2 个文件(zh-rCN、en,删除 1 个);图片等资源 3 个文件(删除 1 个)")
+
+    def test_resource_summary_does_not_make_ungrouped_code_other(self):
+        c = Case()
+        c.facts["hunks"].append(hunk(3, "App/Localizable.xcstrings", kind="resource"))
+        md = self.md_of(c)
+        self.assertIn("1. 多语言文案 1 个文件\n2. 改动:2 处(orders.ts、app.yml)", md)
+        page = Path(self.out, "describe.html").read_text(encoding="utf-8")
+        self.assertIn("改动:2 处", page)
+        self.assertNotIn("其他:2 处", page)
 
     def test_layers_are_ordered_and_capped(self):
         c = Case()
@@ -472,9 +562,9 @@ class Sections(Templates):
         swift(c)
         c.facts["attention"] = [a for a in c.facts["attention"] if a["type"] == "resource"]
         md = self.md_of(c)
-        self.assertIn("- 资源:修改资源 `App/zh-Hans.lproj`(1 个文件);新增资源 `App/Assets.xcassets`(2 个文件)\n", md)
+        self.assertIn("- 资源:多语言文案 1 个文件(zh-Hans);图片等资源 2 个文件\n", md)
         self.assertNotIn("配置与依赖", md)
-        self.assertNotIn("资源 2", md)
+        self.assertNotIn("· 资源 2", md)
         self.assertIn("资源 2", Path(self.out, "describe.html").read_text(encoding="utf-8"))
         self.assertNotIn("配置键", md)
 
@@ -483,7 +573,7 @@ class Sections(Templates):
         c.facts["hunks"] += [hunk(3, "src/a.ts"), hunk(4, "src/b.ts"), hunk(5, "src/c.ts"), hunk(6, "src/d.ts"), hunk(7, "t/a.test.ts", kind="test")]
         c.analysis = {"changes": [change("改了 `listOrders`", ["H1", "H7"], ["listOrders"])]}
         md = self.md_of(c)
-        self.assertIn("1. 改了 `listOrders`(H1、H7)\n2. 其他:5 处(app.yml、a.ts、b.ts 另 2 个文件)\n", md)
+        self.assertIn("1. 改了 `listOrders`\n2. 其他:5 处(src 4、config 1)\n", md)
         page = Path(self.out, "describe.html").read_text(encoding="utf-8")
         for h in ("H2", "H3", "H4", "H5", "H6"):
             self.assertIn("%s <code>" % h, page)
@@ -573,13 +663,13 @@ class Sections(Templates):
         self.assertNotIn("需求对照", Path(self.out, "describe.html").read_text(encoding="utf-8"))
 
     def test_trim_order(self):
-        """超过约 30 行时按 其他组 → 资源明细汇总 → 需求对照汇总 → 验证里多余的行 → 空行 的顺序多裁一项;改了什么的分组不裁。"""
+        """超过约 30 行时按 其他组 → 资源明细汇总 → 验证里多余的行 → 空行 的顺序多裁一项;改了什么的分组不裁。"""
         sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
         import describe
-        self.assertEqual(describe.TRIM, ["other", "resources", "requirements", "verify", "blank"])
+        self.assertEqual(describe.TRIM, ["other", "resources", "verify", "blank"])
         self.assertEqual(describe.MAX_LINES, 30)
         c = scenarios()["rich_trimmed_with_focus_and_criteria"]
-        c.facts["attention"].append(att("resource", "added", "App/Assets.xcassets", "App/Assets.xcassets", files=2))
+        c.facts["attention"].append(res_att("added", "App/Assets.xcassets", "App/Assets.xcassets/icon_history_v2.imageset/Contents.json", "App/Assets.xcassets/icon_history_v2.imageset/icon.png"))
         rd = self.build(c, "trim")
         with mock.patch.dict(os.environ, {"HOME": os.path.dirname(self.home)}):
             note = describe.Note(rd, self.out)
@@ -590,7 +680,7 @@ class Sections(Templates):
                 text = describe.render(template, note.md_ctx(f, describe.TRIM[:i]))
                 steps.append(describe.drop_blanks(text) if "blank" in describe.TRIM[:i] else text)
             final = note.markdown()
-        gone = {"other": "9. 其他:", "resources": "- 资源:新增资源", "requirements": "- 条件 2"}
+        gone = {"other": "9. 其他:", "resources": "- 资源:图片等资源 2 个文件"}
         for i, step in enumerate(describe.TRIM):
             if step in gone:
                 self.assertIn(gone[step], steps[i], step)
@@ -598,19 +688,18 @@ class Sections(Templates):
 
         def verify_count(text):      # 验证段里的行数(不含作者给的执行记录)
             return len([x for x in text.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines() if not x.startswith("- 执行记录")])
-        self.assertGreater(verify_count(steps[3]), describe.MAX_VERIFY_CUT)
-        self.assertEqual(verify_count(steps[4]), describe.MAX_VERIFY_CUT)
+        self.assertGreater(verify_count(steps[2]), describe.MAX_VERIFY_CUT)
+        self.assertEqual(verify_count(steps[3]), describe.MAX_VERIFY_CUT)
         self.assertIn("### 改了什么(另有 7 处未归组,见完整版)\n", steps[1])
         self.assertIn("- 资源:1 处(见完整版)\n", steps[2])
-        self.assertIn("- 6 条验收标准,1 条标出了对应改动,逐条见完整版", steps[3])
-        self.assertGreater(steps[4].count("\n\n"), steps[5].count("\n\n"))
-        self.assertTrue(steps[5].endswith(OWNER))
+        self.assertGreater(steps[3].count("\n\n"), steps[4].count("\n\n"))
+        self.assertTrue(steps[4].endswith(OWNER))
         fit = next(s for s in steps if describe.body_lines(s) <= 30)
         self.assertEqual(final, fit)
         self.assertGreater(describe.body_lines(steps[0]), 30)
         # 改了什么的分组始终在
         for s in steps:
-            self.assertIn("8. 改动 8 的 `listOrders`(H1)", s)
+            self.assertIn("8. 改动 8 的 `listOrders`", s)
             self.assertNotIn("删除 4 · 迁移 2", s)
 
     def test_typical_description_is_short(self):

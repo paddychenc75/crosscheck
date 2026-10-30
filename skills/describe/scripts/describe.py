@@ -16,7 +16,7 @@ DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_ch
 内容只有事实和链接:一句话和基本信息(每项一行);改了什么(analyst 按功能分的组,经校验,没被任何组引用的非测试代码块
 由脚本补一条「其他」);影响面(接口 > 数据库与迁移 > 配置与依赖 > 资源 > 内部函数,每层最多 2 条,资源最多 3 条,不在识别范围的语言写明
 未检查);作者点名的请重点看;怎么验证(脚本认出的入口在前、analyst 按组写的「入口 → 能看到什么」在后,最多 5 行,
-标「由代码推断,未执行」,作者给了 --tested 才有执行记录);有验收标准时的需求对照。超过约 MAX_LINES 行时按 TRIM 的顺序裁剪(30 行只是参考,裁完仍超出照样输出)。
+作者给了 --tested 才有执行记录);需求对照和规模只在网页版。超过约 MAX_LINES 行时按 TRIM 的顺序裁剪(30 行只是参考,裁完仍超出照样输出)。
 来源:sources.json、describe-facts.json(脚本)、analysis.json(analyst 的回复,经校验)。
 结构和措辞在 ../templates/describe.md、describe.html(团队可以改它们适配自己的格式),本脚本只算事实、填进去;模板写法见 render()。
 """
@@ -36,13 +36,13 @@ import crlib  # noqa: E402
 import sources as srcmod  # noqa: E402
 import analysis_check  # noqa: E402
 import analysis_facts as af  # noqa: E402
+import describe_facts as df  # noqa: E402
 from entrypoints import KIND_NAME  # noqa: E402
 
 LAYERS = [("api", "接口"), ("db", "数据库与迁移"), ("config", "配置与依赖"), ("res", "资源"), ("func", "内部函数")]
 VERB = {"added": "新增", "removed": "删除", "modified": "修改", "signature_changed": "签名变化"}
 RANK = {"removed": 0, "signature_changed": 2, "modified": 2, "added": 3}   # 签名变化且 diff 外有调用方是 1
 CHECKED = "接口、迁移、配置、签名"
-VERIFY_NOTE = "由代码推断,未执行"
 AI_VERIFY = "验证步骤由 AI 依据代码起草,贴之前请核对"
 # 脚本认出的入口写成一行:(前, 后),中间是入口本身
 TRIGGER = {"route": ("请求 ", ""), "cli_command": ("运行子命令 ", ""), "cli_flag": ("命令行带上 ", ""),
@@ -50,17 +50,17 @@ TRIGGER = {"route": ("请求 ", ""), "cli_command": ("运行子命令 ", ""), "c
 PLURAL = {"route": "请求 ", "cli_command": "运行子命令 ", "cli_flag": "命令行带上 ", "event": "事件/队列 ", "cron": "定时任务 ",
           "config": "配置开关 "}
 TRIGGER_ORDER = ["route", "cli_command", "cli_flag", "event", "cron", "config"]
-# 超过 MAX_LINES(约 30 行,仅作参考)时逐步多裁一项:「其他」组并进标题 → 资源明细改成一行汇总 → 需求对照改一行汇总 → 验证只留 MAX_VERIFY_CUT 行
+# 超过 MAX_LINES(约 30 行,仅作参考)时逐步多裁一项:「其他」组并进标题 → 资源明细改成一行汇总 → 验证只留 MAX_VERIFY_CUT 行
 # → 段落之间的空行。「改了什么」的分组本身不裁。
-TRIM = ["other", "resources", "requirements", "verify", "blank"]
+TRIM = ["other", "resources", "verify", "blank"]
 MAX_LINES = 30
 PER_LAYER = 2
-MAX_RESOURCES = 3
 MAX_VERIFY = 5
 MAX_VERIFY_CUT = 3
 MAX_OTHER_FILES = 3
+MAX_OTHER_DIRS = 3
+MAX_LANGS = 3
 MAX_UNTESTED = 3
-MAX_REQS = 4
 MAX_FOCUS = 3
 
 
@@ -216,38 +216,46 @@ class Note:
         return '<a href="%s">%s</a>' % (html.escape(url), text) if url else text
 
     # ---------- 基本信息 ----------
+    def found_links(self, kind):
+        """analyst 从需求材料里找到的链接(已校验在原文里),最多 2 个。"""
+        return [x for x in self.analysis.get("links") or [] if x.get("kind") == kind][:2]
+
     def source_items(self):
-        """要问的类别(describe.ask 里写了、且配了读取工具)总是列出,没给就写未提供及原因;其他类别只在用户给了时列出。
-        返回 [(标签, Markdown, HTML)];本地文件只写文件名。"""
+        """需求单、需求文档、设计稿三行始终有,没有链接(或只给了本地文件)时值留空,结构不变。返回 [(标签, Markdown, HTML)]。
+        需求单、需求文档以作者给的为准;作者没给需求文档时用 analyst 从需求材料里找到的链接,设计稿只有这一个来源。"""
         e, out = html.escape, []
         items = {x.get("kind"): x for x in self.src.get("items", [])}
         for k, c in self.conf["kinds"].items():
-            it = dict(items.get(k) or {})
-            st = it.get("status", "missing")
-            if k not in self.asked and st != "given":
-                continue
-            url, title = it.get("url") or "", it.get("title") or ""
-            if st == "given" and url and is_local(url):
-                name = os.path.basename(url.rstrip("/")) or url
-                md, page = name, e(name)
-            elif st == "given" and url:
+            it = items.get(k) or {}
+            st, url, title = it.get("status", "missing"), it.get("url") or "", it.get("title") or ""
+            md = page = ""
+            if st == "given" and url and not is_local(url):
                 md = md_link(title, url) if title else url
                 page = '<a href="%s">%s</a>' % (e(url), e(title or url))
                 if it.get("read_error"):
                     tail = "(内容未读取:%s)" % it["read_error"]
                     md, page = md + tail, page + e(tail)
-            elif st == "given" and it.get("source") == "本地文档":
-                name = "、".join(os.path.basename(x.rstrip("/")) for x in it.get("local_files") or []) or "本地文档"
-                md, page = name, e(name)
-            else:
-                val = {"given": "见提交说明或描述里的编号", "skip": "未提供(作者跳过)", "unasked": "未提供(非交互运行,没有询问)",
-                       "none": "无需求单" + (":%s" % it["type"] if it.get("type") else "")}.get(st, "未提供")
-                md, page = val, e(val)
+            elif k == "doc":
+                md, page = self.link_cells("doc")
             out.append((c["label"], md, page))
+        out.append(("设计稿",) + self.link_cells("design"))
         return out
 
+    def link_cells(self, kind):
+        found = self.found_links(kind)
+        if found:
+            self.notes.append("需求文档、设计稿链接是 AI 从需求材料里找的,贴之前请确认")
+        return ("、".join(md_link(x["label"], x["url"]) if x.get("label") else x["url"] for x in found),
+                "、".join('<a href="%s">%s</a>' % (html.escape(x["url"]), html.escape(x.get("label") or x["url"])) for x in found))
+
+    def md_info(self):
+        """贴进描述的顶部表格:需求单、需求文档、设计稿,没有链接时值留空。"""
+        def cell(v):
+            return " ".join(v.split()).replace("|", "\\|")
+        return "\n".join(["| 资料 | 链接 |", "|---|---|"] + ["| %s | %s |" % (k, cell(v)) for k, v, _ in self.source_items()])
+
     def basic(self):
-        """基本信息,每项一行:需求单(和作者给的需求文档)、规模和分支;已合入、PR/MR 信息没读到时另加一行。"""
+        """网页版基本信息:资料、规模和分支。"""
         e = html.escape
         sc = self.facts.get("scope") or {}
         size = "%s 个文件 +%s/−%s" % (sc.get("files", self.meta.get("files", "?")), sc.get("added", "?"), sc.get("deleted", "?"))
@@ -257,14 +265,7 @@ class Note:
             sb = self.meta.get("source_branch") or "?"
             md += " · %s → %s" % (code(sb), code(tb))
             page += " · <code>%s</code> → <code>%s</code>" % (e(sb), e(tb))
-        out = self.source_items() + [("规模", md, page)]
-        if self.meta.get("merged") == "yes":
-            s = "已合入%s,描述已无法影响合入" % (" " + tb if tb else "")
-            out.append(("状态", s, e(s)))
-        if self.meta.get("code_host_reason"):
-            s = "没有读到(tools.code_host:%s)" % self.meta["code_host_reason"]
-            out.append(("PR/MR 信息", s, e(s)))
-        return out
+        return self.source_items() + [("规模", md, page)]
 
     def summary(self):
         if self.intent:
@@ -285,14 +286,47 @@ class Note:
         return [c for c in self.analysis.get("changes") or []
                 if isinstance(c, dict) and c.get("text") and [h for h in c.get("hunks") or [] if h in self.hunks]]
 
-    def other(self, changes):
+    def unused(self, changes):
         """没被任何组引用的非测试代码块:改动不会因为 analyst 漏写而从描述里消失。"""
         used = {h for c in changes for h in c.get("hunks") or []}
         return [h for h in self.hunks.values() if h.get("kind") != "test" and h["id"] not in used]
 
-    def other_text(self, hunks, grouped):
+    def other(self, changes):
+        return [h for h in self.unused(changes) if h.get("kind") != "resource"]
+
+    def resource_hunks(self, changes):
+        """没被引用的资源代码块(多语言文案、图片等),由脚本汇总成一条。"""
+        return [h for h in self.unused(changes) if h.get("kind") == "resource"]
+
+    @staticmethod
+    def other_text(hunks, grouped):
+        """文件不多时列文件名;多了按所在目录汇总(目录名 + 代码块数),读者至少知道改动落在哪几块。"""
+        label = "其他" if grouped else "改动"
         names = dict.fromkeys(os.path.basename(h["file"]) for h in hunks)
-        return "%s:%d 处(%s)" % ("其他" if grouped else "改动", len(hunks), short(names, MAX_OTHER_FILES, unit="个文件"))
+        if len(names) <= MAX_OTHER_FILES:
+            return "%s:%d 处(%s)" % (label, len(hunks), "、".join(names))
+        dirs = {}
+        for h in hunks:
+            d = os.path.basename(os.path.dirname(h["file"])) or "根目录"
+            dirs[d] = dirs.get(d, 0) + 1
+        top = sorted(dirs.items(), key=lambda kv: -kv[1])
+        return "%s:%d 处(%s)" % (label, len(hunks), short(top, MAX_OTHER_DIRS, lambda kv: "%s %d" % kv, "、", "个目录"))
+
+    @staticmethod
+    def resource_text(files):
+        """资源文件汇总:多语言文案(带语言)和图片等资源各一句。"""
+        i18n = [p for p in files if df.is_i18n(p)]
+        rest = [p for p in files if p not in i18n]
+        out = []
+        if i18n:
+            langs = list(dict.fromkeys(x for x in map(df.lang_of, i18n) if x))
+            out.append("多语言文案 %d 个文件%s" % (len(i18n), "(%s)" % short(langs, MAX_LANGS, unit="种语言") if langs else ""))
+        if rest:
+            out.append("图片等资源 %d 个文件" % len(rest))
+        return ";".join(out)
+
+    def res_hunk_text(self, hunks):
+        return self.resource_text(list(dict.fromkeys(h["file"] for h in hunks)))
 
     # ---------- 影响面 ----------
     def code_symbols(self):
@@ -328,7 +362,7 @@ class Note:
                                                extra=short(parts, 2, unit="项"), type=t))
             elif t == "resource":
                 out["res"].append(self.item("res", ch, VERB.get(ch, "") + "资源", a["name"], a["file"],
-                                            extra="%d 个文件" % a.get("files", 1), type=t))
+                                            extra="%d 个文件" % a.get("files", 1), type=t, files=a.get("files", 1), paths=a["paths"]))
         for s in self.code_symbols():
             ch = s.get("change")
             if ch not in ("removed", "signature_changed", "added"):
@@ -384,6 +418,24 @@ class Note:
             head, inner = "%s %s" % (x["what"], code(x["name"])), ",".join(y for y in (where, x["extra"]) if y)
         return head + ("(%s)" % inner if inner else "")
 
+    def res_summary(self, items):
+        """影响面的资源一行:按实际改的文件分类汇总文件数(多语言带语言,有删除写删除数),同一容器里的文案和其他资源分开计,逐个路径只在完整版。"""
+        files = [x for it in items for x in it["paths"]]
+        out = []
+        for label, xs in (("多语言文案", [x for x in files if df.is_i18n(x["path"])]),
+                          ("图片等资源", [x for x in files if not df.is_i18n(x["path"])])):
+            if not xs:
+                continue
+            notes = []
+            langs = list(dict.fromkeys(y for y in (df.lang_of(x["path"]) for x in xs) if y)) if label == "多语言文案" else []
+            if langs:
+                notes.append(short(langs, MAX_LANGS, unit="种语言"))
+            gone = sum(1 for x in xs if x["change"] == "removed")
+            if gone:
+                notes.append("删除 %d 个" % gone)
+            out.append("%s %d 个文件%s" % (label, len(xs), "(%s)" % ",".join(notes) if notes else ""))
+        return ";".join(out)
+
     def impact_md(self, layers, cut):
         """各层一行,没有内容的层不出现;资源和配置并列一行,被裁剪时只写数量。"""
         lines = []
@@ -392,8 +444,7 @@ class Note:
             if not items:
                 continue
             if key == "res":
-                lines.append("- %s:%s" % (title, "%d 处(见完整版)" % len(items) if "resources" in cut else
-                                          short(items, MAX_RESOURCES, self.item_md, ";", "项")))
+                lines.append("- %s:%s" % (title, "%d 处(见完整版)" % len(items) if "resources" in cut else self.res_summary(items)))
             else:
                 lines.append("- %s:%s" % (title, short(items, PER_LAYER, self.item_md, ";", "项")))
         if self.scope(layers):
@@ -479,20 +530,20 @@ class Note:
         if verify:
             self.notes.append(AI_VERIFY)
         return {"layers": self.layers(), "triggers": self.triggers(), "reqs": self.requirements(), "changes": changes,
-                "other": self.other(changes), "verify": verify, "summary": self.summary(), "focus": self.focus()}
+                "other": self.other(changes), "res_hunks": self.resource_hunks(changes), "verify": verify, "summary": self.summary(), "focus": self.focus()}
 
     def md_ctx(self, f, cut):
-        ctx = {"summary": f["summary"][0], "basic": "\n".join("- %s:%s" % (k, v) for k, v, _ in self.basic()),
-               "verify_note": VERIFY_NOTE}
-        changes, other = f["changes"], f["other"]
-        lines = ["%d. %s(%s)" % (i, c["text"], "、".join(self.hunk_ref(h) for h in c["hunks"] if h in self.hunks))
-                 for i, c in enumerate(changes, 1)]
+        ctx = {"info": self.md_info()}
+        changes, other, res = f["changes"], f["other"], f["res_hunks"]
+        lines = ["%d. %s" % (i, c["text"]) for i, c in enumerate(changes, 1)]   # 只写文字;代码块出处和链接在网页版
+        if res:
+            lines.append("%d. %s" % (len(lines) + 1, self.res_hunk_text(res)))
         ctx["changes_more"] = ""
-        if other and changes and "other" in cut:
+        if other and lines and "other" in cut:
             ctx["changes_more"] = "(另有 %d 处未归组,见完整版)" % len(other)
         elif other:
             lines.append("%d. %s" % (len(lines) + 1, self.other_text(other, bool(changes))))
-        ctx["changes"] = "\n".join(lines)
+        ctx["changes"] = "\n".join([f["summary"][0]] + lines)   # 一句话是这一段的开头
         ctx["impact"] = self.impact_md(f["layers"], cut)
 
         ctx["focus"] = "\n".join("%d. %s — %s" % (i, self.loc(*split_where(x["where"])), x.get("ask", "")) for i, x in enumerate(f["focus"], 1))
@@ -502,17 +553,6 @@ class Note:
             verify.append("- 执行记录:作者提供:%s" % self.tested())
         ctx["verify"] = "\n".join(verify)
 
-        reqs = f["reqs"]
-        if not reqs:
-            ctx["requirements"] = ""
-        elif "requirements" in cut:
-            ctx["requirements"] = "- %d 条验收标准,%d 条标出了对应改动,逐条见完整版" % (len(reqs), sum(1 for _, ids in reqs if ids))
-        else:
-            lines = ["- %s:%s" % (c, short(dict.fromkeys(self.hunks[h]["file"] for h in ids), 3, lambda p: "`%s`" % p)
-                                  if ids else "没有标出对应的改动") for c, ids in reqs[:MAX_REQS]]
-            if len(reqs) > MAX_REQS:
-                lines.append("- 另有 %d 条,见完整版" % (len(reqs) - MAX_REQS))
-            ctx["requirements"] = "\n".join(lines)
         return ctx
 
     def markdown(self):
@@ -548,6 +588,9 @@ class Note:
         data = [[str(i), ("<b>%s</b><br>" % e(c["title"]) if c.get("title") else "") + ticks_html(c["text"]),
                  anchors(c.get("anchors") or []), "<br>".join(self.hunk_ref(h, md=False) for h in c["hunks"] if h in self.hunks)]
                 for i, c in enumerate(changes, 1)]
+        if f["res_hunks"]:
+            data.append([str(len(data) + 1), e(self.res_hunk_text(f["res_hunks"])) + "<br><small>多语言文案、图片等资源文件,由脚本汇总</small>",
+                         "", "<br>".join(self.hunk_ref(h["id"], md=False) for h in f["res_hunks"])])
         if other:
             data.append([str(len(data) + 1), e(self.other_text(other, bool(changes))) + "<br><small>没有被上面任何一组引用的代码块,由脚本补上</small>",
                          "", "<br>".join(self.hunk_ref(h["id"], md=False) for h in other)])
@@ -579,7 +622,6 @@ class Note:
 
         ctx["focus_rows"] = rows([[self.loc(*split_where(x["where"]), md=False), e(x.get("ask", ""))] for x in f["focus"]])
 
-        ctx["verify_note"] = e(VERIFY_NOTE)
         data = []
         for t in f["triggers"]:
             pre, post = self.trigger_words(t)

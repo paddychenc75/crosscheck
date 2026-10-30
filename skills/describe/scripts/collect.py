@@ -7,9 +7,9 @@
 
 需求来源的问法和 review 不同,由这里决定,与审查记录里问过没有无关:
   问哪些类别由配置 describe.ask 定(不写是 requirement),而且对应的读取工具(tools.requirement / tools.doc_reader)要配了;
-  没配工具的类别不问、不记,描述里也不写。要问的类别每次生成都问一次:没有 --source <类别>=<链接 | skip | none:原因>
+  没配工具的类别不问、不记来源状态;描述顶部仍保留对应的空行。要问的类别每次生成都问一次:没有 --source <类别>=<链接 | skip | none:原因>
   就输出 SOURCES_MISSING。用户给了(--source、--doc、--plan、--source-dir)就不再问。
-  非交互运行不问,记为 <类别>=unasked(描述里写「未提供(非交互运行,没有询问)」)。
+  非交互运行不问,记为 <类别>=unasked(描述顶部没有链接时值留空)。
   collect-diff.sh 自己输出的 SOURCES_MISSING 丢掉,不转出。
 
 不往审查记录里留东西:collect-diff.sh 开始审查时会写 reviews/<项目>/<目标>/pending(「进行中」标记),

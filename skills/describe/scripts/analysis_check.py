@@ -10,6 +10,8 @@
 - 一句话必须带 quote,quote 必须是需求材料(intent.md、读到的需求单和需求文档、PR/MR 描述或提交说明)
   里的原文片段(空白归一后是子串,至少 6 个字);
 - 不许出现结论性的词(已实现、无风险、建议……);
+- 只含多语言文案文件(.strings、lproj、strings.xml)的组不收,由脚本汇总;一句话里反引号标出的代码名最多 4 个;
+- 链接(links)必须是网页链接,并且原样出现在需求材料里,类别只有 doc(需求文档)和 design(设计稿);
 - 需求对照里的验收标准必须是 intent.md 里列出的那几条,代码块只能用 describe-facts.json 里的编号(H1…);
 - 改了什么(changes)和怎么验证(verify):代码块编号都要存在;每个锚点至少 3 个字符,必须原样出现在所引代码块的
   改动行(+/−)里,verify 的锚点也可以只在被描述的这一版代码里(只读的 git grep -wF);一句话里反引号标出的词都必须是锚点;
@@ -34,7 +36,9 @@ BANNED = re.compile(r"已实现|已覆盖|覆盖了|无风险|没有风险|有�
 BEFORE_AFTER = re.compile(r"改为|改成|变为|变成|换成|替换为|原来|原先|之前|以前|不再")
 TICK = re.compile(r"`([^`\n]+)`")
 ANCHOR_MIN = 3
-CHANGE_LIMIT = 80    # 改动组的一句话,反引号不计
+LINK_KINDS = ("doc", "design")   # 从需求单里找的需求文档、设计稿链接
+CHANGE_LIMIT = 60    # 改动组的一句话,反引号不计
+MAX_NAMES = 4        # 一句话里最多几个反引号标出的代码名(提示词要求 2 个,这里是硬上限)
 VERIFY_LIMIT = 48    # 验证一行约 40 字,反引号不计
 
 
@@ -51,7 +55,7 @@ def one_line(s):
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
 
-def corpus(d):
+def corpus(d, compacted=True):
     parts = []
     for name in ("intent.md", "description.md"):
         try:
@@ -66,7 +70,8 @@ def corpus(d):
                 parts.append(open(os.path.join(sd, name), encoding="utf-8", errors="replace").read())
             except OSError:
                 pass
-    return compact("\n".join(parts))
+    text = "\n".join(parts)
+    return compact(text) if compacted else text
 
 
 def acceptance(d):
@@ -96,7 +101,8 @@ def merge(raws):
     """把几份回复合成一份,结构同单份回复。"""
     if len(raws) == 1:
         return raws[0]
-    out = {"summary": next((r["summary"] for r in raws if r.get("summary")), None), "requirements": [], "changes": [], "verify": []}
+    out = {"summary": next((r["summary"] for r in raws if r.get("summary")), None), "requirements": [], "changes": [], "verify": [],
+           "links": [x for r in raws for x in r.get("links") or []]}
     reqs, seen_change, seen_verify = {}, {}, set()
     for r in raws:
         for x in r.get("requirements") or []:
@@ -151,12 +157,14 @@ def check(d):
     raws = [r for r in raws if isinstance(r, dict) and r]
     dropped = []
     if not raws:
-        result = {"status": "failed", "summary": None, "requirements": [], "changes": [], "verify": [],
+        result = {"status": "failed", "summary": None, "requirements": [], "changes": [], "verify": [], "links": [],
                   "dropped": [{"what": "analyst.json", "why": "缺失或不是 JSON 对象"}]}
         crlib.save_json(os.path.join(d, "analysis.json"), result)
         return result
     raw = merge(raws)
-    text = corpus(d)
+    material = corpus(d, compacted=False)
+    text = compact(material)
+    urls = set(re.findall(r'https?://[^\s<>\[\]()"\x27`]+', material))
     hunks = {h["id"]: h for h in facts.get("hunks", []) if isinstance(h, dict) and h.get("id")}
     changed = describe_facts.hunk_lines(d)
     head = Head(d)
@@ -193,6 +201,8 @@ def check(d):
             why = "没有一句话"
         elif plain_len(body) > limit:
             why = "超过 %d 字" % limit
+        elif limit == CHANGE_LIMIT and len(TICK.findall(body)) > MAX_NAMES:
+            why = "反引号里的代码名超过 %d 个" % MAX_NAMES
         elif BANNED.search(body + title):
             why = "含结论性用语:" + BANNED.search(body + title).group(0)
         elif not ids or any(h not in hunks for h in ids):
@@ -237,6 +247,9 @@ def check(d):
 
     changes, renumber = [], {}
     for i, c in enumerate(raw.get("changes") or [], 1):
+        ids = [h for h in c.get("hunks") or [] if h in hunks] if isinstance(c, dict) and isinstance(c.get("hunks"), list) else []
+        if ids and all(describe_facts.is_i18n(hunks[h]["file"]) for h in ids):
+            continue   # 多语言文案由脚本按文件数汇总成一条,不用写进改了什么(不算被删,也不占序号)
         what = "改了什么 %d:%s" % (i, one_line(c.get("title") or c.get("text"))[:30] if isinstance(c, dict) else "")
         ok = grounded(c, what, CHANGE_LIMIT, False)
         if ok:
@@ -266,10 +279,28 @@ def check(d):
         used.add(renumber[ch])
         verify.append(dict(ok, change=renumber[ch]))
 
+    links = []
+    for x in raw.get("links") or []:
+        if not isinstance(x, dict):
+            continue
+        kind, url = x.get("kind"), str(x.get("url") or "").strip()
+        why = None
+        if kind not in LINK_KINDS:
+            why = "类别只能是 doc(需求文档)或 design(设计稿)"
+        elif not re.match(r"https?://\S+$", url):
+            why = "不是网页链接"
+        elif url not in urls:
+            why = "链接不在需求材料原文里"
+        if why:
+            dropped.append({"what": "链接:%s" % url[:40], "why": why})
+        elif all(url != y["url"] for y in links):
+            links.append({"kind": kind, "url": url, "label": one_line(x.get("label"))[:40]})
+
     status = "ok" if not dropped else "partial"
-    if not summary and not reqs and not changes and not verify:
+    if not summary and not reqs and not changes and not verify and not links:
         status = "failed"
-    result = {"status": status, "summary": summary, "requirements": reqs, "changes": changes, "verify": verify, "dropped": dropped}
+    result = {"status": status, "summary": summary, "requirements": reqs, "changes": changes, "verify": verify, "links": links,
+              "dropped": dropped}
     crlib.save_json(os.path.join(d, "analysis.json"), result)
     return result
 
