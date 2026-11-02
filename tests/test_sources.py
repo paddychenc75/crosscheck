@@ -104,18 +104,29 @@ class Sources(fixture.ShopRepo):
         _, rd = self.collect("--doc", "plan.md", "--doc", "api.md")
         doc = next(x for x in self.load(os.path.join(rd, "sources.json"))["items"] if x["kind"] == "doc")
         self.assertEqual(doc["local_files"], ["plan.md", "api.md"])
+        store = json.loads(self.run_py("sources.py", "show", rd).stdout)
+        self.assertEqual(store["local_docs"]["files"], ["plan.md", "api.md"])
+        self.assertNotIn("docs", store)
 
     def test_bad_source_argument(self):
         r, _ = self.collect("--source", "doc", check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("KIND=VALUE", r.stderr)
 
-    def test_set_only_accepts_intent_docs_and_source_kinds(self):
+    def test_set_only_accepts_intent_local_docs_and_source_kinds(self):
         _, rd = self.collect("--source", "requirement=skip")
         self.run_py("sources.py", "set", rd, "intent", "订单列表改为游标分页")
-        self.run_py("sources.py", "set", rd, "docs", "docs/plan.md")
-        self.run_py("sources.py", "set", rd, "doc", "skip")
-        for key in ("tested", "focus", "page_url"):
+        self.run_py("sources.py", "set", rd, "local_docs", "docs/plan.md\ndocs/api.md")
+        self.run_py("sources.py", "set", rd, "doc", "https://docs.acme.example.com/d/abc")
+        store = json.loads(self.run_py("sources.py", "show", rd).stdout)
+        self.assertEqual(store["local_docs"]["files"], ["docs/plan.md", "docs/api.md"])
+        self.assertNotIn("docs", store)
+        self.assertEqual(store["doc"]["url"], "https://docs.acme.example.com/d/abc")
+        self.run_py("sources.py", "set", rd, "local_docs", "")
+        store = json.loads(self.run_py("sources.py", "show", rd).stdout)
+        self.assertNotIn("local_docs", store)
+        self.assertEqual(store["doc"]["url"], "https://docs.acme.example.com/d/abc")
+        for key in ("docs", "tested", "focus", "page_url"):
             with self.subTest(key=key):
                 r = self.run_py("sources.py", "set", rd, key, "x", check=False)
                 self.assertNotEqual(r.returncode, 0)

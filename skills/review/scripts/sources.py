@@ -11,14 +11,14 @@
 
 记录:<项目记录目录>/sources/<源分支>.json,同一分支只问一次,90 天后过期。
   {"requirement": {"status": "given|skip|none", "url", "title", "type", "at"}, "doc": {...},
-   "intent": {"status": "given", "text", "target", "at"}, "docs": {"status": "given", "files", "target", "at"}, "updated_at": "..."}
-  intent、docs 是作者给的一句话和本地文档,review 不传时沿用(见 intent.py),沿用不刷新时间。
+   "intent": {"status": "given", "text", "target", "at"}, "local_docs": {"status": "given", "files", "target", "at"}, "updated_at": "..."}
+  intent、local_docs 是作者给的一句话和本地文档,review 不传时沿用(见 intent.py),沿用不刷新时间。
   target 是写入时的审查目标(target_key):不同 fork 的同名分支共用这个文件,只有同一目标才沿用。
 
 用法(审查之外由 agent 调用):
   python3 sources.py stage                    新建一个暂存目录,打印路径;读到的文档写在这里
   python3 sources.py show DIR                 打印这次审查(或记录)对应分支的来源记录
-  python3 sources.py set DIR KEY VALUE        记下 intent、docs(多个文件换行分隔)、需求来源(requirement/doc=链接|skip|none:类型);intent、docs 的值为空时清除
+  python3 sources.py set DIR KEY VALUE        记下 intent、local_docs(多个文件换行分隔)、需求来源(requirement/doc=链接|skip|none:类型);intent、local_docs 的值为空时清除
 审查时由 collect-context.sh 调用 resolve()。
 """
 import datetime
@@ -221,8 +221,8 @@ def main(argv):
             print(json.dumps(store, ensure_ascii=False, indent=2))
             return 0
         kinds = settings()["kinds"]
-        if len(argv) < 4 or argv[2] not in ("intent", "docs") + tuple(kinds):
-            sys.exit("sources: 用法 set DIR intent|docs|%s VALUE" % "|".join(kinds))
+        if len(argv) < 4 or argv[2] not in ("intent", "local_docs") + tuple(kinds):
+            sys.exit("sources: 用法 set DIR intent|local_docs|%s VALUE" % "|".join(kinds))
         key, value = argv[2], argv[3]
         if key in kinds:
             store[key] = dict(parse_arg(value), at=_now())

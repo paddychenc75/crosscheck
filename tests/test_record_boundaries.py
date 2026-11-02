@@ -18,10 +18,10 @@ class RecordBoundaries(fixture.Base):
         old = (datetime.datetime.now() - datetime.timedelta(days=91)).strftime("%Y-%m-%d %H:%M")
         fresh = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         path.write_text(json.dumps({"intent": {"status": "given", "at": old, "text": "old"},
-                                    "docs": {"status": "given", "at": fresh, "files": ["plan.md"]}}))
+                                    "local_docs": {"status": "given", "at": fresh, "files": ["plan.md"]}}))
         data = sources.load_store(str(path))
         self.assertNotIn("intent", data)
-        self.assertIn("docs", data)
+        self.assertIn("local_docs", data)
 
     def test_clearing_another_target_does_not_remove_material(self):
         rd = Path(self.tmp, "rd")
@@ -31,11 +31,11 @@ class RecordBoundaries(fixture.Base):
         path = sources.store_path(meta)
         with patch.dict(os.environ, self.env, clear=True):
             sources.save_store(path, {"intent": sources.saved(text="first", target="pr-1"),
-                                      "docs": sources.saved(files=["first.md"], target="pr-1")})
-            for key in ("intent", "docs"):
+                                      "local_docs": sources.saved(files=["first.md"], target="pr-1")})
+            for key in ("intent", "local_docs"):
                 sources.main(["set", str(rd), key, ""])
             self.assertEqual(sources.load_store(path)["intent"]["text"], "first")
-            self.assertEqual(sources.load_store(path)["docs"]["files"], ["first.md"])
+            self.assertEqual(sources.load_store(path)["local_docs"]["files"], ["first.md"])
 
     def test_completeness_requires_positive_result(self):
         rd = Path(self.tmp, "rd")

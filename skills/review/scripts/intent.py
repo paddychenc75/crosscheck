@@ -108,14 +108,14 @@ def user_material(meta, review_dir):
         else:
             del st["intent"]
     if docs:
-        st["docs"] = srcmod.saved(files=docs, target=target)
-    elif mine("docs"):
+        st["local_docs"] = srcmod.saved(files=docs, target=target)
+    elif mine("local_docs"):
         if doc_arg is None:
-            docs, docs_at = st["docs"]["files"], st["docs"]["at"]
+            docs, docs_at = st["local_docs"]["files"], st["local_docs"]["at"]
             with open(doc_file, "w", encoding="utf-8") as f:
                 f.write("\n".join(docs) + "\n")
         else:
-            del st["docs"]
+            del st["local_docs"]
     if st != before:
         srcmod.save_store(path, st)
     return text, docs, intent_at, docs_at
