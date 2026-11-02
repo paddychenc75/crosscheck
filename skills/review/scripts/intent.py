@@ -14,6 +14,7 @@ CLOSES = re.compile(r"(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|related
 class Intent:
     def __init__(self):
         self.sections, self.sources, self.acceptance, self.notes = [], [], [], []
+        self.requirement_inputs = []
 
     def add(self, title, body, source):
         self.sections.append((title, body))
@@ -144,6 +145,10 @@ def collect(api, meta, review_dir):
         issue = read_issue(api, meta, iid)
         if issue == "pr":
             continue
+        it.requirement_inputs.append({"kind": "issue", "id": iid,
+                                      "read": isinstance(issue, dict) and bool(issue.get("title")),
+                                      "title": issue.get("title", "") if isinstance(issue, dict) else "",
+                                      "text": (issue.get("description") or "") if isinstance(issue, dict) else ""})
         if isinstance(issue, dict) and issue.get("title"):
             body = issue.get("description") or ""
             it.add("关联需求 #%s:%s" % (iid, issue["title"]), crlib.clip(body, 2500), "#%s" % iid)
@@ -181,9 +186,15 @@ def collect_sources(it, meta, review_dir, text, has_issue_ref, issue=None, has_d
     missing, staged, conf = srcmod.resolve(meta, review_dir, text, args, meta.get("source_dir", ""), has_issue_ref=has_issue_ref, issue=issue,
                                       has_doc_files=has_doc_files)
     for doc in staged:
+        it.requirement_inputs.append({k: doc[k] for k in ("kind", "url", "title", "text")})
+        it.requirement_inputs[-1]["read"] = bool(doc["text"]) and not bool(doc["error"])
         if not doc["text"]:
             continue
         label = conf["kinds"].get(doc["kind"], {}).get("label", doc["kind"])
         it.add("%s%s" % (label, ":" + doc["title"] if doc["title"] else ""), crlib.clip(doc["text"], 4000), label)
         it.take_acceptance(label, doc["text"])
+    # 随本轮读取结果保存完整正文,不带读取时间、错误详情或暂存路径。
+    result = crlib.load_json(os.path.join(review_dir, "sources.json"), {})
+    result["review_inputs"] = it.requirement_inputs
+    crlib.save_json(os.path.join(review_dir, "sources.json"), result)
     return missing, conf

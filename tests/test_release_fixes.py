@@ -39,6 +39,77 @@ class IncrementalScope(fixture.Base):
         self.assertEqual(self.scope(rd), "incremental")
         self.assertEqual(Path(rd, "files.txt").read_text().split(), ["a.ts"])
 
+    def test_unchanged_finding_rechecks_feedback_and_external_evidence(self):
+        import crlib
+        self.write(self.repo, {"caller.ts": "original caller\n"})
+        old = {"id": "old-1", "file": "a.ts", "line": 1, "category": "bug",
+               "summary": "old finding", "evidence": [{"file": "caller.ts"}]}
+        old["evidence_snapshot"] = crlib.evidence_snapshot(old, crlib.Source(self.repo))
+        first = self.collect()
+        Path(first, "findings.json").write_text(json.dumps([old]))
+        save_baseline(self, first)
+        self.assertEqual(Path(self.collect(), "files.txt").read_text(), "")
+        # 未通过符号依赖匹配的调用方变化也必须重核主文件。
+        self.write(self.repo, {"caller.ts": "changed caller\n"})
+        rd = self.collect()
+        self.assertIn("a.ts", Path(rd, "files.txt").read_text().splitlines())
+        self.write(self.repo, {"caller.ts": "original caller\n"})
+        self.run_script("feedback.sh", "wontfix", "old-1", "暂时接受", "--repo", self.repo)
+        rd = self.collect()
+        self.assertIn("a.ts", Path(rd, "files.txt").read_text().splitlines())
+        self.assertTrue(Path(rd, "batches.txt").read_text().strip())
+        self.assertTrue(self.load(Path(rd, "history.json"))[0]["same_code"])
+        Path(rd, "candidates.json").write_text("[]")
+        self.run_script("prepare-verify.sh", rd)
+        self.assertTrue(any(c.get("from_prev") for c in self.load(Path(rd, "candidates.json"))))
+
+    def test_remote_requirement_body_changes_force_full(self):
+        self.config("tools.doc_reader = 读取需求文档\nreview.ask = none\n")
+        def staged(name, body, error=""):
+            stage = Path(self.tmp, name)
+            stage.mkdir()
+            (stage / "doc.md").write_text("url: https://example.test/prd\ntitle: PRD\nerror: %s\n---\n%s" % (error, body))
+            return str(stage)
+        first = self.collect("--source", "doc=https://example.test/prd", "--source-dir", staged("one", "验收 A"))
+        save_baseline(self, first)
+        same = self.collect("--source-dir", staged("two", "验收 A"))
+        self.assertEqual(self.scope(same), "incremental")
+        changed = self.collect("--source-dir", staged("three", "验收 B"))
+        self.assertEqual(self.scope(changed), "full")
+        failed = self.collect("--source-dir", staged("failed", "", "无权限"))
+        self.assertEqual(self.scope(failed), "full")
+        self.assertIn("无权限", Path(failed, "context-notes.txt").read_text())
+
+    def test_large_quick_continuation_keeps_initial_confirmation(self):
+        self.env.update(CR_BATCH_LINES="1", CR_LARGE_BATCHES="1")
+        initial = self.run_script("collect-diff.sh", "--depth", "quick", cwd=self.repo)
+        self.assertIn("LARGE:", initial.stdout)
+        continued = self.run_script("collect-diff.sh", "--depth", "quick", "--allow-large", cwd=self.repo)
+        self.assertNotIn("LARGE:", continued.stdout)
+        self.assertTrue(Path(self.review_dir(continued.stdout), "batches.txt").read_text().strip())
+
+    def test_issue_body_fingerprint_uses_unclipped_content(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        api = SimpleNamespace(run=lambda args: "", why_unreadable=lambda: "无权限")
+        rd = self.collect()
+        meta = self.kv(Path(rd, "meta.txt"))
+        self.config("tools.requirement = 读取需求单\nreview.ask = none\n")
+        def fingerprint(body):
+            issue = None if body is None else {"title": "需求", "description": body}
+            with patch.object(intent, "issue_refs", return_value={"42"}), patch.object(intent, "read_issue", return_value=issue), patch.dict(os.environ, self.env):
+                it, _ = intent.collect(api, meta, rd)
+            self.run_py("context_hash.py", rd)
+            return Path(rd, "context-hash.txt").read_text(), it
+        original, _ = fingerprint("x" * 5000 + "A")
+        same, _ = fingerprint("x" * 5000 + "A")
+        changed, _ = fingerprint("x" * 5000 + "B")
+        failed, it = fingerprint(None)
+        self.assertEqual(original, same)
+        self.assertNotEqual(original, changed)
+        self.assertNotEqual(original, failed)
+        self.assertTrue(any("没有读到" in n for n in it.notes))
+
     def test_with_tests_toggle_forces_full(self):
         save_baseline(self, self.collect("--with-tests"))
         self.assertEqual(self.scope(self.collect()), "full")
@@ -263,8 +334,9 @@ class JudgedAfterReview(fixture.ProjectFixture):
         Path(rd2, "candidates.json").write_text(json.dumps([a]))
         self.run_script("prepare-verify.sh", rd2)
         rows = [x for path in Path(rd2, "verify").glob("batch-*.json") for x in self.load(path)]
-        self.assertEqual({x["summary"] for x in rows}, {"A", "B"}, "历史判断的未改文件也需重新核对前提")
-        results = [dict(x, confidence=0, verdict="当前调用方仍有守卫", evidence=[{"file": x["file"], "lines": "1"}],
+        self.assertEqual({x["summary"] for x in rows}, {"A", "B", "C"}, "历史判断触发主文件重审,同文件发现一起重核")
+        results = [dict(x, confidence=90 if x["summary"] == "C" else 0,
+                        verdict="独立问题仍成立" if x["summary"] == "C" else "当前调用方仍有守卫", evidence=[{"file": x["file"], "lines": "1"}],
                         **({"history_match": b["id"], "history_context": "重新读调用方确认守卫仍覆盖该输入"} if x["summary"] == "B" else {})) for x in rows]
         Path(rd2, "verify", "result-1.json").write_text(json.dumps(results))
         self.run_script("aggregate.sh", rd2)

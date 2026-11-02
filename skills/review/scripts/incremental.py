@@ -98,6 +98,13 @@ def main(out, prev, root, ref=""):
         dep = dependents(out, root, ref, status)
     except (OSError, ValueError):
         dep = {p for s, p in status if s == "unchanged"}
+    # 未变发现仍可能有新反馈或外部证据变化;让主文件走现有完整审查流程。
+    history = crlib.load_json(os.path.join(out, "history.json"), [])
+    source = crlib.Source(root, ref or None)
+    states = {p: "dependent" if s == "unchanged" and p in dep else s for s, p in status}
+    for old in crlib.load_json(os.path.join(prev, "findings.json"), []):
+        if crlib.recheck_reason(old, states, history, source):
+            dep.add(old.get("file"))
     with open(os.path.join(out, "incremental.txt"), "w", encoding="utf-8") as f:
         for s, p in status:
             f.write("%s\t%s\n" % ("dependent" if s == "unchanged" and p in dep else s, p))

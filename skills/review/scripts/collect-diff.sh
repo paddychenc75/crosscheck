@@ -824,6 +824,8 @@ finder_model=$(sh "$script_dir/../../../scripts/config.sh" get model.finder)
 {
   printf 'repo_root=%s\nmode=%s\nbase_sha=%s\nhead_sha=%s\ncode_ref=%s\n' "$root" "$mode" "$base_sha" "$head_sha" "$code_ref"
   printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
+  # 提前读取历史时,工作区目标也必须从工作区读取代码锚点。
+  if [ "$code_ref" = WORKTREE ]; then printf 'head_checked_out=yes\n'; fi
   printf 'depth=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$plan_arg" "$store_dir" "$repo_id"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
   printf 'with_tests=%s\nonly=%s\nbase_sha_arg=%s\n' "$with_tests" "$only" "$base_sha_arg"
@@ -841,6 +843,9 @@ context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
 grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
+# 在裁掉未变文件前读取完整目标的反馈,让增量判定能复用既有重核规则。
+rm -f "$out/history.json"
+sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 || true
 
 # 增量:和能代表这次审查的最近一次记录比较(见 incremental.py pick),只留下 diff 变了的文件。
 review_scope=full
@@ -981,11 +986,6 @@ if ! python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1; then
 fi
 
 sh "$script_dir/check-state.sh" --save "$out"
-
-# 项目里对这些文件的历史判断(不成立、不修、有争议、成立),连同"那段代码现在变没变",
-# 写进 history.json 交给 verifier 参考。不在这里删除任何候选。
-rm -f "$out/history.json"
-sh "$script_dir/feedback.sh" history "$out" "$out/history.json" >/dev/null 2>&1 || true
 
 # 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
 if [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \

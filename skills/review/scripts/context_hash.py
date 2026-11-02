@@ -1,7 +1,7 @@
 """审查上下文的哈希:规则、用户给的意图、审查设置、审查范围(含用户指定的基准提交)、模型或插件本身变了,增量缓存就不能用,要全量重审。
 
-只算会改变"怎么审"的输入。提交说明、MR 描述和讨论、需求单和需求文档、项目里的判断记录不算:它们随每次
-提交或表态都会变,算进来增量就几乎不会触发;这些内容照样交给角色阅读。插件里只服务规则沉淀的
+提交说明、MR 描述和讨论、项目里的判断记录不算。实际读取的需求单和需求文档正文及读取状态参与指纹,
+验收输入变化时保守全量重审;不纳入读取时间或暂存路径。插件里只服务规则沉淀的
 文件(NOT_REVIEW_INPUT)也不算,改它们不影响 CR 报告。
 
 用法: python3 context_hash.py DIR    写出 DIR/context-hash.txt
@@ -47,6 +47,8 @@ def review_context(directory):
                   # 用户用 --base-sha 指定的基准变了,同一个文件的 diff 可能没变,但「拿什么比」变了:全量重审
                   scope={k: meta.get(k, '') for k in ('with_tests', 'only', 'base_sha_arg')},
                   intent_arg=(d / 'intent-arg.txt').read_text(encoding='utf-8') if (d / 'intent-arg.txt').exists() else '',
+                  requirements=sorted(crlib.load_json(str(d / 'sources.json'), {}).get('review_inputs', []),
+                                      key=lambda row: json.dumps(row, ensure_ascii=False, sort_keys=True)),
                   plan={p: doc_text(p) for p in docs})
     text = json.dumps(inputs, ensure_ascii=False, sort_keys=True)
     (d / 'context-hash.txt').write_text(hashlib.sha256(text.encode('utf-8')).hexdigest() + '\n', encoding='utf-8')
