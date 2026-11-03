@@ -375,7 +375,7 @@ review/describe/improve 流程中远端永远只读:不 push、不发评论、�
 - GitHub PR 用 `gh`,GitLab MR 用 `glab`(都要已登录)。没有或没登录时改用 git 直接拉取代码,但拿不到标题、描述和关联需求,目标分支不是默认分支时要说明一下。
 - **必须有本地仓库**。只给 MR 链接而没有本地克隆不行;不在仓库目录里时告诉它仓库在哪。
 - **连不上内网 GitLab**:常见于沙箱环境,放开网络或换个环境再试,或改审本地分支。
-- **明明登录了却提示没登录**:多半是登录用的环境变量写在 `~/.zshrc` 里,而 agent 的终端不读它。脚本会指出是哪个文件的哪几个变量(不读取、不输出值),办法是把它们挪到 `~/.zshenv` 或宿主的环境变量配置里;在那之前会改用 git 直接拉取代码。
+- **明明登录了却提示没登录**:多半是登录靠 `GITLAB_TOKEN`、`GH_TOKEN` 这类环境变量,而宿主没把它传给命令。比如 Codex 的 `shell_environment_policy` 设为 `inherit = "core"` 时会过滤掉 token,从 Dock 启动的宿主也读不到只写在 `~/.zshrc` 里的变量。agent 会先说明原因,再让你选:让 `gh` / `glab` 自己保存登录(推荐)、在宿主里只放行这一个变量,或者这次先不读平台。它不会打印 token,也不会自己改宿主的全局配置。做法见 [code-host-auth.md](skills/review/references/code-host-auth.md);在那之前 review 会改用 git 直接拉取代码。
 - **用自己的历史 bug 检验**:说「拿我们修过的 bug 测一下能不能抓到」,agent 会从 `git log` 挑修 bug 的提交,对引入 bug 的那次改动跑审查,再挑普通改动看误报。
 
 ## 自定义

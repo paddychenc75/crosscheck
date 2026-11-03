@@ -109,14 +109,14 @@ def changed_after(sha, final, path, line):
 if platform == "gitlab":
     listed = paginate("projects/:id/merge_requests?state=merged&updated_after=%s" % since_s)
     if listed is None:
-        fail("glab 读不到这个项目的 MR 列表。请确认已登录(glab auth login)、当前仓库的 origin 指向这个 GitLab 项目;不要去找或打印凭证")
+        fail("glab 读不到这个项目的 MR 列表。请确认已登录(glab auth login)、当前仓库的 origin 指向这个 GitLab 项目;终端里能用而这里不行时,多半是宿主没把登录变量传给命令。按 skills/review/references/code-host-auth.md 问用户怎么处理,不要去找或打印凭证")
     mrs = [dict(iid=m.get("iid"), title=m.get("title", ""), author=(m.get("author") or {}).get("username", ""),
                 merged_at=m.get("merged_at") or "", updated_at=m.get("updated_at") or "", web_url=m.get("web_url", ""),
                 head_sha=m.get("sha") or "") for m in listed]
 else:
     listed = paginate("repos/{owner}/{repo}/pulls?state=closed&sort=updated&direction=desc", max_rounds=10)
     if listed is None:
-        fail("gh 读不到这个仓库的 PR 列表。请确认已登录(gh auth login);不要去找或打印凭证")
+        fail("gh 读不到这个仓库的 PR 列表。请确认已登录(gh auth login);终端里能用而这里不行时,多半是宿主没把登录变量传给命令。按 skills/review/references/code-host-auth.md 问用户怎么处理,不要去找或打印凭证")
     mrs = [dict(iid=m.get("number"), title=m.get("title", ""), author=(m.get("user") or {}).get("login", ""),
                 merged_at=m.get("merged_at") or "", updated_at=m.get("updated_at") or "", web_url=m.get("html_url", ""),
                 head_sha=(m.get("head") or {}).get("sha", "")) for m in listed]

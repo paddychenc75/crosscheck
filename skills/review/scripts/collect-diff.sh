@@ -472,7 +472,7 @@ collect_via_git() { # 远端 ref,给人看的名称
   oid=$(origin_id) || die "当前仓库没有 origin 远程,无法拉取 $2"
   detect_platform || die "origin 平台目标不可用"
   if ! git fetch -q origin "$1" >/dev/null 2>&1; then
-    [ -z "$gap_vars" ] || printf 'collect-diff: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把它们挪到 ~/.zshenv 或宿主的环境变量配置里;不要为了排查去打印这些变量或查看这个文件\n' "$gap_file" "$gap_vars" >&2
+    [ -z "$gap_vars" ] || printf 'collect-diff: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。按 skills/review/references/code-host-auth.md 问用户怎么处理;不要为了排查去打印这些变量或查看这个文件\n' "$gap_file" "$gap_vars" >&2
     die "无法拉取 $2。试过:${tried:+${tried};}git fetch origin(${oid}):失败,可能是编号不对、没有访问权限,或者当前环境连不上这个地址(网络或沙箱限制)"
   fi
   head_sha=$(git rev-parse FETCH_HEAD)
@@ -1042,7 +1042,7 @@ case "$pr_source" in
     fi ;;
 esac
 if [ -n "$gap_vars" ]; then
-  printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件)。把这几个变量的设置挪到 ~/.zshenv(zsh 的所有终端都会读)或宿主的环境变量配置里。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file" "$gap_vars"
+  printf 'NOTE: gh/glab 看起来没有登录,很可能只是环境没带上:%s 里设置了 %s,而这个终端里没有(非交互终端不读这个文件),宿主没把它们传给命令。按 skills/review/references/code-host-auth.md 问用户怎么处理(让 gh/glab 自己保存登录,或在宿主里只放行这几个变量)。不要为了排查去打印这些变量或查看这个文件。\n' "$gap_file" "$gap_vars"
 fi
 [ -z "$context_out" ] || printf '%s\n' "$context_out"
 if [ "$file_count" -eq 0 ]; then
