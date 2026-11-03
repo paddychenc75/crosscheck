@@ -192,8 +192,8 @@ class RulesMining(fixture.Base):
         existing = rule(rule="日志里不能出现邮箱")
         bad_scope = rule(rule="别处必须这样", paths=["../x/**"])
         out, cands, dropped = self.check(work, [good, dup, forged, thin, unfixed, unfixed2, no_must, no_exc, subjective, existing, bad_scope])
-        self.assertEqual([c["rule"] for c in cands], ["在 src/api/** 的接口里,必须校验分页参数的上限"])
-        c = cands[0]
+        self.assertEqual({c["rule"] for c in cands}, {good["rule"], dup["rule"], existing["rule"]})
+        c = next(c for c in cands if c["rule"] == good["rule"])
         self.assertEqual((c["no"], c["mrs"], c["people"], c["severity"]), (1, [12, 15], 2, "重要"))
         self.assertEqual(len(c["evidence"]), 2)                              # 重复的候选合并成一条,同一条评论不重复计
         reasons = {d["rule"]: d["reason"] for d in dropped}
@@ -205,7 +205,7 @@ class RulesMining(fixture.Base):
         self.assertIn("必须 / 禁止", reasons["分页参数的上限最好校验一下"])
         self.assertIn("不要报", reasons["接口必须记录耗时"])
         self.assertIn("非主观风格", reasons["接口必须写得清楚"])
-        self.assertIn("已有规则(REVIEW.md)", reasons["日志里不能出现邮箱"])
+        self.assertIn("可能重复或冲突", out)
         self.assertIn("范围不对", reasons["别处必须这样"])
         self.assertIn("1. [api · 重要] 在 src/api/** 的接口里,必须校验分页参数的上限", out)
         self.assertIn("准入:✓2 个 MR ✓2 位评审人 ✓改过代码或已解决 ✓针对改动的代码 ✓有不要报的边界 ✓有正反例", out)
@@ -237,6 +237,7 @@ class RulesMining(fixture.Base):
         out, cands, _ = self.check(work, [single_reviewer, single, three])
         self.assertEqual(cands[0]["rule"], three["rule"])
         self.assertEqual((cands[0]["mrs"], cands[0]["people"]), ([12, 15, 17], 3))
+        self.assertEqual((cands[0]["support"], cands[0]["mentions"]), (2, 3))
         self.assertIn("?1 位评审人", out)                                     # 只有 alice 一个人:标出来,不丢
 
     def test_feedback_records_as_suppress_evidence(self):
@@ -245,7 +246,7 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "id": "f2", "verdict": "invalid", "reason": "这是生成的客户端代码,不用管重复", "file": "src/api/gen/b.ts", "author": "h2", "time": "2026-10-02 10:00"}])
         _, work = self.mine()
         self.assertEqual(len(self.load(os.path.join(work, "feedback.json"))), 2)
-        sup = {"kind": "suppress", "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
+        sup = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
                "evidence": [{"feedback": "k1", "quote": "生成的客户端代码不用管"}, {"feedback": "f2", "quote": "不用管重复"}]}
         out, cands, _ = self.check(work, [sup])
         self.assertEqual([c["kind"] for c in cands], ["suppress"])
@@ -257,7 +258,7 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "verdict": "valid", "reason": "测试桩里的重复确实该提", "file": "b", "author": "h2"},
                        {"key": "k3", "verdict": "valid", "reason": "接口必须校验签名", "file": "c", "author": "h3"}])
         _, work = self.mine()
-        sup = {"kind": "suppress", "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"],
+        sup = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"],
                "evidence": [{"feedback": "k1", "quote": "测试桩里的重复"}, {"feedback": "k2", "quote": "测试桩里的重复"}]}
         bad = rule(rule="接口必须校验签名", evidence=[{"feedback": "k1", "quote": "测试桩"}, {"feedback": "k3", "quote": "接口必须校验签名"}])
         _, cands, dropped = self.check(work, [sup, bad])
@@ -297,7 +298,7 @@ class RulesMining(fixture.Base):
     # ---------- plan.md ----------
 
     def sup(self, **kw):
-        c = {"kind": "suppress", "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
+        c = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
              "why": "mock 只在测试里用", "evidence": rule()["evidence"]}
         c.update(kw)
         return c
@@ -581,6 +582,8 @@ class RulesMining(fixture.Base):
         n = no[c["rule"]]
         self.edit_plan(work, n, "动作", "写入")
         self.edit_plan(work, n, "去向", dest)
+        if dest.startswith("REVIEW.md#"):
+            self.edit_plan(work, n, "范围", "**")
         return work, n
 
     def test_review_md_appends_to_existing_section(self):
@@ -590,10 +593,10 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +1行", out)
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
-        line = "- 在 src/api/** 的接口里,必须校验分页参数的上限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->"
+        line = "- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->"
         self.assertEqual(text, review.replace("    补充一句\n", "    补充一句\n" + line + "\n"))      # 只多一行,头部和其他内容不变
         self.assertTrue(text.startswith("---\nskip: [\"gen/**\"]\n---\n"))
-        self.assertIn("WARN: 块 %d 范围 src/api/** 写进 REVIEW.md 后,会对 整个仓库 下的所有文件生效" % n, out)
+        self.assertNotIn("WARN:", out)
         self.assertEqual(self.git(self.repo, "diff", "--cached", "--name-only"), "")
 
     def test_review_md_suppress_goes_after_last_item_of_suppress_section(self):
@@ -610,7 +613,7 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +4行", out)
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), review +
-                         "\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
+                         "\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
 
     def test_review_md_empty_section_gets_item_under_heading(self):
         review = "# 规则\n\n## 每次都要检查\n## 不要报\n\n- x\n"
@@ -624,7 +627,7 @@ class RulesMining(fixture.Base):
         work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#每次都要检查")
         self.write_rules(work, "--apply")
         self.assertEqual(Path(self.repo, "src/api/REVIEW.md").read_text(encoding="utf-8"),
-                         "# Review 约定\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
+                         "# Review 约定\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), "# 规则\n")           # 根目录的没动
         # 范围在该目录里,不提醒
         self.assertNotIn("WARN", self.write_rules(work, "--check"))
@@ -645,6 +648,7 @@ class RulesMining(fixture.Base):
         self.edit_plan(work, n, "候选", "%d(!999 !888;评审人 9 位;准入 ✓)" % n)
         self.edit_plan(work, n, "原因", "改过的原因 <!-- 来源:!777 -->")
         self.edit_plan(work, n, "去向", "REVIEW.md#每次都要检查")
+        self.edit_plan(work, n, "范围", "**")
         self.write_rules(work, "--apply")
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
         self.assertIn("原因:改过的原因 <!-- 来源:!12 !15 -->", text)
@@ -692,6 +696,141 @@ class RulesMining(fixture.Base):
         self.assertIn("**不要报**:内部管理后台接口不限", api["text"])        # 每条规则自己的边界留在规则里
         self.assertEqual(sorted(blocks[".agents/rules/all.md"]["applies_files"]), ["lib/x.ts", "src/api/orders.ts"])
         self.assertNotIn(".agents/rules/web.md", blocks)
+
+    def test_unaccepted_mr_cannot_complete_two_cases(self):
+        self.standard_mrs()
+        _, work = self.mine()
+        candidate = rule(evidence=[rule()["evidence"][0], {"mr": 17, "note": 302, "quote": "limit 也要加上限"}])
+        _, got, dropped = self.check(work, [candidate])
+        self.assertEqual(got, [])
+        self.assertIn("接受案例不足", dropped[0]["reason"])
+
+    def test_unknown_acceptance_is_not_counted_as_true_or_false(self):
+        self.standard_mrs()
+        _, work = self.mine()
+        cache = Path(self.kv(Path(work, "meta.txt"))["cache"], "17.json")
+        record = self.load(cache)
+        for n in record["notes"]:
+            n["changed_after"] = None
+        cache.write_text(json.dumps(record))
+        _, got, _ = self.check(work, [rule(evidence=[rule()["evidence"][0],
+                                                   {"mr": 17, "note": 302, "quote": "limit 也要加上限"}])])
+        self.assertEqual((got[0]["support"], got[0]["mentions"], got[0]["unknown"]), (1, 2, 1))
+        self.assertIsNone(got[0]["admission"][2][1])
+
+    def test_wontfix_and_feedback_context(self):
+        self.standard_mrs()
+        self.feedback([dict(key=k, verdict="wontfix", reason="当前暂不修", root_cause="转换前提",
+                            failure_scenario="条件变化", target="branch-a", context_hash="private", time="private")
+                       for k in ("k1", "k2")])
+        _, work = self.mine()
+        records = self.load(Path(work, "feedback.json"))
+        self.assertEqual(records[0]["root_cause"], "转换前提")
+        self.assertEqual(records[0]["failure_scenario"], "条件变化")
+        self.assertEqual(records[0]["target"], "branch-a")
+        self.assertNotIn("context_hash", records[0])
+        self.assertNotIn("time", records[0])
+        _, got, dropped = self.check(work, [self.sup(evidence=[{"feedback": k, "quote": "暂不修"} for k in ("k1", "k2")])])
+        self.assertEqual(got, [])
+        self.assertIn("结论与类别不符", dropped[0]["reason"])
+
+    def test_similar_rules_keep_scopes_exceptions_and_negation(self):
+        candidates = [rule(), rule(paths=["src/jobs/**"]), rule(exceptions="仅测试桩例外"),
+                      rule(rule=rule()["rule"].replace("必须", "禁止"))]
+        work, _ = self.prepare(*candidates)
+        self.assertEqual(len(self.load(Path(work, "candidates.json"))), 4)
+        self.assertIn('"patterns"', Path(work, "existing-rules.txt").read_text())
+
+    def test_plan_freezes_candidates_and_rejects_tampering(self):
+        first, second = rule(), rule(paths=["src/jobs/**"])
+        work, _ = self.prepare(first, second)
+        original = {name: Path(work, name).read_bytes() for name in ("plan.md", "candidates.json", "dropped.json")}
+        self.check(work, [second, first])
+        self.assertEqual({name: Path(work, name).read_bytes() for name in original}, original)
+        Path(work, "result-1.json").write_text(json.dumps([second]))
+        r = self.run_py("mine-check.py", work, str(Path(work, "result-1.json")), check=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual({name: Path(work, name).read_bytes() for name in original}, original)
+        Path(work, "candidates.json").write_text(json.dumps(list(reversed(self.load(Path(work, "candidates.json"))))))
+        self.assertEqual(self.run_write(work, "--apply").returncode, 2)
+
+    def test_review_scope_rejected_and_exception_preview_preserved(self):
+        work, no = self.prepare(rule())
+        n = no[rule()["rule"]]
+        self.write_all(work, [n])
+        self.edit_plan(work, n, "去向", "REVIEW.md#每次都要检查")
+        self.assertEqual(self.run_write(work, "--check").returncode, 2)
+        self.edit_plan(work, n, "去向", "src/api/REVIEW.md#每次都要检查")
+        preview = self.write_rules(work, "--check")
+        self.assertIn("+", preview)
+        self.assertIn("不要报:内部管理后台接口不限", preview)
+        self.write_rules(work, "--apply")
+        self.assertIn("不要报:内部管理后台接口不限", Path(self.repo, "src/api/REVIEW.md").read_text())
+
+    def test_symlink_targets_outside_and_git_metadata_are_refused(self):
+        work, no = self.prepare(rule())
+        self.write_all(work, no.values())
+        dest = Path(self.repo, ".agents/rules")
+        dest.parent.mkdir()
+        outside = Path(self.tmp, "outside")
+        outside.mkdir()
+        for target in (outside, Path(self.repo, ".git")):
+            dest.symlink_to(target, target_is_directory=True)
+            for mode in ("--check", "--apply"):
+                r = self.run_write(work, mode)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            dest.unlink()
+        self.edit_plan(work, next(iter(no.values())), "去向", "src/api/REVIEW.md#每次都要检查")
+        target = outside / "review"
+        target.write_text("unchanged")
+        Path(self.repo, "src/api/REVIEW.md").symlink_to(target)
+        self.assertEqual(self.run_write(work, "--apply").returncode, 2)
+        self.assertEqual(target.read_text(), "unchanged")
+
+    def test_atomic_failure_and_recovery_at_each_write(self):
+        # 只拦截实际 replace,验证已落盘文件、计划及重跑行为。
+        import importlib.util
+        from unittest.mock import patch
+        sys.path.insert(0, fixture.SCRIPTS)
+        spec = importlib.util.spec_from_file_location("rules_writer_test", Path(fixture.SCRIPTS, "rules-write.py"))
+        writer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(writer)
+        real_replace = os.replace
+        for failure in (1, 2, 3):
+            with self.subTest(failure=failure):
+                c1 = rule(topic="failure-%d-a" % failure)
+                c2 = rule(topic="failure-%d-b" % failure, rule="在接口中必须校验签名")
+                work, no = self.prepare(c1, c2)
+                self.write_all(work, no.values())
+                before = self.plan_text(work)
+                calls = []
+                def replace(src, dst):
+                    calls.append(dst)
+                    if len(calls) == failure:
+                        raise PermissionError("injected denial")
+                    return real_replace(src, dst)
+                with patch.object(sys, "argv", ["rules-write.py", work, "--apply"]), patch.object(writer.os, "replace", side_effect=replace):
+                    self.assertEqual(writer.main(), 77 if failure == 3 else 1)
+                self.assertEqual(self.plan_text(work), before)
+                for i, target in enumerate(calls):
+                    self.assertEqual(Path(target).exists(), i < failure - 1 or target.endswith("plan.md"))
+                self.write_rules(work, "--apply")
+                self.assertEqual(self.plan_text(work).count("**动作**:已写入"), 2)
+                for c in (c1, c2):
+                    text = Path(self.repo, ".agents/rules", c["topic"] + ".md").read_text()
+                    self.assertEqual(text.count("- **规则**:" + c["rule"]), 1)
+                self.assertEqual(list(Path(self.repo).rglob(".crosscheck-*")), [])
+
+    def test_same_sentence_different_exception_is_not_recovery_match(self):
+        work, no = self.prepare(rule())
+        self.write_all(work, no.values())
+        self.write_rules(work, "--apply")
+        n = next(iter(no.values()))
+        self.edit_plan(work, n, "动作", "写入")
+        self.edit_plan(work, n, "不要报", "仅本地测试例外")
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WRITE:", out)
+        self.assertIn("仅本地测试例外", Path(self.repo, ".agents/rules/api.md").read_text())
 
     def test_old_flags_are_gone(self):
         work, no = self.prepare(rule())

@@ -219,13 +219,14 @@ fb = []
 if pdir:
     for e in crlib.feedback_entries(pdir).values():
         if e.get("verdict") in ("invalid", "wontfix", "valid"):
-            fb.append({k: e.get(k, "") for k in ("key", "id", "verdict", "reason", "file", "category", "summary", "author", "time")})
+            fb.append({k: e.get(k, "") for k in ("key", "id", "verdict", "reason", "file", "category", "summary", "author", "root_cause", "failure_scenario", "target")})
 crlib.save_json(os.path.join(work, "feedback.json"), fb)
 
 existing = []
 for rec in project_rules.discover(crlib.Source(root)):
     if rec["body"].strip():
-        existing.append("=== %s ===\n%s\n" % (rec["file"], rec["body"].strip()))
+        existing.append("=== %s ===\n%s\n%s\n" % (rec["file"], json.dumps(
+            {k: rec[k] for k in ("source", "patterns", "native", "excluded", "issues")}, ensure_ascii=False), rec["text"].strip()))
 with open(os.path.join(work, "existing-rules.txt"), "w", encoding="utf-8") as f:
     f.write("\n".join(existing))
 

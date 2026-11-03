@@ -6,21 +6,9 @@
   WORK_DIR     mine-mrs.sh 输出的工作目录
   RESULT.json  每个 miner 的回复(JSON 数组),原样保存的文件
 
-准入检查(不信任 miner 自己写的次数,能查的都由脚本查):
-  - 证据:MR 和评论必须在缓存里,引用的片段必须是那条评论原文的一部分(空白归一后比较);
-    来自 crosscheck 判断记录的证据,片段必须出现在当时写下的原因里。对不上的证据丢掉。
-  - 至少 2 个不同的 MR(或判断记录),否则丢掉;评审人不足 2 位只标出来(MR 作者自己的评论不算评审人)。
-  - 改过:证据所在的讨论里,有一处在评论后改了代码或讨论已解决;全都确定没改、没解决的丢掉,不知道的标「?」。
-  - 针对改动的代码:至少一条证据是行内评论(有文件位置)。只标出来。
-  - 规则写成「必须 / 禁止」一类的单句;严重级别是「重要」或「轻微」;「不要报」(例外边界)必填;范围是仓库根目录相对的 glob。
-    不满足的丢掉。正例、反例能给就给,只标出来。
-  - 判断记录的结论要和类别一致:规则只认「成立」(valid),「不要报」只认「不成立」(invalid)或「不修」(wontfix),不一致的证据丢掉。
-  - miner 的自检(项目特有、工具查不到、不是主观风格、没被后来的 MR 推翻、不和已有规则冲突、能泛化):
-    规则每一项都必须为 true,缺项或不为 true 的丢掉;「不要报」不要求填,填了 false 的丢掉。
-  - 和仓库里已有的规则(REVIEW.md、CLAUDE.md、AGENTS.md、.agents/rules/ 等)说的是同一件事的丢掉;候选之间重复的合并证据。
-按涉及的 MR 数、评审人数排序,写入 WORK_DIR/candidates.json 和 dropped.json(丢掉的及原因),并打印编号列表和每条的检查结果。
-随后生成 WORK_DIR/plan.md(规则沉淀计划,格式见 rules_plan.py 和 improve/templates/plan.md),最后一行打印 PLAN: <路径>;
-每条候选的「动作」默认「待定」,由用户改成「写入」或「跳过」后用 rules-write.py 预演、写入。WORK_DIR 里已有 plan.md 时不覆盖,打印 NOTE。
+校验引用真实性、结构与 miner 自检,不证明语义支持。两类候选均须完整自检。
+提及与接受信号分开统计,确定未接受的 MR 不凑案例,未知保留;wontfix 不支持 suppress。
+完整相同的输入去重,其余相似仅提示供计划判断。已有计划冻结候选配对。
 """
 import difflib
 import json
@@ -37,8 +25,8 @@ SELF_CHECKS = {
     "project_specific": "项目特有", "not_tool_catchable": "工具查不到", "not_subjective": "非主观风格",
     "not_overturned": "没被推翻", "no_conflict": "不冲突", "generalizable": "能泛化",
 }
-# 判断记录作证据时,结论要和候选类别对得上:规则要「成立」,不要报要「不成立」或「不修」
-FB_VERDICTS = {"rule": ("valid",), "suppress": ("invalid", "wontfix")}
+# 判断记录只认与类别一致的结论;成立暂不修不能泛化为长期不报。
+FB_VERDICTS = {"rule": ("valid",), "suppress": ("invalid",)}
 
 
 def squash(s):
@@ -111,7 +99,7 @@ def main(argv):
         thread = [n for n in rec.get("notes", []) if n.get("discussion") == note.get("discussion")] or [note]
         if any(n.get("resolved") is True or n.get("changed_after") is True for n in thread):
             return True
-        if any(n.get("resolved") is False or n.get("changed_after") is False for n in thread):
+        if any(n.get("resolved") is False for n in thread) and all(n.get("changed_after") is False for n in thread):
             return False
         return None
 
@@ -135,19 +123,17 @@ def main(argv):
             drop(c, "写法不合格:" + ";".join(problems))
             continue
         checks = c.get("checks") if isinstance(c.get("checks"), dict) else {}
-        if kind == "rule":
-            missing = [SELF_CHECKS[k] for k in SELF_CHECKS if k not in checks]
-            if missing:
-                drop(c, "miner 自检缺项:" + "、".join(missing))
-                continue
-            failed = [SELF_CHECKS[k] for k in SELF_CHECKS if checks[k] is not True]
-        else:
-            failed = [SELF_CHECKS[k] for k in SELF_CHECKS if checks.get(k) is False]
+        missing = [SELF_CHECKS[k] for k in SELF_CHECKS if k not in checks]
+        if missing:
+            drop(c, "miner 自检缺项:" + "、".join(missing))
+            continue
+        failed = [SELF_CHECKS[k] for k in SELF_CHECKS if checks[k] is not True]
         if failed:
             drop(c, "miner 自检不通过:" + "、".join(failed))
             continue
 
-        ev, refs, people, bad, states, inline = [], set(), set(), [], [], False
+        ev, refs, people, bad, states, inline = [], set(), set(), [], {}, False
+        accepted, unknown = set(), set()
         for e in c.get("evidence") or []:
             if not isinstance(e, dict):
                 continue
@@ -159,7 +145,9 @@ def main(argv):
                 elif f and quote and quote in crlib.norm(f.get("reason", "")):
                     ev.append(dict(feedback=f.get("key") or f.get("id"), quote=quote, verdict=f.get("verdict")))
                     refs.add("fb:" + str(f.get("key") or f.get("id")))
-                    people.add("fb:" + str(f.get("author") or ""))
+                    accepted.add("fb:" + str(f.get("key") or f.get("id")))
+                    if f.get("author"):
+                        people.add("fb:" + str(f["author"]))
                 else:
                     bad.append("判断记录 %s" % e["feedback"])
                 continue
@@ -171,7 +159,7 @@ def main(argv):
             ev.append(dict(mr=rec["iid"], note=note["id"], author=note.get("author", ""), quote=quote,
                            file=note.get("file", ""), line=note.get("line"), url=rec.get("web_url", "")))
             refs.add("mr:%s" % rec["iid"])
-            states.append(fixed_state(rec, note))
+            states.setdefault("mr:%s" % rec["iid"], []).append(fixed_state(rec, note))
             inline = inline or bool(note.get("file"))
             if note.get("author") and note.get("author") != rec.get("author"):
                 people.add(note["author"])
@@ -179,12 +167,15 @@ def main(argv):
         if len(refs) < 2:
             drop(c, "证据不足:核对后只剩 %d 个 MR/判断记录(至少 2 个)%s" % (len(refs), unmatched))
             continue
-        fixed = True if True in states else (False if states and all(s is False for s in states) else None)
-        if not states:
-            fixed = True          # 只有判断记录作证据:人已经明确表过态
-        if fixed is False:
-            drop(c, "评论之后代码没改、讨论也没解决(可能没达成共识)%s" % unmatched)
+        for ref, values in states.items():
+            if True in values:
+                accepted.add(ref)
+            elif None in values:
+                unknown.add(ref)
+        if len(accepted | unknown) < 2:
+            drop(c, "接受案例不足:评论之后代码没改、讨论也没解决的 MR 不算接受案例%s" % unmatched)
             continue
+        fixed = True if len(accepted) >= 2 else None
         mrs = sorted({e["mr"] for e in ev if e.get("mr")})
         admission = [("%d 个 MR" % len(mrs) if mrs else "%d 条判断记录" % len(refs), True),
                      ("%d 位评审人" % len(people), len(people) >= 2 or None),
@@ -197,36 +188,43 @@ def main(argv):
         kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule, why=crlib.norm(c.get("why", "")),
                          severity=severity or "", bad_example=str(c.get("bad_example") or "").strip(),
                          good_example=str(c.get("good_example") or "").strip(), exceptions=exceptions,
-                         paths=paths, topic=topic_name(c.get("topic")), evidence=ev, mrs=mrs, support=len(refs),
+                         paths=paths, topic=topic_name(c.get("topic")), evidence=ev, mrs=mrs, support=len(accepted),
+                         mentions=len(refs), unknown=len(unknown),
                          people=len(people), admission=[[a, b] for a, b in admission], self_checks=selfc, unmatched=bad))
 
-    # 已有规则:逐行比较(规则通常一行一条)
+    # 已有规则没有统一的逐条边界结构,仅提示相似,不据此删除。
     existing = []
     root = meta.get("repo_root", "")
     for rec in project_rules.discover(crlib.Source(root)) if root else []:
         for line in rec["body"].split("\n"):
-            t = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s*(?:\*\*[^*]{1,8}\*\*\s*[::]\s*)?", "", line).strip()
-            if len(squash(t)) >= 4:
-                existing.append((rec["file"], t))
+            if len(squash(line)) >= 4:
+                existing.append((rec["file"], line))
     merged = []
-    for c in sorted(kept, key=lambda x: (-x["support"], -x["people"], x["rule"])):
-        hit = next((f for f, t in existing if similar(c["rule"], t)), None)
-        if hit:
-            drop(c, "已有规则(%s)" % hit)
+    for c in sorted(kept, key=lambda x: (-x["support"], -x["people"], x["rule"], rules_plan.fingerprint(x))):
+        # 仅完整候选相同才去掉重复输入;不合并不同范围、边界或来源。
+        if c in merged:
             continue
-        same = next((m for m in merged if m["kind"] == c["kind"] and similar(m["rule"], c["rule"])), None)
-        if same:
-            seen = {(e.get("mr"), e.get("note"), e.get("feedback")) for e in same["evidence"]}
-            same["evidence"] += [e for e in c["evidence"] if (e.get("mr"), e.get("note"), e.get("feedback")) not in seen]
-            same["mrs"] = sorted(set(same["mrs"]) | set(c["mrs"]))
-            same["support"] = max(same["support"], c["support"], len(same["mrs"]))
-            continue
+        for f, t in existing:
+            if similar(c["rule"], t):
+                print("WARN: 可能重复或冲突,请在计划中核对 %s: %s" % (f, c["rule"]))
+                break
+        if any(similar(m["rule"], c["rule"]) for m in merged):
+            print("WARN: 候选可能重复或冲突,请核对范围和边界: " + c["rule"])
         merged.append(c)
-    merged.sort(key=lambda x: (-x["support"], -x["people"]))
+    merged.sort(key=lambda x: (-x["support"], -x["people"], x["rule"], rules_plan.fingerprint(x)))
     for i, c in enumerate(merged, 1):
         c["no"] = i
-    crlib.save_json(os.path.join(work, "candidates.json"), merged)
-    crlib.save_json(os.path.join(work, "dropped.json"), dropped)
+    plan = os.path.join(work, "plan.md")
+    if os.path.exists(plan):
+        previous = crlib.load_json(os.path.join(work, "candidates.json"), [])
+        with open(plan, encoding="utf-8") as f:
+            bound = rules_plan.bound(f.read(), previous)
+        if previous != merged or not bound:
+            print("ERROR: 已有计划的候选配对已冻结,原文件未修改。请重新运行 mine-mrs.sh 生成新采集目录,再运行 mine-check.py 生成另一份计划。", file=sys.stderr)
+            return 2
+    else:
+        crlib.save_json(os.path.join(work, "candidates.json"), merged)
+        crlib.save_json(os.path.join(work, "dropped.json"), dropped)
 
     for p in bad_files:
         print("mine-check: %s 不是 JSON 数组,已跳过;请让对应的 miner 重新回复" % p, file=sys.stderr)
@@ -245,6 +243,7 @@ def main(argv):
             print("   反例:%s  正例:%s" % (c["bad_example"] or "-", c["good_example"] or "-"))
         print("   准入:" + " ".join("%s%s" % (mark(v), a) for a, v in c["admission"])
               + (";自检:" + "、".join(c["self_checks"]) if c["self_checks"] else ""))
+        print("   案例:提及 %d,接受信号 %d,未知 %d(信号不证明语义支持)" % (c["mentions"], c["support"], c["unknown"]))
         shown = []
         for e in c["evidence"][:3]:
             q = e["quote"] if len(e["quote"]) <= 40 else e["quote"][:40] + "…"
@@ -259,8 +258,7 @@ def main(argv):
     if merged:
         plan = os.path.join(work, "plan.md")
         if os.path.exists(plan):
-            print("NOTE: %s 已存在,没有覆盖(里面可能有你改过的内容);候选编号以刚写的 candidates.json 为准,"
-                  "想按这次的候选重新生成,先删掉它再运行。" % plan)
+            print("NOTE: %s 已存在,没有覆盖;候选与计划配对保持不变。" % plan)
         else:
             with open(plan, "w", encoding="utf-8") as f:
                 f.write(rules_plan.render(merged, root, meta))

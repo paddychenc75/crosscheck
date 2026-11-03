@@ -2,6 +2,8 @@
 # 只被本目录下的脚本 import,不单独运行。字段名、动作、去向的写法都以这里为准。
 
 import datetime
+import hashlib
+import json
 import os
 import re
 
@@ -64,6 +66,14 @@ def render_block(c, dest):
     return lines
 
 
+def fingerprint(cands):
+    return hashlib.sha256(json.dumps(cands, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def bound(text, cands):
+    return "<!-- candidates-sha256: %s -->" % fingerprint(cands) in text
+
+
 def render(cands, root, meta):
     project = os.path.basename((meta.get("repo_root") or root or "").rstrip("/")) or meta.get("repo_id", "")
     lines = [TITLE, "",
@@ -71,6 +81,7 @@ def render(cands, root, meta):
              "- 范围:最近 %s 天,%s 个 MR" % (meta.get("days", "?"), meta.get("mrs", "?")),
              "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
              "",
+             "<!-- candidates-sha256: %s -->" % fingerprint(cands),
              "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->"]
     for c in cands:
         lines += [""] + render_block(c, suggest_dest(c, root))

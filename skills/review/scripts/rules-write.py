@@ -18,18 +18,22 @@ rule 类只能去 .agents/rules 或「每次都要检查」,suppress 类只能�
 先逐块校验:格式、规则句(按 mine-check.py 的写法要求)、去向、候选编号是否在 candidates.json 里。任一块 ERROR 则整批
 什么都不写,退出码 2。来源注释 <!-- 来源:!123 !145 --> 按「候选」编号从 candidates.json 取,不取 plan.md 里的文字。
 写 .agents/rules 时只往带 crosscheck 沉淀标记的文件里追加,团队手写的文件(没有标记,或头部解析不了)跳过,另起 <主题>-2.md;
-目标里已经有同一句规则的跳过。根目录 REVIEW.md 头部(---)没写完整时拒绝写。不 git add、不提交。
+目标里完整内容、范围和边界都一致才跳过并补计划状态。根目录 REVIEW.md 头部(---)没写完整时拒绝写。不 git add、不提交。
 
 输出(每行一条):
   WRITE: <相对路径> +<n>行        --check 会写 / --apply 写了
   SKIP: 块 <n> 已在 <相对路径> 里
   ERROR: 块 <n> <字段>: <原因>
-  WARN: …                          文件超过约 15 条或 4000 字符,或 REVIEW.md 里的规则范围比所在目录宽
+  WARN: …                          文件超过约 15 条或 4000 字符
   PENDING: <k> 块还是待定
   NOTE: …
 """
 import argparse
+import difflib
 import os
+import stat
+import subprocess
+import tempfile
 import re
 import sys
 
@@ -82,10 +86,10 @@ def suppress_line(c):
 
 
 def review_line(c):
-    """REVIEW.md 里的一行:- <规则句>。原因:<原因> <!-- 来源 -->"""
+    """REVIEW.md 里的一行:规则、例外、原因及来源 <!-- 来源 -->"""
     note = source_note(c)
     why = c.get("why", "")
-    return "- " + c["rule"].rstrip(PUNCT) + "。" + ("原因:" + why if why else "") + (" " + note if note else "")
+    return "- " + c["rule"].rstrip(PUNCT) + "。" + "不要报:" + c.get("exceptions", "") + "。" + ("原因:" + why if why else "") + (" " + note if note else "")
 
 
 def is_suppress_head(line):
@@ -93,28 +97,65 @@ def is_suppress_head(line):
 
 
 def has_rule(lines, c):
-    """目标文件里已经有同一句规则(精确匹配规则原文)。"""
+    """恢复必须匹配完整块;范围由 pick_file 核对。"""
     if c["kind"] == "suppress":
-        head = "- " + c["rule"]
-        return any(x == head or x.startswith((head + "(", head + " <!--")) for x in (y.strip() for y in lines))
-    return "- **规则**:" + c["rule"] in [x.strip() for x in lines]
+        r = section_range(lines, "不要报")
+        return bool(r and suppress_line(c) in lines[r[0] + 1:r[1]])
+    wanted = block_of(c)
+    return any(lines[i:i + len(wanted)] == wanted for i in range(len(lines)))
 
 
 def has_review_line(lines, c):
-    if c["kind"] == "suppress":
-        return has_rule(lines, c)
-    head = "- " + c["rule"].rstrip(PUNCT)
-    return any(x.startswith(head) and (len(x) == len(head) or x[len(head)] in "。.;；(( <")
-               for x in (y.strip() for y in lines))
+    section = "不要报" if c["kind"] == "suppress" else "每次都要检查"
+    r = section_range(lines, section)
+    item = suppress_line(c) if c["kind"] == "suppress" else review_line(c)
+    return bool(r and item in lines[r[0] + 1:r[1]])
 
 
-def pick_file(rules_dir, topic, paths, pending):
+def safe_target(root, path):
+    """检查最终物理目标和 Git 实际元数据目录,包括 worktree。"""
+    root, real = os.path.realpath(root), os.path.realpath(path)
+    if os.path.commonpath([root, real]) != root or ".git" in os.path.relpath(path, root).split(os.sep):
+        raise ValueError("目标不在仓库工作区: " + path)
+    for flag in ("--absolute-git-dir", "--git-common-dir"):
+        r = subprocess.run(["git", "-C", root, "rev-parse", flag], capture_output=True, text=True)
+        if r.returncode:
+            raise ValueError("无法核对仓库 Git 元数据目录")
+        gitdir = os.path.realpath(os.path.join(root, r.stdout.strip()))
+        if os.path.commonpath([gitdir, real]) == gitdir:
+            raise ValueError("目标指向 Git 元数据: " + path)
+    if os.path.lexists(path) and not os.path.isfile(real):
+        raise ValueError("目标不是普通文件: " + path)
+    return real
+
+
+def atomic_write(path, text, root=None):
+    target = safe_target(root, path) if root else path
+    os.makedirs(os.path.dirname(target), exist_ok=True)  # 写记录目录的例外:工作区规则或已授权的计划目录
+    fd, tmp = tempfile.mkstemp(prefix=".crosscheck-", dir=os.path.dirname(target))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(target):
+            os.chmod(tmp, stat.S_IMODE(os.stat(target).st_mode))
+        if root and safe_target(root, path) != target:
+            raise ValueError("目标物理路径在写入前改变")
+        os.replace(tmp, target)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def pick_file(rules_dir, topic, paths, pending, root):
     """pending 是这次已经读进来、还没写回的文件。只追加到带 MARK 的文件,手写的跳过。"""
     want = sorted(paths)
     n = 1
     while True:
         name = topic + (".md" if n == 1 else "-%d.md" % n)
         p = os.path.join(rules_dir, name)
+        safe_target(root, p)
         if p not in pending and not os.path.exists(p):
             return p, True
         text = "\n".join(pending[p]) if p in pending else open(p, encoding="utf-8").read()
@@ -178,6 +219,7 @@ def insert_review(lines, section, item):
 def check_dest(root, kind, value):
     """去向 -> (相对路径, 章节或 None);不合法时抛 ValueError。"""
     path, section = rules_plan.parse_dest(value)
+    safe_target(root, os.path.join(root, path))
     if os.path.basename(path) == "REVIEW.md":
         if kind == "rule" and section != "每次都要检查":
             raise ValueError("规则类只能写进「每次都要检查」,不能写进「不要报」")
@@ -221,6 +263,11 @@ def check_block(b, c, root):
     if f.get("去向", "").strip():
         try:
             dest = check_dest(root, kind, f["去向"])
+            if os.path.basename(dest[0]) == "REVIEW.md":
+                directory = os.path.dirname(dest[0])
+                scope = [directory + "/**"] if directory else ["**"]
+                if sorted(set(paths)) != scope:
+                    errs.append(("范围", "REVIEW.md 只能保留所在目录的范围 %s;请改去 .agents/rules/<主题>.md 保留 paths" % scope[0]))
         except ValueError as e:
             errs.append(("去向", str(e)))
 
@@ -256,12 +303,9 @@ def build(root, todo):
         if os.path.basename(rel_dest) == "REVIEW.md":
             path = load_review(rel_dest)
             lines = touched[path]
-            d = os.path.dirname(rel_dest)
-            if (d and not all(p == d + "/**" or p.startswith(d + "/") for p in c["paths"])) or (not d and c["paths"] != ["**"]):
-                warns.append("WARN: 块 %s 范围 %s 写进 %s 后,会对 %s 下的所有文件生效" % (
-                    b["n"], ", ".join(c["paths"]), rel_dest, d + "/" if d else "整个仓库"))
             if has_review_line(lines, c):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], rel_dest))
+                wrote.append(b)
                 continue
             insert_review(lines, section, suppress_line(c) if c["kind"] == "suppress" else review_line(c))
             if path not in changed:
@@ -269,7 +313,7 @@ def build(root, todo):
         else:
             rules_dir = os.path.join(root, os.path.dirname(rel_dest))
             topic = os.path.basename(rel_dest)[:-3]
-            path, new = pick_file(rules_dir, topic, c["paths"], touched)
+            path, new = pick_file(rules_dir, topic, c["paths"], touched, root)
             if path not in touched:
                 if new:
                     head = ""
@@ -285,6 +329,7 @@ def build(root, todo):
             lines = touched[path]
             if has_rule(lines, c):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], os.path.relpath(path, root)))
+                wrote.append(b)
                 continue
             if path not in changed:
                 changed.append(path)
@@ -320,7 +365,8 @@ def main():
     ap.add_argument("--repo", default="")
     a = ap.parse_args()
 
-    cands = {c["no"]: c for c in crlib.load_json(os.path.join(a.work, "candidates.json"), [])}
+    candidates = crlib.load_json(os.path.join(a.work, "candidates.json"), [])
+    cands = {c["no"]: c for c in candidates}
     if not cands:
         print("rules-write: %s 里没有候选,请先运行 mine-check.py" % a.work, file=sys.stderr)
         return 1
@@ -331,6 +377,9 @@ def main():
     except OSError:
         print("rules-write: 找不到 %s,请先运行 mine-check.py 生成" % plan_path, file=sys.stderr)
         return 1
+    if not rules_plan.bound(plan_text, candidates):
+        print("ERROR: candidates.json 与 plan.md 的绑定不一致;请使用原配对,或在新采集目录生成计划。")
+        return 2
     root = a.repo or crlib.read_kv(os.path.join(a.work, "meta.txt")).get("repo_root", "")
     if not root or not os.path.isdir(root):
         print("rules-write: 找不到仓库目录,请用 --repo 指定", file=sys.stderr)
@@ -363,12 +412,21 @@ def main():
         print("NOTE: 有 %d 处错误,什么都没写。改好 plan.md 再运行。" % len(errors))
         return 2
 
-    skips, touched, before, changed, wrote, warns = build(root, todo)
+    try:
+        skips, touched, before, changed, wrote, warns = build(root, todo)
+        for path in touched:
+            safe_target(root, path)
+    except (OSError, ValueError) as e:
+        print("ERROR: 目标校验失败,什么都没写: %s" % e)
+        return 2
     for x in skips:
         print(x)
-    for path in changed:
-        lines = touched[path]
-        print("WRITE: %s +%d行" % (os.path.relpath(path, root), len(lines) - before[path]))
+    if a.check:
+        for path in changed:
+            print("WRITE: %s +%d行" % (os.path.relpath(path, root), len(touched[path]) - before[path]))
+            old = open(path, encoding="utf-8").read().splitlines(True) if os.path.exists(path) else []
+            new = ("\n".join(touched[path]).rstrip("\n") + "\n").splitlines(True)
+            print("".join(difflib.unified_diff(old, new, fromfile=os.path.relpath(path, root), tofile=os.path.relpath(path, root))), end="")
     for w in warns:
         print(w)
     if pending:
@@ -378,15 +436,25 @@ def main():
             print("NOTE: 没有动作为「写入」的块,不会写任何文件。")
         return 0
 
-    for path in changed:
-        os.makedirs(os.path.dirname(path), exist_ok=True)   # 写记录目录的例外:规则文件写在仓库工作区
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(touched[path]).rstrip("\n") + "\n")
-    if wrote:
-        for b in wrote:
-            plan_text = rules_plan.set_action(plan_text, b, "已写入")
-        with crlib.record_write(plan_path), open(plan_path, "w", encoding="utf-8") as f:
-            f.write(plan_text)
+    completed = []
+    try:
+        for path in changed:
+            atomic_write(path, "\n".join(touched[path]).rstrip("\n") + "\n", root)
+            completed.append(path)
+            print("WRITE: %s +%d行" % (os.path.relpath(path, root), len(touched[path]) - before[path]))
+        if wrote:
+            for b in wrote:
+                plan_text = rules_plan.set_action(plan_text, b, "已写入")
+            with crlib.record_write(plan_path):
+                atomic_write(plan_path, plan_text)
+    except (OSError, ValueError, SystemExit) as e:
+        print("ERROR: 写入中断;已完成: %s;未完成: %s;plan.md 未更新,修复后重跑同一命令核对完整内容并补状态。" % (
+            ", ".join(os.path.relpath(p, root) for p in completed) or "无",
+            ", ".join(os.path.relpath(p, root) for p in changed if p not in completed) or "无(仅计划状态待更新)"))
+        if isinstance(e, SystemExit):
+            return e.code
+        print(str(e), file=sys.stderr)
+        return 1
     if changed:
         note = "NOTE: 只改了工作区,没有 git add 或提交。"
         if any(os.path.relpath(p, root).startswith(rules_plan.RULES_DIR + "/") for p in changed):
