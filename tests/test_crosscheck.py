@@ -44,6 +44,10 @@ class TestCollect(ProjectFixture):
         rd, out = self.collect("feature")
         kinds = {line.split("\t")[0] for line in Path(os.path.join(rd, "weakening.txt")).read_text(encoding="utf-8").splitlines(keepends=True)}
         self.assertTrue({"assertions-removed", "skip-added", "ci-check-removed", "suppression-added"} <= kinds, kinds)
+        # 每条信号带 file:line:测试文件在 skipped.patch 里也能定位;删除的行写旧版行号
+        where = {tuple(cols[:2]): cols[3] for cols in (line.split("\t") for line in Path(os.path.join(rd, "weakening.txt")).read_text(encoding="utf-8").splitlines())}
+        self.assertEqual(where[("skip-added", "tests/page.test.ts")], "tests/page.test.ts:1")
+        self.assertEqual(where[("ci-check-removed", ".gitlab-ci.yml")], ".gitlab-ci.yml:4-5(旧版)")
         self.assertNotIn("SUGGEST:", out)
         meta = self.kv(os.path.join(rd, "meta.txt"))
         self.assertNotIn("risk_level", meta)

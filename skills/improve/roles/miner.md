@@ -40,7 +40,7 @@ rule 和 suppress 使用同一套自检:逐份证据必须支持同一个共同�
     "topic": "api",
     "title": "分页参数要有上限",
     "rule": "在 src/api/** 的接口里,必须校验分页参数 limit 的上限",
-    "why": "不校验时传入很大的 limit 会一次查出全表(!123、!145)",
+    "why": "不校验时传入很大的 limit 会一次查出全表",
     "severity": "重要",
     "bad_example": "repo.list({ limit: req.query.limit })",
     "good_example": "repo.list({ limit: Math.min(req.query.limit, 100) })",
@@ -70,7 +70,7 @@ rule 和 suppress 使用同一套自检:逐份证据必须支持同一个共同�
 - `topic`:小写英文短词,决定写进哪个文件(`.agents/rules/<topic>.md`),同一主题用同一个词,比如 `api`、`db`、`frontend`、`security`、`testing`。
 - `title`:十来个字的标题。
 - `rule`:一句「在 X 范围内,必须 / 禁止 Y」,不超过 200 字,用评论里的说法,不要夸大。
-- `why`:一行原因,来自评论,可以写上 MR 号,不要自己编。
+- `why`:一行原因,来自评论,不要自己编;不写 MR 号,来源由脚本按 `evidence` 生成。
 - `severity`:`重要`(违反会出错、出事故、出安全问题)或 `轻微`(其余)。
 - `bad_example` / `good_example`:各一行代码,能给就给,尽量取自评论处的代码和改后的写法。
 - `exceptions`:rule 的「不要报」边界必填;suppress 的边界写进 rule 本身。写不出来,说明这条还不够具体,不要提。

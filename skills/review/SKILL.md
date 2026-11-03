@@ -205,11 +205,11 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 sh <skill_dir>/scripts/report-lines.sh <review_dir>
 ```
 
-然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,原样写在报告最开头(`CHANGED` 的差异之后):这个 MR 已合入,改描述、改代码都影响不了这次合入。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,标题和首句明确写「审查未完成」及「已检查部分确认 <N> 条发现」(N 沿用展示计数),并说明具体缺项或覆盖限制。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
+然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,按 report-format 的标签表原样写。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,标题和首句明确写「审查未完成」及「已检查部分确认 <N> 条发现」(N 沿用展示计数),并说明具体缺项或覆盖限制。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
 
 **保存记录是流程的一部分**,不能跳过;只有用户明确说只测试、只报告或不保存记录时例外。
 
-按 `references/report-format.md` 的「保存记录」完成 `report.md` 和 `save-review.sh`。保存失败也展示报告并披露原因。照抄实际 `cost`、`incomplete`、`model_note`、`subagent_note`,token 未统计不得估算,不得省略模型回退或流程限制。保存返回 `incomplete` 时同步更正标题和首句;仅 `subagent_note` 不等于覆盖未完成。`WEAKEN` 统一放在「测试与检查变更」,按现有 patch/snippet 补充位置和短原文,不当作确认缺陷。仅有 `FEEDBACK` 输出时展示反馈提示,无输出不补编号示例。
+按 `references/report-format.md` 的「保存记录」完成 `report.md` 和 `save-review.sh`。保存失败也展示报告并披露原因。照抄实际 `cost`、`incomplete`、`model_note`、`subagent_note`,token 未统计不得估算,不得省略模型回退或流程限制。保存返回 `incomplete` 时同步更正标题和首句;仅 `subagent_note` 不等于覆盖未完成。`WEAKEN` 统一放在「测试与检查变更」,原样使用它给出的位置和片段,不当作确认缺陷。仅有 `FEEDBACK` 输出时展示反馈提示,无输出不补编号示例。
 
 交付本地 `report.md` 及链接。
 

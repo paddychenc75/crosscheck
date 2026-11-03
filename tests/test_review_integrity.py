@@ -81,18 +81,71 @@ class ReportContractTests(fixture.Base):
         self.assertEqual(out.count('WEAKEN:'), len(weak))
         self.assertNotIn('FEEDBACK:', out)
 
-    def test_agent_template_requires_neutral_signals_and_patch_locations(self):
+    def test_weakening_gives_line_numbers_and_snippets(self):
+        rd = Path(self.tmp, 'located')
+        rd.mkdir()
+        # diff.patch:同一个文件两个 hunk(第二个 hunk 的行号不能沿用第一个的计数)、删除行、改值、多行删除、整个文件删除
+        (rd/'diff.patch').write_text('\n'.join([
+            'diff --git a/src/svc.ts b/src/svc.ts', '--- a/src/svc.ts', '+++ b/src/svc.ts',
+            '@@ -1,3 +1,4 @@', ' const a = 1', '+// eslint-disable-next-line', ' const b = 2', ' export {}',
+            '@@ -40,3 +40,4 @@ function run() {', '   before()', '+  // @ts-ignore', '   after()', '   done()',
+            'diff --git a/tests/b.test.ts b/tests/b.test.ts', '--- a/tests/b.test.ts', '+++ b/tests/b.test.ts',
+            '@@ -20,4 +20,3 @@', " it('b', () => {", '-  expect(a).toBe(1)', '   run()', ' })',
+            'diff --git a/tests/d.test.ts b/tests/d.test.ts', '--- a/tests/d.test.ts', '+++ b/tests/d.test.ts',
+            '@@ -7,3 +9,3 @@', " it('d', () => {", '-  expect(a).toBe(1)', '+  expect(a).toBe(2)', ' })',
+            'diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml', '--- a/.github/workflows/ci.yml', '+++ b/.github/workflows/ci.yml',
+            '@@ -10,5 +10,3 @@ jobs:', '   steps:', '-    - run: npm test', '-    - run: npm run lint', '     - run: npm run build', '     - run: echo done',
+            'diff --git a/tests/gone.test.ts b/tests/gone.test.ts', 'deleted file mode 100644', '--- a/tests/gone.test.ts', '+++ /dev/null',
+            '@@ -1,3 +0,0 @@', '-line1', '-line2', '-line3', '']))
+        # skipped.patch:测试文件被 collect-diff 移到这里,位置同样来自它的 hunk
+        (rd/'skipped.patch').write_text('\n'.join([
+            'diff --git a/tests/c.test.ts b/tests/c.test.ts', '--- a/tests/c.test.ts', '+++ b/tests/c.test.ts',
+            '@@ -4,2 +4,3 @@', " describe('c', () => {", "+  it.skip('later', () => {})", '   ok()', '']))
+        got = {}
+        for kind, path, why, where, snippet in weakening.scan(str(rd)):
+            got.setdefault((kind, path), []).append((where, snippet))
+        self.assertEqual(got[('suppression-added', 'src/svc.ts')], [
+            ('src/svc.ts:2', ' const a = 1\n+// eslint-disable-next-line\n const b = 2'),
+            ('src/svc.ts:41', '   before()\n+  // @ts-ignore\n   after()')])
+        self.assertEqual(got[('assertions-removed', 'tests/b.test.ts')],
+                         [('tests/b.test.ts:21(旧版)', " it('b', () => {\n-  expect(a).toBe(1)\n   run()")])
+        self.assertEqual(got[('assertion-changed', 'tests/d.test.ts')],
+                         [('tests/d.test.ts:10', " it('d', () => {\n-  expect(a).toBe(1)\n+  expect(a).toBe(2)\n })")],
+                         '改值的信号用新版行号')
+        self.assertEqual(got[('ci-check-removed', '.github/workflows/ci.yml')],
+                         [('.github/workflows/ci.yml:11-12(旧版)', '   steps:\n-    - run: npm test\n-    - run: npm run lint\n     - run: npm run build')])
+        self.assertEqual(got[('test-file-deleted', 'tests/gone.test.ts')], [('tests/gone.test.ts:1(旧版)', '-line1\n-line2')])
+        self.assertEqual(got[('skip-added', 'tests/c.test.ts')],
+                         [('tests/c.test.ts:5', " describe('c', () => {\n+  it.skip('later', () => {})\n   ok()")])
+        # 写进 weakening.txt 再由 report-lines 输出:位置在首行,片段紧跟在 diff 代码块里,原样可用
+        weakening.write(str(rd), weakening.scan(str(rd)))
+        (rd/'meta.txt').write_text('mode=local\ndepth=standard\nonly=bug\n')
+        out = self.run_script('report-lines.sh', str(rd)).stdout
+        self.assertIn('WEAKEN: - `src/svc.ts:41` — 新增抑制:// @ts-ignore\n```diff\n   before()\n+  // @ts-ignore\n   after()\n```\n', out)
+        self.assertIn('WEAKEN: - `tests/b.test.ts:21(旧版)` — 断言减少 1 处(删 1、加 0)\n', out)
+
+    def test_weakening_snippet_with_backticks_gets_longer_fence(self):
+        rd = Path(self.tmp, 'fence')
+        rd.mkdir()
+        (rd/'meta.txt').write_text('mode=local\ndepth=standard\nonly=bug\n')
+        weakening.write(str(rd), [('skip-added', 'docs/a.test.js', '新增跳过', 'docs/a.test.js:3', '+it.skip("```")')])
+        out = self.run_script('report-lines.sh', str(rd)).stdout
+        self.assertIn('````diff\n+it.skip("```")\n````\n', out)
+
+    def test_agent_template_requires_neutral_signals_and_script_locations(self):
         root = Path(fixture.SCRIPTS).parent
         template = (root/'templates/report.md').read_text()
         contract = (root/'references/report-format.md').read_text()
         self.assertIn('### 测试与检查变更', template)
         self.assertNotIn('测试和检查被削弱', template)
-        for phrase in ('审查未完成', '已检查部分确认 <N> 条发现', '不计入发现条数'):
+        for phrase in ('审查未完成', '已检查部分确认 <N> 条发现', '不计入发现条数', 'WEAKEN 的每条信号原样写入'):
             self.assertIn(phrase, template)
-        for phrase in ('hunk 的新旧侧行号', '删除行注明「旧版」', '不得从说明文字猜行号',
-                       '无法定位时如实说明', '不得编造修复 diff', '**问题代码**必须是原文',
+        for phrase in ('原样使用 `WEAKEN:` 给出的位置、说明和片段', '不要自己找 hunk、算行号或改写片段',
+                       '不得编造修复 diff', '**问题代码**必须是原文',
                        '仅有 `subagent_note=`', '0 展示条目时不默认提示'):
             self.assertIn(phrase, contract)
+        for phrase in ('hunk 的新旧侧行号', '不得从说明文字猜行号', '无法定位时如实说明', 'also_lines'):
+            self.assertNotIn(phrase, contract)
 
 
 class ReviewIntegrityTests(fixture.Base):

@@ -12,7 +12,7 @@
 
 ### 主要影响
 - 配置与依赖:新增配置文件 [`config/app.yml`](http://localhost:8080/eng/shop/-/blob/<SHA>/config/app.yml)(1 个键)
-- 内部函数:签名变化 `listOrders`([`api/orders.ts:1`](http://localhost:8080/eng/shop/-/blob/<SHA>/api/orders.ts#L1),diff 外 2 处调用)
+- 函数签名:签名变化 `listOrders`([`api/orders.ts:1`](http://localhost:8080/eng/shop/-/blob/<SHA>/api/orders.ts#L1),diff 外 2 处调用)
 
 ### 请重点看
 1. [`api/orders.ts:1`](http://localhost:8080/eng/shop/-/blob/<SHA>/api/orders.ts#L1) — 兼容期够不够

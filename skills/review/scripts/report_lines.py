@@ -1,5 +1,5 @@
 """report-lines.sh 的实现,用法和说明见 report-lines.sh。"""
-import os, sys
+import json, os, re, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -44,7 +44,7 @@ if m.get("base_desc"):
 if m.get("head_checked_out") == "no":
     ref_note += " · 代码读自 %s" % (m.get("code_ref", "")[:12])
 if m.get("merged") == "yes":
-    # 放在报告开头:已合入的 MR 改描述、改代码都影响不了这次合入
+    # 已合入的 MR 改描述、改代码都影响不了这次合入;位置见 report-format
     print("MERGED: %s 已合入%s。按合入前的改动审查;描述已无法影响合入;要修请另开分支" % (
         "分支 %s" % sb if mode != "pr" else ("这个 PR" if plat == "github" else "这个 MR"), " " + tb.replace("origin/", "", 1) if tb else ""))
 print("SCOPE: 审查范围:%s · 深度:%s · %s%s" % (what, DEPTH.get(m.get("depth"), m.get("depth")), scope, ref_note))
@@ -72,11 +72,15 @@ if rm.get("errors"):
 for n in final.get("notes", []):
     print("RULES_NOTE: %s%s" % (n.get("summary", ""), "(%s)" % n["file"] if n.get("file") else ""))
 
-# 测试与检查变更信号,不代表已确认缺陷
+# 测试与检查变更信号,不代表已确认缺陷。位置和 diff 片段由 weakening.py 算好:首行是位置和说明,后面紧跟 diff 代码块
 try:
     for l in open(os.path.join(d, "weakening.txt"), encoding="utf-8"):
-        k, p, why = (l.rstrip("\n").split("\t") + ["", ""])[:3]
-        print("WEAKEN: - `%s` — %s" % (p, why))
+        k, p, why, where, snippet = (l.rstrip("\n").split("\t") + ["", "", ""])[:5]
+        print("WEAKEN: - `%s` — %s" % (where or p, why))
+        if snippet:
+            snippet = json.loads(snippet)
+            fence = "`" * max(3, 1 + max(map(len, re.findall("`+", snippet)), default=0))   # 片段里有 ``` 时加长围栏
+            print("%sdiff\n%s\n%s" % (fence, snippet, fence))
 except OSError:
     pass
 

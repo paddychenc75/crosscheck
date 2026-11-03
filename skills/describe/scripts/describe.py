@@ -7,15 +7,16 @@
             两者记在这个目标的描述目录里,之后重新生成时沿用;传空字符串清除
 
 DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_check.py 校验(输出 STATUS: / DROPPED:),再写出
-<描述目录>/describe.md(贴进 PR/MR 描述,正文约 30 行,仅作参考,不含负责人固定填写区)和 describe.html(完整版)。
+<描述目录>/describe.md(贴进 PR/MR 描述)和 describe.html(完整版)。
 描述目录是 ~/.crosscheck/describe/<项目名>/<目标>/,和审查记录(reviews/)分开存放。输出:
   describe=<describe.md 的路径>  md_link=<file:// 链接>  html=<describe.html 的路径>  link=<file:// 链接>
   NOTE: …  需要转告作者的话(没推送、一句话或验证步骤由 AI 起草等)
 
 只读:不调用托管平台,不发布、不修改 PR/MR 的描述、评论或状态。
 内容只有事实和链接:一句话和基本信息(每项一行);改了什么(analyst 按功能分的组,经校验,没被任何组引用的非测试代码块
-由脚本补一条「其他」);主要影响(业务影响及必要技术变化;完整技术明细与识别范围只在网页版);作者点名的请重点看;怎么验证(脚本认出的入口在前、analyst 按组写的「入口 → 能看到什么」在后,最多 5 行,
-作者给了 --tested 才有执行记录);需求对照和规模只在网页版。超过约 MAX_LINES 行时按 TRIM 的顺序裁剪(30 行只是参考,裁完仍超出照样输出)。
+由脚本补一条「其他」);主要影响(业务影响在前,必要的技术事实在后,每条事实一行;完整技术明细与识别范围只在网页版);
+作者点名的请重点看;怎么验证(以 analyst 校验过的「入口 → 能看到什么」为主,它一条都没有时才用脚本认出的入口补位,
+作者给了 --tested 才有执行记录);需求对照和规模只在网页版。各段都不按条数或篇幅裁剪。
 来源:sources.json、describe-facts.json(脚本)、analysis.json(analyst 的回复,经校验)。
 结构和措辞在 ../templates/describe.md、describe.html(团队可以改它们适配自己的格式),本脚本只算事实、填进去;模板写法见 render()。
 """
@@ -38,7 +39,7 @@ import analysis_facts as af  # noqa: E402
 import describe_facts as df  # noqa: E402
 from entrypoints import KIND_NAME  # noqa: E402
 
-LAYERS = [("api", "接口"), ("db", "数据库与迁移"), ("config", "配置与依赖"), ("res", "资源"), ("func", "内部函数")]
+LAYERS = [("api", "接口"), ("db", "数据库与迁移"), ("config", "配置与依赖"), ("res", "资源"), ("func", "函数签名")]
 VERB = {"added": "新增", "removed": "删除", "modified": "修改", "signature_changed": "签名变化"}
 RANK = {"removed": 0, "signature_changed": 2, "modified": 2, "added": 3}   # 签名变化且 diff 外有调用方是 1
 CHECKED = "接口、迁移、配置、签名"
@@ -46,15 +47,7 @@ AI_VERIFY = "验证步骤由 AI 依据代码起草,贴之前请核对"
 # 脚本认出的入口写成一行:(前, 后),中间是入口本身
 TRIGGER = {"route": ("请求 ", ""), "cli_command": ("运行子命令 ", ""), "cli_flag": ("命令行带上 ", ""),
            "event": ("事件/队列 ", " 收到消息"), "cron": ("定时任务 ", " 到点触发")}
-PLURAL = {"route": "请求 ", "cli_command": "运行子命令 ", "cli_flag": "命令行带上 ", "event": "事件/队列 ", "cron": "定时任务 ",
-          "config": "配置开关 "}
 TRIGGER_ORDER = ["route", "cli_command", "cli_flag", "event", "cron", "config"]
-# 超过 MAX_LINES(约 30 行,仅作参考)时逐步多裁一项:「其他」组并进标题 → 验证只留 MAX_VERIFY_CUT 行
-# → 段落之间的空行。「改了什么」的分组本身不裁。
-TRIM = ["other", "verify", "blank"]
-MAX_LINES = 30
-MAX_VERIFY = 5
-MAX_VERIFY_CUT = 3
 MAX_OTHER_FILES = 3
 MAX_OTHER_DIRS = 3
 MAX_LANGS = 3
@@ -116,22 +109,6 @@ def parse_focus(value):
     except (ValueError, AssertionError):
         sys.exit('describe: --focus 要写成 JSON 数组,如 [{"where":"a.ts:42","ask":"并发安全吗"}]')
     return [{"where": str(x["where"]), "ask": str(x.get("ask") or "")} for x in items[:MAX_FOCUS]]
-
-
-CR_OWNER = "### CR负责人: @reviewer.username\n"
-
-
-def body_lines(text):
-    """正文额度不含负责人固定填写区。"""
-    return len(text.replace(CR_OWNER, "").strip("\n").splitlines())
-
-
-def drop_blanks(text):
-    """去掉段落之间的空行,保留负责人固定填写区里的空行。"""
-    lines = text.split("\n")
-    owner = CR_OWNER.splitlines()
-    keep = {j for i in range(len(lines)) if lines[i:i + len(owner)] == owner for j in range(i, i + len(owner))}
-    return "\n".join(line for i, line in enumerate(lines) if line.strip() or i in keep or i == len(lines) - 1)
 
 
 class Note:
@@ -438,8 +415,8 @@ class Note:
         """业务影响与 changes 原文去重;校验和去重在 analysis_check 中完成。"""
         return self.analysis.get("impact") or []
 
-    def impact_md(self, layers, cut):
-        """业务影响加必要技术变化;技术事实不受业务条数和正文额度裁剪。"""
+    def impact_md(self, layers):
+        """业务影响在前,技术事实在后;每条技术事实单独一行,行首带层名。都不按条数裁剪。"""
         lines = ["- " + x["text"] for x in self.impact()]
         for key, title in LAYERS:
             if key == "res":
@@ -447,8 +424,7 @@ class Note:
             items = layers[key]
             if key == "func":
                 items = [x for x in items if x["change"] in ("removed", "signature_changed")]
-            if items:
-                lines.append("- %s:%s" % (title, ";".join(self.item_md(x) for x in items)))
+            lines += ["- %s:%s" % (title, self.item_md(x)) for x in items]
         return "\n".join(lines)
 
     # ---------- 怎么验证 ----------
@@ -476,27 +452,15 @@ class Note:
             head += " → 进入 %s" % code(t["handler"])
         return "%s(%s)" % (head, self.loc(t["file"], t.get("line")))
 
-    def merged_md(self, kind, ts):
-        """同一类入口太多时合成一行。"""
-        if len(ts) == 1:
-            return self.trigger_md(ts[0])
-        return "%s%s(%s 等)" % (PLURAL.get(kind, ""), short((code(t["label"]) for t in ts), 2), self.loc(ts[0]["file"], ts[0].get("line")))
-
     def model_verify(self, n_changes):
         return [v for v in self.analysis.get("verify") or []
                 if isinstance(v, dict) and v.get("text") and isinstance(v.get("change"), int) and 1 <= v["change"] <= n_changes]
 
-    def verify_lines(self, f, cap):
-        """脚本认出的入口在前,analyst 按组写的在后,一共不超过 cap 行;超了先把同类入口合成一行,再截掉后面的。"""
-        ts, vs = f["triggers"], f["verify"]
-        script = [self.trigger_md(t) for t in ts]
-        if len(script) + len(vs) > cap:
-            groups = {}
-            for t in ts:
-                groups.setdefault(t["kind"], []).append(t)
-            script = [self.merged_md(k, g) for k, g in groups.items()]
-        model = [v["text"] for v in vs]
-        return ["- " + x for x in (script + model)[:cap]]
+    def verify_lines(self, f):
+        """以 analyst 校验过的「入口 → 能看到什么」为主;它一条都没有时,脚本认出的入口才补位(脚本的入口不一定对得上某一组,不按组补)。"""
+        if f["verify"]:
+            return ["- " + v["text"] for v in f["verify"]]
+        return ["- " + self.trigger_md(t) for t in f["triggers"]]
 
     def tested(self):
         return str(self.author.get("tested") or "").strip()
@@ -529,23 +493,20 @@ class Note:
         return {"layers": self.layers(), "triggers": self.triggers(), "reqs": self.requirements(), "changes": changes,
                 "other": self.other(changes), "res_hunks": self.resource_hunks(changes), "verify": verify, "summary": self.summary(), "focus": self.focus()}
 
-    def md_ctx(self, f, cut):
+    def md_ctx(self, f):
         ctx = {"info": self.md_info()}
         changes, other, res = f["changes"], f["other"], f["res_hunks"]
         lines = ["%d. %s" % (i, c["text"]) for i, c in enumerate(changes, 1)]   # 只写文字;代码块出处和链接在网页版
         if res:
             lines.append("%d. %s" % (len(lines) + 1, self.res_hunk_text(res)))
-        ctx["changes_more"] = ""
-        if other and lines and "other" in cut:
-            ctx["changes_more"] = "(另有 %d 处未归组,见完整版)" % len(other)
-        elif other:
+        if other:
             lines.append("%d. %s" % (len(lines) + 1, self.other_text(other, bool(changes))))
         ctx["changes"] = "\n".join([f["summary"][0]] + lines)   # 一句话是这一段的开头
-        ctx["impact"] = self.impact_md(f["layers"], cut)
+        ctx["impact"] = self.impact_md(f["layers"])
 
         ctx["focus"] = "\n".join("%d. %s — %s" % (i, self.loc(*split_where(x["where"])), x.get("ask", "")) for i, x in enumerate(f["focus"], 1))
 
-        verify = self.verify_lines(f, MAX_VERIFY_CUT if "verify" in cut else MAX_VERIFY)
+        verify = self.verify_lines(f)
         if self.tested():
             verify.append("- 执行记录:作者提供:%s" % self.tested())
         ctx["verify"] = "\n".join(verify)
@@ -553,16 +514,8 @@ class Note:
         return ctx
 
     def markdown(self):
-        """按 templates/describe.md 填出贴进 PR/MR 描述的那份。事实在这里算好,模板只管结构;超长时按 TRIM 逐项多裁。"""
-        template, f = read_template("describe.md"), self.facts_once()
-        for i in range(len(TRIM) + 1):
-            cut = TRIM[:i]
-            text = render(template, self.md_ctx(f, cut))
-            if "blank" in cut:
-                text = drop_blanks(text)
-            if body_lines(text) <= MAX_LINES:
-                break
-        return text
+        """按 templates/describe.md 填出贴进 PR/MR 描述的那份。事实在这里算好,模板只管结构。"""
+        return render(read_template("describe.md"), self.md_ctx(self.facts_once()))
 
     def html_page(self):
         """按 templates/describe.html 填出完整版网页。表格的行(tr、td)在这里生成,表头和页面结构在模板里。"""

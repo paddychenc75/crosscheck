@@ -28,14 +28,7 @@
 
 以下为检测信号,不代表已确认缺陷,不计入发现条数。
 
-<WEAKEN 的每一行,补充从 diff.patch 或 skipped.patch 对应 hunk 计算的位置 file:line;删除行注明旧版>
-
-```diff
-<该信号对应的短原文片段,保留原始 +/- 和必要上下文,不是修复建议>
-```
-
-<!-- 每条信号分别定位摘录,找不到时如实说明无法定位,不得猜行号。 -->
-
+<WEAKEN 的每条信号原样写入:首行是位置 file:line(删除行带「旧版」)和说明,紧跟 diff 代码块(原始 +/- 片段,不是修复建议)>
 <details><summary>已按历史判断忽略(<n>)</summary>
 
 - `path:line` — <摘要>(历史处理:<history_decision>,原因:<suppression_reason>;当前事实:<verdict>,置信度 <confidence>;前提复核:<history_context>)

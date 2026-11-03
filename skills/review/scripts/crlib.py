@@ -527,7 +527,7 @@ def repo_identity(cwd=None):
     common = subprocess.run(args + ["rev-parse", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
     if not os.path.isabs(common):
         common = os.path.join(cwd or os.getcwd(), common)
-    return os.path.dirname(os.path.abspath(common))
+    return os.path.dirname(os.path.realpath(common))   # 解析符号链接:经链接路径传入的同一仓库身份一致
 
 
 def project_dir(repo_id):

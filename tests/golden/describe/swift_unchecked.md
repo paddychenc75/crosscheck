@@ -13,7 +13,8 @@
 3. 其他:2 处(YView.swift、Info.plist)
 
 ### 主要影响
-- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`
+- 配置与依赖:修改工程配置 `App/Info.plist`
+- 配置与依赖:依赖变化 `Podfile`
 
 ### 怎么验证
 - <功能A> 页 → 右上角出现历史按钮

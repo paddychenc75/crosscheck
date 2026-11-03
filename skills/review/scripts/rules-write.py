@@ -8,12 +8,13 @@
   --repo    仓库根目录,默认取 WORK_DIR/meta.txt 的 repo_root
 
 plan.md 每条候选一个「## 序号. 标题」块,字段:候选、去向、动作、规则、原因、严重级别、范围、反例、正例、不要报
-(格式和字段见 rules_plan.py、improve/templates/plan.md)。动作是 待定 / 写入 / 跳过 / 已写入:只处理「写入」,
+(格式和字段见 rules_plan.py、improve/templates/plan.md;块末尾 > 开头的引用块是证据,只给人看,不读)。动作是 待定 / 写入 / 跳过 / 已写入:只处理「写入」,
 「待定」只统计,「跳过」「已写入」忽略。去向是下面两种之一:
   .agents/rules/<主题>.md                    规则写成一个「## 标题」块;不要报类写进文件末尾的「## 不要报」一节
   <目录>/REVIEW.md#每次都要检查 | #不要报     (根目录写 REVIEW.md#…)在该章节最后一个列表项后追加一行;
                                              章节不存在就在文件末尾新建,文件不存在就新建(# Review 约定);不改头部和其他内容
 rule 类只能去 .agents/rules 或「每次都要检查」,suppress 类只能去 .agents/rules 的「不要报」一节或 REVIEW.md 的「不要报」。
+rule 类写进 REVIEW.md 的一行是「规则。严重级别:重要。不要报:边界。原因:… <!-- 来源 -->」,级别保留,review 按它定级。
 
 先逐块校验:格式、规则句(按 mine-check.py 的写法要求)、去向、候选编号是否在 candidates.json 里。任一块 ERROR 则整批
 什么都不写,退出码 2。来源注释 <!-- 来源:!123 !145 --> 按「候选」编号从 candidates.json 取,不取 plan.md 里的文字。
@@ -86,10 +87,12 @@ def suppress_line(c):
 
 
 def review_line(c):
-    """REVIEW.md 里的一行:规则、例外、原因及来源 <!-- 来源 -->"""
+    """REVIEW.md 里的一行:规则、严重级别、例外、原因及来源 <!-- 来源 -->。
+    严重级别照 .agents/rules 块的字面写法,review 才按它定级;原因放最后,与 improve/templates/REVIEW.md 的示例一致。"""
     note = source_note(c)
     why = c.get("why", "")
-    return "- " + c["rule"].rstrip(PUNCT) + "。" + "不要报:" + c.get("exceptions", "") + "。" + ("原因:" + why if why else "") + (" " + note if note else "")
+    return ("- " + c["rule"].rstrip(PUNCT) + "。" + "严重级别:" + (c.get("severity") or "轻微") + "。"
+            + "不要报:" + c.get("exceptions", "") + "。" + ("原因:" + why if why else "") + (" " + note if note else ""))
 
 
 def is_suppress_head(line):

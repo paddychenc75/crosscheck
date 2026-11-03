@@ -24,7 +24,7 @@ rules-auditor 以 JSON 数组返回候选;reviewer 返回 `{"candidates": [...],
 | `line` | diff **新**侧的行号,且落在 `ranges.txt` 中该文件的某个范围内。指向出错的那一行,而不是函数的起始行。 |
 | `category` | `bug`、`security`、`intent`(没有满足明确的验收标准)或 `rules`。 |
 | `pass` | 只有 reviewer:在哪一遍查到的,`correctness`、`security`、`intent` 或 `impact`。不传给 verifier。 |
-| `severity` | 按后果的类型定,见下面「严重程度」一节。`rules` 按规则或 `REVIEW.md` 里对严重程度的定义写,没有定义就写 `minor`。规则里写的「严重级别」按 `重要` → `major`、`轻微` → `minor` 对应(规则模板和沉淀的规则只用这两级)。 |
+| `severity` | 按后果的类型定,见下面「严重程度」一节。`rules` 按规则或 `REVIEW.md` 里对严重程度的定义写,没有定义就写 `minor`。规则里写的「严重级别」(`.agents/rules` 块里的 `- **严重级别**:重要` 字段,或 `REVIEW.md` 必查项一行里的 `严重级别:重要`)按 `重要` → `major`、`轻微` → `minor` 对应(规则模板和沉淀的规则只用这两级)。 |
 | `summary` | 用一句话陈述缺陷。不要用含糊的措辞("可能"、"或许会"、"建议考虑")。 |
 | `failure_scenario` | 具体的输入或状态 → 错误的结果。`security` 写出攻击者可控的值从哪里进入、经过哪几步、得到什么。`intent` 写出是哪一条验收标准、代码哪里没有做到。 |
 | `suggestion` | 可选。能修复问题的最小改动,优先选不改变接口和既有行为的修法。能确定时直接给出替换后的代码,并说明替换的是哪几行;只能确定方向时用一句话描述;不确定怎么修就省略。 |

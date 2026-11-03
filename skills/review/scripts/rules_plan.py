@@ -24,12 +24,18 @@ NUMBERED = re.compile(r"^(\d+)\s*[.．、]\s*(.*)$")
 FIELD = re.compile(r"^(\s*[-*]\s+\*\*)([^*]+?)(\*\*\s*[::]\s*)(.*)$")
 
 
+def one(s):
+    """折成一行。文字里的 HTML 注释记号换成全角破折号:live_lines 会把它当注释,吞掉后面的行。"""
+    return " ".join(str(s or "").split()).replace("<!--", "<!——").replace("-->", "——>")
+
+
 def refs(c):
-    """候选的来源:MR 编号,有判断记录作证据时再加一项。"""
+    """候选的来源:MR 编号;判断记录写成「审查 <对象> 发现 <id>」,与 after-report.md 定规则时的写法一致。"""
     out = ["!%s" % m for m in c.get("mrs", [])]
-    if any(e.get("feedback") for e in c.get("evidence", [])):
-        out.append("crosscheck 判断记录")
-    return out
+    for e in c.get("evidence", []):
+        if e.get("feedback"):
+            out.append(" ".join(x for x in ("审查", one(e.get("target")), "发现", one(e["feedback"])) if x))
+    return list(dict.fromkeys(out))
 
 
 def suggest_dest(c, root):
@@ -42,14 +48,28 @@ def suggest_dest(c, root):
     return "%s/%s.md" % (RULES_DIR, c.get("topic") or "general")
 
 
+def evidence_lines(c):
+    """块末尾的证据说明,写成引用块(> 开头):提及与接受情况、逐条原文、没满足的准入项。parse 不读这些行,只给人看。"""
+    mrs = len(c["mrs"])
+    fb = c["mentions"] - mrs                      # 判断记录一律算接受
+    accepted = c["support"] - fb
+    head = []
+    if mrs:
+        head.append("提及 %d 个 MR:改了代码/已解决 %d,未知 %d,确定未接受 %d" % (mrs, accepted, c["unknown"], mrs - accepted - c["unknown"]))
+    if fb:
+        head.append("判断记录 %d 条" % fb)
+    out = ["", "> " + ";".join(head)]
+    for e in c["evidence"]:
+        who = " ".join(x for x in ("!%s" % e["mr"], one(e.get("author"))) if x) if e.get("mr") else "判断记录 " + one(e["feedback"])
+        out.append("> - %s「%s」[%s]" % (who, one(e["quote"]), e["state"]))
+    if c["unmet"]:
+        out += [">", "> " + ";".join(c["unmet"])]
+    return out
+
+
 def render_block(c, dest):
-    one = lambda s: " ".join(str(s or "").split())
-    marks = "".join({True: "✓", False: "✗", None: "?"}[b] for _, b in c.get("admission", []))
-    detail = [" ".join(refs(c)) or "-", "评审人 %d 位" % c.get("people", 0)]
-    if marks:
-        detail.append("准入 " + marks)
     lines = ["## %d. %s" % (c["no"], one(c.get("title")) or one(c["rule"])[:24]), "",
-             "- **候选**:%d(%s)" % (c["no"], ";".join(detail)),
+             "- **候选**:%d(%s;评审人 %d 位)" % (c["no"], " ".join(refs(c)) or "-", c.get("people", 0)),
              "- **去向**:" + dest,
              "- **动作**:待定",
              "- **规则**:" + one(c["rule"])]
@@ -63,7 +83,7 @@ def render_block(c, dest):
             if c.get(key):
                 lines.append("- **%s**:%s" % (name, one(c[key])))
         lines.append("- **不要报**:" + one(c.get("exceptions")))
-    return lines
+    return lines + evidence_lines(c)
 
 
 def fingerprint(cands):
@@ -82,7 +102,8 @@ def render(cands, root, meta):
              "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
              "",
              "<!-- candidates-sha256: %s -->" % fingerprint(cands),
-             "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->"]
+             "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。每块末尾 > 开头的引用块是证据,只给人看,改它不影响写入。",
+             "改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->"]
     for c in cands:
         lines += [""] + render_block(c, suggest_dest(c, root))
     return "\n".join(lines) + "\n"
@@ -143,7 +164,7 @@ def parse(text):
             seen.add(n)
             cur = dict(n=n, label=str(n), title=m.group(2).strip(), head=i, cand=None, fields={}, at={})
             continue
-        if cur is None or not s:
+        if cur is None or not s or s.startswith(">"):     # > 开头是证据引用块,不是字段
             continue
         f = FIELD.match(line)
         if not f:

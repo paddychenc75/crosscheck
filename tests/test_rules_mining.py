@@ -34,7 +34,7 @@ def note(nid, who, body, path=None, line=None, sha=None, system=False, bot=False
 
 def rule(**kw):
     c = {"kind": "rule", "topic": "api", "title": "分页参数要有上限", "rule": "在 src/api/** 的接口里,必须校验分页参数的上限",
-         "why": "不校验会查全表(!12、!15)", "severity": "重要", "bad_example": "list(limit)", "good_example": "list(Math.min(limit, 100))",
+         "why": "不校验会查全表", "severity": "重要", "bad_example": "list(limit)", "good_example": "list(Math.min(limit, 100))",
          "exceptions": "内部管理后台接口不限", "paths": ["src/api/**"], "checks": dict(CHECKS),
          "evidence": [{"mr": 12, "note": 101, "quote": "分页参数没校验上限"}, {"mr": 15, "note": 201, "quote": "limit 要加上限"}]}
     c.update(kw)
@@ -207,10 +207,16 @@ class RulesMining(fixture.Base):
         self.assertIn("非主观风格", reasons["接口必须写得清楚"])
         self.assertIn("可能重复或冲突", out)
         self.assertIn("范围不对", reasons["别处必须这样"])
-        self.assertIn("1. [api · 重要] 在 src/api/** 的接口里,必须校验分页参数的上限", out)
-        self.assertIn("准入:✓2 个 MR ✓2 位评审人 ✓改过代码或已解决 ✓针对改动的代码 ✓有不要报的边界 ✓有正反例", out)
-        self.assertIn("不要报:内部管理后台接口不限", out)
-        self.assertIn("   标题:分页参数要有上限", out)
+        # 每条候选一行:编号、规则句、建议去向;准入全满足时不列;自检不输出也不存
+        self.assertIn("1. [api · 重要] 在 src/api/** 的接口里,必须校验分页参数的上限 → .agents/rules/api.md\n", out)
+        lines = [x for x in out.split("\n") if x[:1].isdigit() and ". [" in x]
+        self.assertEqual(len(lines), 3)
+        for word in ("准入", "自检", "标题:", "证据:", "案例:"):
+            self.assertFalse([x for x in out.split("\n") if x.startswith("   ") and word in x], word)
+            self.assertFalse([x for x in lines if word in x], word)
+        for key in ("self_checks", "admission"):
+            self.assertNotIn(key, c)
+        self.assertEqual(c["unmet"], [])
 
     def test_rule_self_checks_must_be_complete(self):
         self.standard_mrs()
@@ -238,19 +244,29 @@ class RulesMining(fixture.Base):
         self.assertEqual(cands[0]["rule"], three["rule"])
         self.assertEqual((cands[0]["mrs"], cands[0]["people"]), ([12, 15, 17], 3))
         self.assertEqual((cands[0]["support"], cands[0]["mentions"]), (2, 3))
-        self.assertIn("?1 位评审人", out)                                     # 只有 alice 一个人:标出来,不丢
+        self.assertIn("待确认:评审人仅 1 位", out)                             # 只有 alice 一个人:标出来,不丢
 
     def test_feedback_records_as_suppress_evidence(self):
         self.standard_mrs()
-        self.feedback([{"key": "k1", "id": "f1", "verdict": "invalid", "reason": "生成的客户端代码不用管", "file": "src/api/gen/a.ts", "author": "h1", "time": "2026-10-01 10:00"},
-                       {"key": "k2", "id": "f2", "verdict": "invalid", "reason": "这是生成的客户端代码,不用管重复", "file": "src/api/gen/b.ts", "author": "h2", "time": "2026-10-02 10:00"}])
+        self.feedback([{"key": "k1", "id": "f1", "verdict": "invalid", "reason": "生成的客户端代码不用管", "file": "src/api/gen/a.ts", "author": "h1", "target": "mr-128", "time": "2026-10-01 10:00"},
+                       {"key": "k2", "id": "f2", "verdict": "invalid", "reason": "这是生成的客户端代码,不用管重复", "file": "src/api/gen/b.ts", "author": "h2", "target": "mr-130", "time": "2026-10-02 10:00"}])
         _, work = self.mine()
         self.assertEqual(len(self.load(os.path.join(work, "feedback.json"))), 2)
         sup = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
                "evidence": [{"feedback": "k1", "quote": "生成的客户端代码不用管"}, {"feedback": "f2", "quote": "不用管重复"}]}
         out, cands, _ = self.check(work, [sup])
         self.assertEqual([c["kind"] for c in cands], ["suppress"])
-        self.assertIn("1. [不要报 · api] 生成的客户端代码里的重复不用提", out)
+        self.assertIn("1. [不要报 · api] 生成的客户端代码里的重复不用提 → .agents/rules/api.md\n", out)
+        # plan.md 写判断记录的整段原因(不是 miner 摘的片段);准入全满足,不列
+        plan = self.plan_text(work)
+        self.assertIn("> 判断记录 2 条\n> - 判断记录 f1「生成的客户端代码不用管」[判为不成立]\n"
+                      "> - 判断记录 f2「这是生成的客户端代码,不用管重复」[判为不成立]\n", plan)
+        self.assertIn("- **候选**:1(审查 mr-128 发现 f1 审查 mr-130 发现 f2;评审人 2 位)", plan)
+        # 来源写成「审查 <对象> 发现 <id>」,与审查时当场定规则的写法一致
+        self.edit_plan(work, 1, "动作", "写入")
+        self.write_rules(work, "--apply")
+        self.assertIn("<!-- 来源:审查 mr-128 发现 f1 审查 mr-130 发现 f2 -->",
+                      Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
 
     def test_feedback_verdict_must_match_kind(self):
         self.standard_mrs()
@@ -364,18 +380,86 @@ class RulesMining(fixture.Base):
         f = blocks[cands[rule()["rule"]]["no"]]["fields"]
         self.assertEqual((f["规则"], f["严重级别"], f["范围"], f["不要报"]), (rule()["rule"], "重要", "src/api/**", "内部管理后台接口不限"))
         self.assertEqual((f["反例"], f["正例"]), ("list(limit)", "list(Math.min(limit, 100))"))
-        self.assertTrue(f["候选"].startswith("%d(!12 !15;评审人 2 位;准入 ✓✓✓✓✓✓)" % cands[rule()["rule"]]["no"]), f["候选"])
+        self.assertEqual(f["候选"], "%d(!12 !15;评审人 2 位)" % cands[rule()["rule"]]["no"])      # 准入全满足,不列
         sf = blocks[cands[s_dir["rule"]]["no"]]["fields"]
         self.assertNotIn("严重级别", sf)                                    # 不要报类没有这些字段
         self.assertNotIn("不要报", sf)
-        # 证据不进 plan.md
-        self.assertNotIn("分页参数没校验上限", plan)
+        self.assertNotIn("准入", plan)
         # 再运行 mine-check 不覆盖 plan.md
         Path(work, "plan.md").write_text(plan + "\n手改的\n", encoding="utf-8")
         r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "result-1.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertIn("plan.md 已存在,没有覆盖", r.stdout)
         self.assertTrue(self.plan_text(work).endswith("手改的\n"))
+
+    def test_plan_shows_evidence_and_parse_ignores_it(self):
+        self.standard_mrs()
+        # MR 19 的评论里带 HTML 注释记号:写进 plan.md 后不能被当成注释,把后面的行吞掉
+        self.mock_api(LIST, [self.mr(12, sha=self.sha1), self.mr(15, author="dev2"), self.mr(16, author="dev3"),
+                             self.mr(17, author="dev4"), self.mr(18, author="dev5"), self.mr(19, author="dev6")])
+        self.mock_api(disc(19), [{"id": "d8", "notes": [
+            note(501, "erin", "limit 必须校验 <!-- 这里不能吞行 --> 再往下", "src/api/users.ts", 1, self.sha0, resolved=True)]}])
+        many = rule(rule="在 src/api/** 里,limit 必须有上限且必须校验",
+                    evidence=[rule()["evidence"][0], {"mr": 15, "note": 201, "quote": "limit 要加上限"},
+                              {"mr": 17, "note": 302, "quote": "limit 也要加上限"},
+                              {"mr": 19, "note": 501, "quote": "limit 必须校验 <!-- 这里不能吞行 --> 再往下"}])
+        lone = rule(rule="金额相关的计算禁止使用浮点数", bad_example="",
+                    evidence=[{"mr": 18, "note": 401, "quote": "别用浮点"}, {"mr": 12, "note": 101, "quote": "分页参数"}])
+        _, work = self.mine()
+        self.check(work, [many, lone])
+        plan = self.plan_text(work)
+        # 提及与接受情况分开列,确定未接受的也展示;引文不截断
+        self.assertIn("> 提及 4 个 MR:改了代码/已解决 3,未知 0,确定未接受 1\n"
+                      "> - !12 alice「分页参数没校验上限」[已改代码]\n"
+                      "> - !15 bob「limit 要加上限」[已解决]\n"
+                      "> - !17 dave「limit 也要加上限」[未改代码]\n"
+                      "> - !19 erin「limit 必须校验 <!—— 这里不能吞行 ——> 再往下」[已解决]\n\n", plan)
+        # 没满足的准入项带文字标签,满足的不列
+        self.assertIn("> 提及 2 个 MR:改了代码/已解决 2,未知 0,确定未接受 0\n", plan)
+        self.assertIn(">\n> 待确认:评审人仅 1 位;待确认:缺反例或正例\n", plan)
+        self.assertEqual(plan.count("待确认"), 2)
+        # 引用块不影响解析:字段、标题、候选编号和去掉引用块后完全一样,也没有吞掉后面的行
+        blocks = self.parse_plan(plan)
+        plain = self.parse_plan("\n".join(x for x in plan.split("\n") if not x.startswith(">")))
+        shape = lambda bs: [(b["n"], b["title"], b["cand"], b["fields"]) for b in bs]
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(shape(blocks), shape(plain))
+        # 用户改了引用块里的字也不影响;改动作后照常 apply,证据不写进规则文件
+        Path(work, "plan.md").write_text(plan.replace("[已解决]", "[随便改]"), encoding="utf-8")
+        self.edit_plan(work, 1, "动作", "写入")
+        self.edit_plan(work, 2, "动作", "跳过")
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        written = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
+        self.assertIn("limit 必须有上限且必须校验", written)
+        self.assertNotIn("再往下", written)
+        self.assertNotIn("金额相关", written)
+        after = self.plan_text(work)
+        self.assertEqual(after.count("已写入"), 1)
+        self.assertEqual([x for x in after.split("\n") if x.startswith(">")],
+                         [x for x in plan.replace("[已解决]", "[随便改]").split("\n") if x.startswith(">")])
+
+    def test_review_md_line_keeps_severity_and_review_reads_it(self):
+        minor = rule(rule="在 src/api/** 里,必须给外部调用设置超时", severity="轻微")
+        work, no = self.prepare(rule(), minor)
+        for n in no.values():
+            self.edit_plan(work, n, "动作", "写入")
+            self.edit_plan(work, n, "去向", "src/api/REVIEW.md#每次都要检查")
+        # --check 的 diff 里就能看到级别
+        preview = self.write_rules(work, "--check")
+        self.assertIn("+- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->", preview)
+        self.assertIn("+- 在 src/api/** 里,必须给外部调用设置超时。严重级别:轻微。不要报:", preview)
+        self.write_rules(work, "--apply")
+        # 审查时 collect-rules 把这些行原样交给 rules auditor,级别随规则一起过去
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-qm", "rules")
+        self.git(self.repo, "switch", "-qc", "feature")
+        self.commit(self.repo, {"src/api/orders.ts": "changed\n"}, "change")
+        rd = self.review_dir(self.run_script("collect-diff.sh", cwd=self.repo).stdout)
+        self.run_script("collect-rules.sh", rd)
+        block = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}["src/api/REVIEW.md"]
+        self.assertIn("必须校验分页参数的上限。严重级别:重要。", block["text"])
+        self.assertIn("必须给外部调用设置超时。严重级别:轻微。", block["text"])
 
     def parse_plan(self, text):
         import sys
@@ -516,7 +600,7 @@ class RulesMining(fixture.Base):
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
         self.assertTrue(text.startswith('---\npaths: ["src/api/**"]\n---\n# api\n'))
         self.assertIn("## 分页参数要有上限\n\n- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限(最多 100)\n"
-                      "- **原因**:不校验会查全表(!12、!15)\n- **严重级别**:重要\n- **反例**:`list(limit)`\n"
+                      "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:`list(limit)`\n"
                       "- **正例**:`list(Math.min(limit, 100))`\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
         # plan.md 只有写过的那块的动作变了
         after = self.plan_text(work)
@@ -593,7 +677,7 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +1行", out)
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
-        line = "- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->"
+        line = "- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->"
         self.assertEqual(text, review.replace("    补充一句\n", "    补充一句\n" + line + "\n"))      # 只多一行,头部和其他内容不变
         self.assertTrue(text.startswith("---\nskip: [\"gen/**\"]\n---\n"))
         self.assertNotIn("WARN:", out)
@@ -613,7 +697,7 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +4行", out)
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), review +
-                         "\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
+                         "\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->\n")
 
     def test_review_md_empty_section_gets_item_under_heading(self):
         review = "# 规则\n\n## 每次都要检查\n## 不要报\n\n- x\n"
@@ -627,7 +711,7 @@ class RulesMining(fixture.Base):
         work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#每次都要检查")
         self.write_rules(work, "--apply")
         self.assertEqual(Path(self.repo, "src/api/REVIEW.md").read_text(encoding="utf-8"),
-                         "# Review 约定\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。不要报:内部管理后台接口不限。原因:不校验会查全表(!12、!15) <!-- 来源:!12 !15 -->\n")
+                         "# Review 约定\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->\n")
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), "# 规则\n")           # 根目录的没动
         # 范围在该目录里,不提醒
         self.assertNotIn("WARN", self.write_rules(work, "--check"))
@@ -716,7 +800,8 @@ class RulesMining(fixture.Base):
         _, got, _ = self.check(work, [rule(evidence=[rule()["evidence"][0],
                                                    {"mr": 17, "note": 302, "quote": "limit 也要加上限"}])])
         self.assertEqual((got[0]["support"], got[0]["mentions"], got[0]["unknown"]), (1, 2, 1))
-        self.assertIsNone(got[0]["admission"][2][1])
+        self.assertEqual({e["mr"]: e["state"] for e in got[0]["evidence"]}, {12: "已改代码", 17: "未知"})
+        self.assertEqual(got[0]["unmet"], ["待确认:改过代码或已解决的只有 1 个"])      # 未知不当成已接受
 
     def test_wontfix_and_feedback_context(self):
         self.standard_mrs()

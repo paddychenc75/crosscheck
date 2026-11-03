@@ -12,4 +12,5 @@
 2. 改动:4 处(XViewController.swift、YView.swift、Info.plist)
 
 ### 主要影响
-- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`
+- 配置与依赖:修改工程配置 `App/Info.plist`
+- 配置与依赖:依赖变化 `Podfile`

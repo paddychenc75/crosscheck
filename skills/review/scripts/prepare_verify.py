@@ -1,5 +1,5 @@
 """prepare-verify.sh 的实现,用法和说明见 prepare-verify.sh。"""
-import glob, json, os, re, sys
+import glob, json, os, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -7,10 +7,9 @@ d = os.path.abspath(sys.argv[1])
 per = max(1, int(sys.argv[2]))
 cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
 PREV_VERDICT = ("confidence", "verdict", "evidence", "ruled_out", "no", "status", "history_match", "previously",
-                "suppressed_by", "reject_reason", "also_lines", "carried_unchanged", "compat", "cid", "verification", "mark", "repro", "pass",
+                "suppressed_by", "reject_reason", "compat", "cid", "verification", "mark", "repro", "pass",
                 "history_context", "history_decision", "suppression_reason", "source_refs", "candidate_ids", "merge_reason",
                 "root_cause", "evidence_snapshot")
-MERGED = re.compile(r"\(共 \d+ 处,其余在第 [^)]* 行\)$")
 notes = crlib.load_json(os.path.join(d, "rules-notes.json"), [])
 # 原件只在 finders/ 保存。source_refs 用文件名#数组下标定位,不另造原始候选存储。
 raw = {}
@@ -79,7 +78,6 @@ for c in cands:
     if c.get("from_prev"):
         for k in PREV_VERDICT:
             c.pop(k, None)
-        c["summary"] = MERGED.sub("", str(c.get("summary", "")))
     keep.append(c)
 for i, c in enumerate(keep, 1):
     c.setdefault("cid", "c%d" % i)

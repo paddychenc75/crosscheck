@@ -10,7 +10,6 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from unittest import mock
 
 import fixture
 
@@ -302,7 +301,7 @@ def scenarios():
                      "doc": {"status": "given", "source": "本地文档", "local_files": ["/Users/someone/work/shop/docs/spec.md", "prd.md"]}}
 
     @case
-    def rich_trimmed_with_focus_and_criteria(c):
+    def rich_with_focus_and_criteria(c):
         rich(c)
         c.criteria = ["条件 %d" % i for i in range(1, 7)]
         c.analysis = {"summary": {"text": "x"}, "requirements": [{"criterion": "条件 1(来自 需求单)", "hunks": ["H1"]}]}
@@ -404,7 +403,7 @@ class Templates(fixture.Base):
         self.assertEqual(set(os.listdir(GOLDEN)), names)
 
     def test_golden_scenarios_cover_the_branches(self):
-        """场景覆盖了已合入、PR/MR 信息没读到、作者点名的重点、需求单各种状态、改了什么、不认识的语言、裁剪等分支。"""
+        """场景覆盖了已合入、PR/MR 信息没读到、作者点名的重点、需求单各种状态、改了什么、不认识的语言等分支。"""
         md = {name: Path(GOLDEN, "%s.md" % name).read_text(encoding="utf-8") for name in scenarios()}
         for name in ("merged", "code_host_failed"):      # 工具状态不贴进描述,只在终端 NOTE
             self.assertNotIn("状态", md[name])
@@ -437,7 +436,7 @@ class Templates(fixture.Base):
         self.assertIn("- 订单列表翻页 → 请求带 `cursor`\n", md["changes_and_verify"])
         self.assertNotIn("自动识别范围", md["swift_unchecked"])
         self.assertNotIn("自动识别范围", md["swift_partial"])
-        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`\n", md["swift_unchecked"])
+        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`\n- 配置与依赖:依赖变化 `Podfile`\n", md["swift_unchecked"])
         self.assertIn("1. `XViewController` 右上角加 `rightBarButtonItem`\n2. 新增图标 `icon_history_v2`\n"
                       "3. 其他:2 处(YView.swift、Info.plist)\n", md["swift_unchecked"])     # 测试代码块不进「其他」
         self.assertTrue(md["swift_unchecked"].endswith(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n"))
@@ -509,7 +508,7 @@ class Sections(Templates):
         self.assertIn("改动:2 处", page)
         self.assertNotIn("其他:2 处", page)
 
-    def test_layers_are_ordered_and_capped(self):
+    def test_layers_are_ordered_one_fact_per_line(self):
         c = Case()
         c.facts["symbols"] = [sym("addOne", "added", 1), sym("sigNoUse", "signature_changed", 2, inside=1),
                               sym("dropTwo", "removed", 3), sym("sigUsed", "signature_changed", 4, outside=2)]
@@ -518,21 +517,25 @@ class Sections(Templates):
         md = self.md_of(c)
         self.assertNotIn("签名变 2", md)      # md 里没有总览行,网页版保留
         self.assertIn("删除 2 · 接口 2 · 函数 4(签名变 2)", Path(self.out, "describe.html").read_text(encoding="utf-8"))
-        self.assertIn("- 接口:删除路由 `GET /b`(`api/routes.ts`);新增路由 `POST /a`(`api/routes.ts:4`)\n", md)
-        self.assertIn("- 内部函数:删除 `dropTwo`(`api/f3.ts`);签名变化 `sigUsed`(`api/f4.ts:3`,diff 外 2 处调用);签名变化 `sigNoUse`(`api/f2.ts:3`)\n", md)
-        # 层序:接口 > 数据库与迁移 > 配置与依赖 > 资源 > 内部函数,空层不显示
-        self.assertLess(md.index("- 接口:"), md.index("- 内部函数:"))
+        self.assertIn("- 接口:删除路由 `GET /b`(`api/routes.ts`)\n- 接口:新增路由 `POST /a`(`api/routes.ts:4`)\n", md)
+        self.assertIn("- 函数签名:删除 `dropTwo`(`api/f3.ts`)\n- 函数签名:签名变化 `sigUsed`(`api/f4.ts:3`,diff 外 2 处调用)\n"
+                      "- 函数签名:签名变化 `sigNoUse`(`api/f2.ts:3`)\n", md)
+        self.assertNotIn("内部函数", md)
+        self.assertNotIn("addOne", md)      # 这一层只列删除和签名变化的函数,新增的只在完整版
+        self.assertIn("addOne", Path(self.out, "describe.html").read_text(encoding="utf-8"))
+        # 层序:接口 > 数据库与迁移 > 配置与依赖 > 资源 > 函数签名,空层不显示
+        self.assertLess(md.index("- 接口:"), md.index("- 函数签名:"))
         self.assertNotIn("- 数据库与迁移", md)
         self.assertNotIn("- 配置与依赖", md)
         self.assertNotIn("- 资源", md)
 
     def test_layer_order_across_all_four(self):
         md = Path(GOLDEN, "rich_layers.md").read_text(encoding="utf-8")
-        heads = [m.group(1) for m in re.finditer(r"^- (接口|数据库与迁移|配置与依赖|资源|内部函数):", md, re.M)]
-        self.assertEqual(heads, ["接口", "数据库与迁移", "配置与依赖", "内部函数"])
+        heads = [m.group(1) for m in re.finditer(r"^- (接口|数据库与迁移|配置与依赖|资源|函数签名):", md, re.M)]
+        self.assertEqual(heads, ["接口"] * 3 + ["数据库与迁移"] * 2 + ["配置与依赖"] * 4 + ["函数签名"] * 3)      # 一条事实一行
         self.assertNotIn("签名变 2", md)
         self.assertIn("删除 4 · 迁移 2 · 接口 3 · 配置 4", Path(GOLDEN, "rich_layers.html").read_text(encoding="utf-8"))
-        self.assertIn("- 数据库与迁移:删除迁移 `db/001.sql`;新增迁移 `db/002.sql`\n", md)
+        self.assertIn("- 数据库与迁移:删除迁移 `db/001.sql`\n- 数据库与迁移:新增迁移 `db/002.sql`\n", md)
 
     def test_body_only_business_impact_and_scope_in_full_report(self):
         c = Case()
@@ -551,8 +554,8 @@ class Sections(Templates):
         for text in ("空列表展示空态", "<code>empty</code>", "H1 <code>", "Swift", "业务说明依据 diff 起草", "不证明业务语义"):
             self.assertIn(text, page)
 
-    def test_valid_business_and_technical_impact_survives_trimming(self):
-        c = scenarios()["rich_trimmed_with_focus_and_criteria"]
+    def test_valid_business_and_technical_impact_is_never_cut(self):
+        c = scenarios()["rich_with_focus_and_criteria"]
         c.analysis["impact"] = [change("场景%d的用户可以继续翻页" % i, ["H1"], ["cursor"]) for i in range(8)]
         md = self.md_of(c)
         page = Path(self.out, "describe.html").read_text()
@@ -562,7 +565,20 @@ class Sections(Templates):
         for text in ("--cursor", "sigNoUse", "order.cursor.enabled", "ORDER_API_URL", "lodash 4.0.0 → 4.17.0"):
             self.assertIn(text, md)
             self.assertIn(text.replace("→", "→"), page)
-        self.assertGreater(len(md.replace(OWNER, "").strip().splitlines()), 30)
+
+    def test_business_impact_first_then_one_technical_fact_per_line(self):
+        c = Case()
+        rich(c)
+        c.analysis = {"impact": [change("场景%d的用户可以继续翻页" % i, ["H1"], ["cursor"]) for i in range(2)]}
+        section = self.md_of(c).split("### 主要影响\n")[1].split("\n\n")[0].splitlines()
+        self.assertEqual(section[:2], ["- 场景0的用户可以继续翻页", "- 场景1的用户可以继续翻页"])      # 业务影响在前
+        self.assertEqual([x for x in section if x.startswith("- 配置与依赖:")], [
+            "- 配置与依赖:删除配置键 `order.legacy`(`config/app.yml:5`)",
+            "- 配置与依赖:依赖变化 `package.json`(新增 axios@1.6.0、删除 left-pad、lodash 4.0.0 → 4.17.0)",
+            "- 配置与依赖:新增配置键 `order.cursor.enabled`(`config/app.yml:3`)",
+            "- 配置与依赖:新环境变量 `ORDER_API_URL`(`src/env.ts:1`)"])
+        self.assertEqual(len(section), 2 + 3 + 2 + 4 + 3)      # 业务 2 + 接口 3 + 迁移 2 + 配置 4 + 函数签名 3
+        self.assertFalse([x for x in section if ";" in x])      # 不再用分号把几条事实连成一行
 
     def test_resources_and_project_config_by_path(self):
         """按路径认的工程配置算在「配置与依赖」,资源另起一行和它并列;只有资源时只有资源这一行。"""
@@ -624,27 +640,38 @@ class Sections(Templates):
         self.assertIn("- 执行记录:作者提供:pnpm test:退出码 0\n", md)
         self.assertIn("<h3>执行记录</h3><p>作者提供:pnpm test:退出码 0</p>", Path(self.out, "describe.html").read_text(encoding="utf-8"))
 
-    def test_verify_one_line_per_group_and_at_most_five(self):
-        """脚本认出的入口在前,AI 写的按组一行在后;超过 5 行时同类入口合成一行,还多就截掉。"""
+    def test_verify_keeps_every_checked_analysis_entry(self):
+        """analyst 校验过的验证条目全部保留,没有条数上限;有它们时脚本认出的入口不再重复写进 md,完整版两者都列。"""
         c = Case()
-        c.facts["entrypoints"] = entrypoints(triggers=[entry("route", "GET /r%d" % i, line=i, handler="h%d" % i) for i in range(1, 4)] +
-                                             [entry("route", "GET /dup", line=1)])      # 和第一条同一 文件:行,去掉
-        c.analysis = {"changes": [change("改 `listOrders` %d" % i, ["H1"], ["listOrders"]) for i in range(1, 5)],
-                      "verify": [verify(i, "入口 %d → 看到 `listOrders`" % i, ["H1"], ["listOrders"]) for i in range(1, 5)]}
-        c.author = {}
+        c.facts["entrypoints"] = entrypoints(triggers=[entry("route", "GET /r%d" % i, line=i, handler="h%d" % i) for i in range(1, 4)])
+        c.analysis = {"changes": [change("改 `listOrders` %d" % i, ["H1"], ["listOrders"]) for i in range(1, 8)],
+                      "verify": [verify(i, "入口 %d → 看到 `listOrders`" % i, ["H1"], ["listOrders"]) for i in range(1, 8)]}
         out, md, page = self.run_note(self.build(c, "many"))
         lines = md.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines()
-        self.assertEqual(lines, ["- 请求 `GET /r1`、`GET /r2` 另 1 个(`api/routes.ts:1` 等)",
-                                 "- 入口 1 → 看到 `listOrders`", "- 入口 2 → 看到 `listOrders`",
-                                 "- 入口 3 → 看到 `listOrders`", "- 入口 4 → 看到 `listOrders`"])
-        self.assertNotIn("GET /dup", md)
+        self.assertEqual(lines, ["- 入口 %d → 看到 `listOrders`" % i for i in range(1, 8)] + ["- 执行记录:作者提供:本地跑了 jest"])
+        self.assertNotIn("GET /r", md)
         self.assertIn("NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对", out)
-        self.assertIn("<td>请求 <code>GET /r3</code> → 进入 <code>h3</code></td>", page)   # 完整版逐条列出
-        self.assertEqual(page.count("AI 起草,请核对"), 4)
-        # 不多时逐条写,带处理函数
-        c.analysis = {}
-        md = self.md_of(c, "few")
-        self.assertIn("- 请求 `GET /r1` → 进入 `h1`(`api/routes.ts:1`)\n- 请求 `GET /r2` → 进入 `h2`(`api/routes.ts:2`)\n", md)
+        for i in range(1, 4):      # 完整版逐条列出,不丢入口
+            self.assertIn("<td>请求 <code>GET /r%d</code> → 进入 <code>h%d</code></td>" % (i, i), page)
+        self.assertEqual(page.count("脚本认出的入口"), 3)
+        self.assertEqual(page.count("AI 起草,请核对"), 7)
+
+    def test_script_entries_fill_in_only_when_analysis_has_no_verify(self):
+        """analyst 一条验证都没有时,脚本认出的入口逐条一行补位(不设上限、不合并,同一 文件:行 去掉);有一条就不补。"""
+        c = Case()
+        c.facts["entrypoints"] = entrypoints(triggers=[entry("route", "GET /r%d" % i, line=i, handler="h%d" % i) for i in range(1, 8)] +
+                                             [entry("route", "GET /dup", line=1)])      # 和第一条同一 文件:行,去掉
+        c.author = {}
+        md = self.md_of(c, "fill")
+        lines = md.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines()
+        self.assertEqual(lines, ["- 请求 `GET /r%d` → 进入 `h%d`(`api/routes.ts:%d`)" % (i, i, i) for i in range(1, 8)])
+        self.assertNotIn("GET /dup", md)
+        # 脚本的入口对不上某一组,所以按整体判断:只有部分组写了验证时,也不再补入口
+        c.analysis = {"changes": [change("改 `listOrders` %d" % i, ["H1"], ["listOrders"]) for i in range(1, 3)],
+                      "verify": [verify(1, "入口 1 → 看到 `listOrders`", ["H1"], ["listOrders"])]}
+        md = self.md_of(c, "partial")
+        self.assertEqual(md.split(VERIFY + "\n")[1].splitlines(), ["- 入口 1 → 看到 `listOrders`"])
+        self.assertNotIn("GET /r", md)
 
     def test_tests_and_untested_are_only_in_the_full_page(self):
         """新增用例、断言、项目命令和没在改动测试里出现的函数只放在完整版的「测试线索」里,不进贴到 PR/MR 的那份。"""
@@ -670,45 +697,6 @@ class Sections(Templates):
         md = self.md_of(c)
         self.assertNotIn("需求对照", md)
         self.assertNotIn("需求对照", Path(self.out, "describe.html").read_text(encoding="utf-8"))
-
-    def test_trim_order(self):
-        """超过约 30 行时按 其他组 → 验证里多余的行 → 空行 的顺序多裁一项;改了什么的分组不裁。"""
-        sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
-        import describe
-        self.assertEqual(describe.TRIM, ["other", "verify", "blank"])
-        self.assertEqual(describe.MAX_LINES, 30)
-        c = scenarios()["rich_trimmed_with_focus_and_criteria"]
-        c.facts["attention"].append(res_att("added", "App/Assets.xcassets", "App/Assets.xcassets/icon_history_v2.imageset/Contents.json", "App/Assets.xcassets/icon_history_v2.imageset/icon.png"))
-        rd = self.build(c, "trim")
-        with mock.patch.dict(os.environ, {"HOME": os.path.dirname(self.home)}):
-            note = describe.Note(rd, self.out)
-            f = note.facts_once()
-            template = describe.read_template("describe.md")
-            steps = []
-            for i in range(len(describe.TRIM) + 1):
-                text = describe.render(template, note.md_ctx(f, describe.TRIM[:i]))
-                steps.append(describe.drop_blanks(text) if "blank" in describe.TRIM[:i] else text)
-            final = note.markdown()
-        gone = {"other": "9. 其他:"}
-        for i, step in enumerate(describe.TRIM):
-            if step in gone:
-                self.assertIn(gone[step], steps[i], step)
-                self.assertNotIn(gone[step], steps[i + 1], step)
-
-        def verify_count(text):      # 验证段里的行数(不含作者给的执行记录)
-            return len([x for x in text.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines() if not x.startswith("- 执行记录")])
-        self.assertGreater(verify_count(steps[1]), describe.MAX_VERIFY_CUT)
-        self.assertEqual(verify_count(steps[2]), describe.MAX_VERIFY_CUT)
-        self.assertIn("### 改了什么(另有 7 处未归组,见完整版)\n", steps[1])
-        self.assertGreater(steps[2].count("\n\n"), steps[3].count("\n\n"))
-        self.assertIn(OWNER, steps[3])
-        fit = next((s for s in steps if describe.body_lines(s) <= 30), steps[-1])
-        self.assertEqual(final, fit)
-        self.assertGreater(describe.body_lines(steps[0]), 30)
-        # 改了什么的分组始终在
-        for s in steps:
-            self.assertIn("8. 改动 8 的 `listOrders`", s)
-            self.assertNotIn("删除 4 · 迁移 2", s)
 
     def test_typical_description_is_short(self):
         md = Path(GOLDEN, "basic.md").read_text(encoding="utf-8")

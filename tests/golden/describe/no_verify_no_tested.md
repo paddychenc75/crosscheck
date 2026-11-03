@@ -12,4 +12,4 @@
 
 ### 主要影响
 - 配置与依赖:新增配置文件 `config/app.yml`(1 个键)
-- 内部函数:签名变化 `listOrders`(`api/orders.ts:1`,diff 外 2 处调用)
+- 函数签名:签名变化 `listOrders`(`api/orders.ts:1`,diff 外 2 处调用)

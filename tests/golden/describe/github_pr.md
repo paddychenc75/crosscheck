@@ -12,7 +12,7 @@
 
 ### 主要影响
 - 配置与依赖:新增配置文件 [`config/app.yml`](https://github.com/acme/shop/blob/<SHA>/config/app.yml)(1 个键)
-- 内部函数:签名变化 `listOrders`([`api/orders.ts:1`](https://github.com/acme/shop/blob/<SHA>/api/orders.ts#L1),diff 外 2 处调用)
+- 函数签名:签名变化 `listOrders`([`api/orders.ts:1`](https://github.com/acme/shop/blob/<SHA>/api/orders.ts#L1),diff 外 2 处调用)
 
 ### 怎么验证
 - 开启配置 `order.cursor.enabled`([`config/app.yml:3`](https://github.com/acme/shop/blob/<SHA>/config/app.yml#L3))

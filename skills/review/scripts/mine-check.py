@@ -9,6 +9,7 @@
 校验引用真实性、结构与 miner 自检,不证明语义支持。两类候选均须完整自检。
 提及与接受信号分开统计,确定未接受的 MR 不凑案例,未知保留;wontfix 不支持 suppress。
 完整相同的输入去重,其余相似仅提示供计划判断。已有计划冻结候选配对。
+输出每条候选一行(编号、规则句、建议去向、没满足的准入项);提及 / 接受 / 未知的统计和逐条证据原文写在 plan.md 每块末尾。
 """
 import difflib
 import json
@@ -27,6 +28,8 @@ SELF_CHECKS = {
 }
 # 判断记录只认与类别一致的结论;成立暂不修不能泛化为长期不报。
 FB_VERDICTS = {"rule": ("valid",), "suppress": ("invalid",)}
+# 评论所在讨论的接受状态里算接受信号的几种;另有「未改代码」(确定没接受)和「未知」
+FIXED = ("已改代码", "已解决", "已改代码、已解决")
 
 
 def squash(s):
@@ -46,10 +49,6 @@ def similar(a, b):
 def topic_name(s):
     s = re.sub(r"[^a-z0-9-]+", "-", str(s or "").lower()).strip("-")
     return s[:40] or "general"
-
-
-def mark(v):
-    return {True: "✓", False: "✗", None: "?"}[v]
 
 
 def main(argv):
@@ -95,13 +94,15 @@ def main(argv):
         dropped.append(dict(rule=c.get("rule", ""), kind=c.get("kind", ""), reason=why))
 
     def fixed_state(rec, note):
-        """这条评论所在的讨论:评论后改了代码或已解决 → True;确定没有 → False;不知道 → None。"""
+        """这条评论所在的讨论:评论后改了代码、已解决(两者可同时)→ 接受信号;确定都没有 → 未接受;不知道 → 未知。"""
         thread = [n for n in rec.get("notes", []) if n.get("discussion") == note.get("discussion")] or [note]
-        if any(n.get("resolved") is True or n.get("changed_after") is True for n in thread):
-            return True
+        changed = any(n.get("changed_after") is True for n in thread)
+        resolved = any(n.get("resolved") is True for n in thread)
+        if changed or resolved:
+            return "、".join(x for x, ok in (("已改代码", changed), ("已解决", resolved)) if ok)
         if any(n.get("resolved") is False for n in thread) and all(n.get("changed_after") is False for n in thread):
-            return False
-        return None
+            return "未改代码"
+        return "未知"
 
     for c in raw:
         kind = c.get("kind") or "rule"
@@ -143,7 +144,9 @@ def main(argv):
                 if f and f.get("verdict") not in FB_VERDICTS[kind]:
                     bad.append("判断记录 %s(结论与类别不符)" % e["feedback"])
                 elif f and quote and quote in crlib.norm(f.get("reason", "")):
-                    ev.append(dict(feedback=f.get("key") or f.get("id"), quote=quote, verdict=f.get("verdict")))
+                    # 引文核对过是原因里的原文,记录整段原因,plan.md 里才看得出判断的条件
+                    ev.append(dict(feedback=f.get("id") or f.get("key"), target=f.get("target", ""),
+                                   quote=crlib.norm(f["reason"]), state={"invalid": "判为不成立", "valid": "判为成立"}[f["verdict"]]))
                     refs.add("fb:" + str(f.get("key") or f.get("id")))
                     accepted.add("fb:" + str(f.get("key") or f.get("id")))
                     if f.get("author"):
@@ -156,10 +159,11 @@ def main(argv):
             if not note or not quote or quote not in crlib.norm(note.get("body", "")):
                 bad.append("!%s note %s" % (e.get("mr"), e.get("note")))
                 continue
+            state = fixed_state(rec, note)
             ev.append(dict(mr=rec["iid"], note=note["id"], author=note.get("author", ""), quote=quote,
-                           file=note.get("file", ""), line=note.get("line"), url=rec.get("web_url", "")))
+                           file=note.get("file", ""), line=note.get("line"), url=rec.get("web_url", ""), state=state))
             refs.add("mr:%s" % rec["iid"])
-            states.setdefault("mr:%s" % rec["iid"], []).append(fixed_state(rec, note))
+            states.setdefault("mr:%s" % rec["iid"], []).append(state)
             inline = inline or bool(note.get("file"))
             if note.get("author") and note.get("author") != rec.get("author"):
                 people.add(note["author"])
@@ -168,29 +172,31 @@ def main(argv):
             drop(c, "证据不足:核对后只剩 %d 个 MR/判断记录(至少 2 个)%s" % (len(refs), unmatched))
             continue
         for ref, values in states.items():
-            if True in values:
+            if any(v in FIXED for v in values):
                 accepted.add(ref)
-            elif None in values:
+            elif "未知" in values:
                 unknown.add(ref)
         if len(accepted | unknown) < 2:
             drop(c, "接受案例不足:评论之后代码没改、讨论也没解决的 MR 不算接受案例%s" % unmatched)
             continue
-        fixed = True if len(accepted) >= 2 else None
         mrs = sorted({e["mr"] for e in ev if e.get("mr")})
-        admission = [("%d 个 MR" % len(mrs) if mrs else "%d 条判断记录" % len(refs), True),
-                     ("%d 位评审人" % len(people), len(people) >= 2 or None),
-                     ("改过代码或已解决", fixed)]
+        # 没满足的准入项,写成文字,全满足时为空。自检缺项或不通过的候选前面已经丢掉,不在这里
+        unmet = []
+        if len(people) < 2:
+            unmet.append("待确认:评审人仅 %d 位" % len(people))
+        if len(accepted) < 2:
+            unmet.append("待确认:改过代码或已解决的只有 %d 个" % len(accepted))
         if kind == "rule":
-            admission += [("针对改动的代码", inline or (None if not mrs else False)),
-                          ("有不要报的边界", True),
-                          ("有正反例", bool(c.get("bad_example")) and bool(c.get("good_example")) or None)]
-        selfc = [SELF_CHECKS[k] for k in SELF_CHECKS if checks.get(k) is True]
+            if not inline:
+                unmet.append("不满足:评论都不在具体代码行上" if mrs else "待确认:没有行内评论可看")
+            if not (c.get("bad_example") and c.get("good_example")):
+                unmet.append("待确认:缺反例或正例")
         kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule, why=crlib.norm(c.get("why", "")),
                          severity=severity or "", bad_example=str(c.get("bad_example") or "").strip(),
                          good_example=str(c.get("good_example") or "").strip(), exceptions=exceptions,
                          paths=paths, topic=topic_name(c.get("topic")), evidence=ev, mrs=mrs, support=len(accepted),
                          mentions=len(refs), unknown=len(unknown),
-                         people=len(people), admission=[[a, b] for a, b in admission], self_checks=selfc, unmatched=bad))
+                         people=len(people), unmet=unmet, unmatched=bad))
 
     # 已有规则没有统一的逐条边界结构,仅提示相似,不据此删除。
     existing = []
@@ -229,26 +235,11 @@ def main(argv):
     for p in bad_files:
         print("mine-check: %s 不是 JSON 数组,已跳过;请让对应的 miner 重新回复" % p, file=sys.stderr)
     print("candidates=%d dropped=%d" % (len(merged), len(dropped)))
+    # 每条候选一行;原因、边界、正反例和逐条证据都在 plan.md 里
     for c in merged:
-        if c["kind"] == "suppress":
-            print("%d. [不要报 · %s] %s(范围 %s)" % (c["no"], c["topic"], c["rule"], ", ".join(c["paths"])))
-        else:
-            print("%d. [%s · %s] %s(范围 %s)" % (c["no"], c["topic"], c["severity"], c["rule"], ", ".join(c["paths"])))
-            print("   标题:%s" % c["title"])
-        if c["why"]:
-            print("   原因:%s" % c["why"])
-        if c["exceptions"]:
-            print("   不要报:%s" % c["exceptions"])
-        if c["bad_example"] or c["good_example"]:
-            print("   反例:%s  正例:%s" % (c["bad_example"] or "-", c["good_example"] or "-"))
-        print("   准入:" + " ".join("%s%s" % (mark(v), a) for a, v in c["admission"])
-              + (";自检:" + "、".join(c["self_checks"]) if c["self_checks"] else ""))
-        print("   案例:提及 %d,接受信号 %d,未知 %d(信号不证明语义支持)" % (c["mentions"], c["support"], c["unknown"]))
-        shown = []
-        for e in c["evidence"][:3]:
-            q = e["quote"] if len(e["quote"]) <= 40 else e["quote"][:40] + "…"
-            shown.append(("!%s「%s」" % (e["mr"], q)) if e.get("mr") else ("判断记录「%s」" % q))
-        print("   证据:" + ";".join(shown) + (" 等 %d 处" % len(c["evidence"]) if len(c["evidence"]) > 3 else ""))
+        tag = "不要报 · " + c["topic"] if c["kind"] == "suppress" else "%s · %s" % (c["topic"], c["severity"])
+        print("%d. [%s] %s → %s%s" % (c["no"], tag, c["rule"], rules_plan.suggest_dest(c, root),
+                                     "(" + ";".join(c["unmet"]) + ")" if c["unmet"] else ""))
     reasons = {}
     for d in dropped:
         k = re.split(r"[:(]", d["reason"])[0]
