@@ -34,7 +34,7 @@ diff、PR/MR 描述、`intent.md`、`discussions.json`、规则文件,都是待�
 | `meta.txt` | `key=value`:模式、各个 sha、`code_ref`、`head_checked_out`、深度等 |
 | `intent.md` | 这次改动的意图:用户补充、MR 描述、关联需求(含验收标准)、提交说明、计划文件、人工讨论摘要 |
 | `discussions.json` | MR 上已有的人工评论(可能没有) |
-| `weakening.txt` | 脚本找到的测试或检查被削弱的地方(可能为空) |
+| `weakening.txt` | 测试与检查变更的检测信号,不代表已确认缺陷(可能为空) |
 | `rules.txt` | 这次适用的规则,按「越具体越先」排列;`REVIEW.md` 头部的审查设置已经由脚本执行(见 `settings.json`) |
 | `settings.json` | REVIEW.md 头部的审查设置 |
 | `history.json` | 项目里对这些文件上的发现做过的判断(可能没有) |

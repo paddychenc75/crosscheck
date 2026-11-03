@@ -28,7 +28,7 @@ describe.ask = requirement
 PR_META = {"mode": "pr", "url": "http://localhost:8080/eng/shop/-/merge_requests/7", "repo_id": "localhost/eng/shop",
            "number": "7", "source_branch": "feature", "target_branch": "main"}
 VERIFY = "### 怎么验证"
-OWNER = "### CR负责人:\n\n@xx\n"
+OWNER = "### CR负责人: @reviewer.username\n"
 
 
 def sym(name, change, i=0, outside=0, inside=0, tests=None, **over):
@@ -379,8 +379,13 @@ class Templates(fixture.Base):
             with self.subTest(scenario=name):
                 rd = self.build(c, name)
                 out, md, page = self.run_note(rd)
-                self.assertTrue(md.endswith(OWNER), md)
-                self.assertIn("<section><h2>CR负责人:</h2><p>@xx</p></section>", page)
+                self.assertEqual(md.count(OWNER), 1)
+                self.assertLess(md.index("| 设计稿 |"), md.index(OWNER))
+                self.assertLess(md.index(OWNER), md.index("### 改了什么"))
+                self.assertIn("<h3>CR负责人: @reviewer.username</h3>", page)
+                self.assertLess(page.index("<h2>基本信息"), page.index("CR负责人:"))
+                if "<h2>改了什么" in page:
+                    self.assertLess(page.index("CR负责人:"), page.index("<h2>改了什么"))
                 notes = "".join(x + "\n" for x in out.splitlines() if x.startswith("NOTE:"))
                 self.compare(name, {k: normalize(v, self.version, c.meta["head_sha"]) for k, v in (("md", md), ("html", page), ("notes", notes))})
 
@@ -417,7 +422,7 @@ class Templates(fixture.Base):
         self.assertIn("### 改了什么\n分支 feature 的改动\n", md["no_summary_no_tested"])   # 一句话是这一段的开头
         self.assertIn("\n1. 展示券的不可用原因\n2. 多语言文案 5 个文件(en、zh-Hans、zh-Hant 另 2 种语言)\n3. 其他:7 处(Models 4、Services 3)\n",
                       md["i18n_and_other_by_dir"])
-        self.assertIn("- 资源:多语言文案 5 个文件(en、zh-Hans、zh-Hant 另 2 种语言);图片等资源 2 个文件(删除 2 个)\n", md["i18n_and_other_by_dir"])
+        self.assertNotIn("- 资源:", md["i18n_and_other_by_dir"])
         self.assertNotIn("Localizable.strings", md["i18n_and_other_by_dir"])      # 逐个路径只在完整版
         self.assertIn("Localizable.strings", Path(GOLDEN, "i18n_and_other_by_dir.html").read_text(encoding="utf-8"))
         self.assertIn("| 需求文档 | [订单 PRD](https://docs.acme.example.com/d/abc) |\n| 设计稿 | [列表页设计稿](https://www.figma.com/file/xyz) |\n", md["links_found_in_ticket"])
@@ -430,21 +435,18 @@ class Templates(fixture.Base):
         self.assertIn(VERIFY + "\n- 开启配置 `order.cursor.enabled`(`config/app.yml:3`)\n- 执行记录:作者提供:本地跑了 jest\n", md["basic"])
         self.assertIn("\n1. `listOrders` 改收 `cursor` 参数\n2. 其他:2 处(app.yml、export.ts)\n", md["changes_and_verify"])
         self.assertIn("- 订单列表翻页 → 请求带 `cursor`\n", md["changes_and_verify"])
-        # 不认识的语言:写明检查范围,不写「未发现」;资源和工程配置按路径认出来
-        self.assertIn("- 接口、迁移、签名:Swift 文件不在自动识别范围,未检查\n", md["swift_unchecked"])
-        self.assertIn("- 接口、迁移、签名:已检查 3 个文件,没有认出;另有 3 个 Swift、Objective-C 文件不在自动识别范围,未检查\n",
-                      md["swift_partial"])
-        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`\n- 资源:多语言文案 1 个文件(zh-Hans);"
-                      "图片等资源 2 个文件\n", md["swift_unchecked"])
+        self.assertNotIn("自动识别范围", md["swift_unchecked"])
+        self.assertNotIn("自动识别范围", md["swift_partial"])
+        self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`;依赖变化 `Podfile`\n", md["swift_unchecked"])
         self.assertIn("1. `XViewController` 右上角加 `rightBarButtonItem`\n2. 新增图标 `icon_history_v2`\n"
                       "3. 其他:2 处(YView.swift、Info.plist)\n", md["swift_unchecked"])     # 测试代码块不进「其他」
-        self.assertIn(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n\n", md["swift_unchecked"])
+        self.assertTrue(md["swift_unchecked"].endswith(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n"))
         self.assertNotIn("怎么验证", md["swift_partial"])
         self.assertNotIn("怎么验证", md["no_verify_no_tested"])
         for name, text in md.items():
             with self.subTest(scenario=name):
-                self.assertTrue(text.startswith("| 资料 | 链接 |\n|---|---|\n| 需求单 |") and text.endswith(OWNER), text)
-                self.assertLessEqual(len(text.replace(OWNER, "").strip().splitlines()), 30)
+                self.assertTrue(text.startswith("| 资料 | 链接 |\n|---|---|\n| 需求单 |") and text.count(OWNER) == 1, text)
+                self.assertNotIn("自动识别范围", text)
                 self.assertEqual("- 执行记录:" in text, bool(scenarios()[name].author.get("tested")))
                 for word in ("已实现", "已覆盖", "无风险", "建议", "无影响", "预期通过", "不下结论", "阅读顺序", "可跳过", "需注意", "审查量",
                              "可能值得重点看", "可能相关的测试文件", "需求文档:未提供", "> 只按名字", "<!--", "crosscheck", "在本地生成",
@@ -517,7 +519,7 @@ class Sections(Templates):
         self.assertNotIn("签名变 2", md)      # md 里没有总览行,网页版保留
         self.assertIn("删除 2 · 接口 2 · 函数 4(签名变 2)", Path(self.out, "describe.html").read_text(encoding="utf-8"))
         self.assertIn("- 接口:删除路由 `GET /b`(`api/routes.ts`);新增路由 `POST /a`(`api/routes.ts:4`)\n", md)
-        self.assertIn("- 内部函数:删除 `dropTwo`(`api/f3.ts`);签名变化 `sigUsed`(`api/f4.ts:3`,diff 外 2 处调用) 另 2 项\n", md)
+        self.assertIn("- 内部函数:删除 `dropTwo`(`api/f3.ts`);签名变化 `sigUsed`(`api/f4.ts:3`,diff 外 2 处调用);签名变化 `sigNoUse`(`api/f2.ts:3`)\n", md)
         # 层序:接口 > 数据库与迁移 > 配置与依赖 > 资源 > 内部函数,空层不显示
         self.assertLess(md.index("- 接口:"), md.index("- 内部函数:"))
         self.assertNotIn("- 数据库与迁移", md)
@@ -532,29 +534,35 @@ class Sections(Templates):
         self.assertIn("删除 4 · 迁移 2 · 接口 3 · 配置 4", Path(GOLDEN, "rich_layers.html").read_text(encoding="utf-8"))
         self.assertIn("- 数据库与迁移:删除迁移 `db/001.sql`;新增迁移 `db/002.sql`\n", md)
 
-    def test_scope_says_what_was_checked_never_just_nothing_found(self):
-        """没认出变化时写检查了什么、哪些没检查,不写「未发现」「无影响」;什么都没有的层整行不出现。"""
+    def test_body_only_business_impact_and_scope_in_full_report(self):
         c = Case()
-        c.facts.update(symbols=[sym("total", "body_only", 1, tests=[])], attention=[], entrypoints=entrypoints())
+        c.facts.update(symbols=[sym("total", "body_only", 1)], attention=[], entrypoints=entrypoints())
         md = self.md_of(c)
-        self.assertIn("### 影响面\n- 检查范围:2 个文件按接口、迁移、配置、签名检查过,没有认出这几类变化\n"
-                      "- 未覆盖:另有 1 个函数只改了实现,行为变化不在此列\n", md)
+        self.assertNotIn("### 主要影响", md)
+        page = Path(self.out, "describe.html").read_text()
+        self.assertIn("只改了实现,不列入签名与接口变化表", page)
+        self.assertNotIn("未覆盖", page)
+        c.analysis = {"impact": [{"text": "空列表展示空态", "hunks": ["H1"], "anchors": ["empty"]}]}
         c.facts["coverage"] = {"checked": 0, "unchecked": [{"lang": "Swift", "files": 4}]}
-        md = self.md_of(c, "swift")
-        self.assertIn("- 接口、迁移、签名:Swift 文件不在自动识别范围,未检查\n", md)
-        c.facts["coverage"] = {"checked": 2, "unchecked": [{"lang": "Swift", "files": 4}]}
-        c.facts["symbols"] = [sym("addOne", "added", 1)]
-        md = self.md_of(c, "partial")
-        self.assertIn("- 接口、迁移、签名:已检查 2 个文件;另有 4 个 Swift 文件不在自动识别范围,未检查\n", md)   # 认出了东西就不写「没有认出」
-        # 能识别的都认出了东西:不写检查范围
-        self.assertNotIn("检查范围", Path(GOLDEN, "basic.md").read_text(encoding="utf-8"))
-        # 没有事实可写:整段不出现
-        c.facts.update(symbols=[], coverage={"checked": 0, "unchecked": []})
-        md = self.md_of(c, "none")
-        self.assertNotIn("### 影响面", md)
-        for text in (md, Path(self.out, "describe.html").read_text(encoding="utf-8")):
-            self.assertNotIn("无影响", text)
-            self.assertNotIn("未发现", text)
+        md = self.md_of(c, "business")
+        self.assertIn("### 主要影响\n- 空列表展示空态", md)
+        self.assertNotIn("Swift", md)
+        page = Path(self.out, "describe.html").read_text()
+        for text in ("空列表展示空态", "<code>empty</code>", "H1 <code>", "Swift", "业务说明依据 diff 起草", "不证明业务语义"):
+            self.assertIn(text, page)
+
+    def test_valid_business_and_technical_impact_survives_trimming(self):
+        c = scenarios()["rich_trimmed_with_focus_and_criteria"]
+        c.analysis["impact"] = [change("场景%d的用户可以继续翻页" % i, ["H1"], ["cursor"]) for i in range(8)]
+        md = self.md_of(c)
+        page = Path(self.out, "describe.html").read_text()
+        for i in range(8):
+            self.assertIn("场景%d的用户可以继续翻页" % i, md)
+            self.assertIn("场景%d的用户可以继续翻页" % i, page)
+        for text in ("--cursor", "sigNoUse", "order.cursor.enabled", "ORDER_API_URL", "lodash 4.0.0 → 4.17.0"):
+            self.assertIn(text, md)
+            self.assertIn(text.replace("→", "→"), page)
+        self.assertGreater(len(md.replace(OWNER, "").strip().splitlines()), 30)
 
     def test_resources_and_project_config_by_path(self):
         """按路径认的工程配置算在「配置与依赖」,资源另起一行和它并列;只有资源时只有资源这一行。"""
@@ -562,10 +570,11 @@ class Sections(Templates):
         swift(c)
         c.facts["attention"] = [a for a in c.facts["attention"] if a["type"] == "resource"]
         md = self.md_of(c)
-        self.assertIn("- 资源:多语言文案 1 个文件(zh-Hans);图片等资源 2 个文件\n", md)
+        self.assertNotIn("### 主要影响", md)
         self.assertNotIn("配置与依赖", md)
         self.assertNotIn("· 资源 2", md)
         self.assertIn("资源 2", Path(self.out, "describe.html").read_text(encoding="utf-8"))
+        self.assertIn("App/Assets.xcassets/icon_history_v2.imageset/icon.png", Path(self.out, "describe.html").read_text())
         self.assertNotIn("配置键", md)
 
     def test_other_group_lists_every_unreferenced_non_test_hunk(self):
@@ -653,7 +662,7 @@ class Sections(Templates):
             self.assertNotIn(text, md)
             self.assertIn(text, page)
         self.assertIn("2 个新增/签名变化的函数在改动的测试里没有出现:a、b", page)
-        self.assertEqual(md.count("未覆盖"), 1)
+        self.assertNotIn("未覆盖", md)
 
     def test_requirements_absent_without_criteria(self):
         c = Case()
@@ -663,10 +672,10 @@ class Sections(Templates):
         self.assertNotIn("需求对照", Path(self.out, "describe.html").read_text(encoding="utf-8"))
 
     def test_trim_order(self):
-        """超过约 30 行时按 其他组 → 资源明细汇总 → 验证里多余的行 → 空行 的顺序多裁一项;改了什么的分组不裁。"""
+        """超过约 30 行时按 其他组 → 验证里多余的行 → 空行 的顺序多裁一项;改了什么的分组不裁。"""
         sys.path.insert(0, fixture.DESCRIBE_SCRIPTS)
         import describe
-        self.assertEqual(describe.TRIM, ["other", "resources", "verify", "blank"])
+        self.assertEqual(describe.TRIM, ["other", "verify", "blank"])
         self.assertEqual(describe.MAX_LINES, 30)
         c = scenarios()["rich_trimmed_with_focus_and_criteria"]
         c.facts["attention"].append(res_att("added", "App/Assets.xcassets", "App/Assets.xcassets/icon_history_v2.imageset/Contents.json", "App/Assets.xcassets/icon_history_v2.imageset/icon.png"))
@@ -680,7 +689,7 @@ class Sections(Templates):
                 text = describe.render(template, note.md_ctx(f, describe.TRIM[:i]))
                 steps.append(describe.drop_blanks(text) if "blank" in describe.TRIM[:i] else text)
             final = note.markdown()
-        gone = {"other": "9. 其他:", "resources": "- 资源:图片等资源 2 个文件"}
+        gone = {"other": "9. 其他:"}
         for i, step in enumerate(describe.TRIM):
             if step in gone:
                 self.assertIn(gone[step], steps[i], step)
@@ -688,13 +697,12 @@ class Sections(Templates):
 
         def verify_count(text):      # 验证段里的行数(不含作者给的执行记录)
             return len([x for x in text.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines() if not x.startswith("- 执行记录")])
-        self.assertGreater(verify_count(steps[2]), describe.MAX_VERIFY_CUT)
-        self.assertEqual(verify_count(steps[3]), describe.MAX_VERIFY_CUT)
+        self.assertGreater(verify_count(steps[1]), describe.MAX_VERIFY_CUT)
+        self.assertEqual(verify_count(steps[2]), describe.MAX_VERIFY_CUT)
         self.assertIn("### 改了什么(另有 7 处未归组,见完整版)\n", steps[1])
-        self.assertIn("- 资源:1 处(见完整版)\n", steps[2])
-        self.assertGreater(steps[3].count("\n\n"), steps[4].count("\n\n"))
-        self.assertTrue(steps[4].endswith(OWNER))
-        fit = next(s for s in steps if describe.body_lines(s) <= 30)
+        self.assertGreater(steps[2].count("\n\n"), steps[3].count("\n\n"))
+        self.assertIn(OWNER, steps[3])
+        fit = next((s for s in steps if describe.body_lines(s) <= 30), steps[-1])
         self.assertEqual(final, fit)
         self.assertGreater(describe.body_lines(steps[0]), 30)
         # 改了什么的分组始终在
@@ -709,14 +717,14 @@ class Sections(Templates):
     def test_template_edit_changes_the_output(self):
         """团队改 templates/describe.md、describe.html 就能改描述的结构;脚本读的是模板,不是写死的。"""
         copy = str(self.install_plugin() / "skills" / "describe")
-        for name, old, new in (("describe.md", "### 影响面", "### 改动范围"), ("describe.html", "<h2>影响面</h2>", "<h2>改动范围</h2>")):
+        for name, old, new in (("describe.md", "### 主要影响", "### 改动范围"), ("describe.html", "<h2>技术变化与自动识别范围</h2>", "<h2>改动范围</h2>")):
             p = Path(copy, "templates", name)
             self.assertIn(old, p.read_text(encoding="utf-8"))
             p.write_text(p.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
         rd = self.build(Case())
         _, md, page = self.run_note(rd, os.path.join(copy, "scripts"))
         self.assertIn("### 改动范围", md)
-        self.assertNotIn("### 影响面", md)
+        self.assertNotIn("### 主要影响", md)
         self.assertIn("<h2>改动范围</h2>", page)
 
     def test_broken_template_fails_with_the_reason(self):

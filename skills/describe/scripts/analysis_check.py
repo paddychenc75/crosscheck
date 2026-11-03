@@ -6,7 +6,7 @@
 一句话取第一份里有的,需求对照按验收标准合并代码块,改动组依次接上(标题和一句话都相同的算重复),
 验证条目的 change 换成合并后的序号,同一句的只留一条。
 
-描述不经 verifier,所以 analyst 写的每一句都要能对上材料,有一项不过就整条删掉(输出 DROPPED:):
+描述不经 verifier;以下只校验引用出处和格式,不证明业务语义。有一项不过就删除该条(输出 DROPPED:):
 - 一句话必须带 quote,quote 必须是需求材料(intent.md、读到的需求单和需求文档、PR/MR 描述或提交说明)
   里的原文片段(空白归一后是子串,至少 6 个字);
 - 不许出现结论性的词(已实现、无风险、建议……);
@@ -40,6 +40,12 @@ LINK_KINDS = ("doc", "design")   # 从需求单里找的需求文档、设计稿
 CHANGE_LIMIT = 60    # 改动组的一句话,反引号不计
 MAX_NAMES = 4        # 一句话里最多几个反引号标出的代码名(提示词要求 2 个,这里是硬上限)
 VERIFY_LIMIT = 48    # 验证一行约 40 字,反引号不计
+
+
+def impact_items(raw):
+    """缺省为空;非法顶层值交给逐项校验报告,不影响其他字段。"""
+    value = raw.get("impact")
+    return value if isinstance(value, list) else ([] if value is None else [value])
 
 
 def compact(s):
@@ -102,7 +108,8 @@ def merge(raws):
     if len(raws) == 1:
         return raws[0]
     out = {"summary": next((r["summary"] for r in raws if r.get("summary")), None), "requirements": [], "changes": [], "verify": [],
-           "links": [x for r in raws for x in r.get("links") or []]}
+           "links": [x for r in raws for x in r.get("links") or []],
+           "impact": [x for r in raws for x in impact_items(r)]}
     reqs, seen_change, seen_verify = {}, {}, set()
     for r in raws:
         for x in r.get("requirements") or []:
@@ -157,7 +164,7 @@ def check(d):
     raws = [r for r in raws if isinstance(r, dict) and r]
     dropped = []
     if not raws:
-        result = {"status": "failed", "summary": None, "requirements": [], "changes": [], "verify": [], "links": [],
+        result = {"status": "failed", "summary": None, "requirements": [], "changes": [], "impact": [], "verify": [], "links": [],
                   "dropped": [{"what": "analyst.json", "why": "缺失或不是 JSON 对象"}]}
         crlib.save_json(os.path.join(d, "analysis.json"), result)
         return result
@@ -256,6 +263,13 @@ def check(d):
             changes.append(ok)
             renumber[i] = len(changes)
 
+    impact, seen_impact = [], {c["text"] for c in changes}
+    for i, item in enumerate(impact_items(raw), 1):
+        ok = grounded(item, "主要影响 %d" % i, CHANGE_LIMIT, False)
+        if ok and ok["text"] not in seen_impact:
+            seen_impact.add(ok["text"])
+            impact.append({k: ok[k] for k in ("text", "hunks", "anchors")})
+
     verify, used = [], set()
     for i, v in enumerate(raw.get("verify") or [], 1):
         what = "怎么验证 %d:%s" % (i, one_line(v.get("text"))[:30] if isinstance(v, dict) else "")
@@ -297,9 +311,9 @@ def check(d):
             links.append({"kind": kind, "url": url, "label": one_line(x.get("label"))[:40]})
 
     status = "ok" if not dropped else "partial"
-    if not summary and not reqs and not changes and not verify and not links:
+    if not summary and not reqs and not changes and not impact and not verify and not links:
         status = "failed"
-    result = {"status": status, "summary": summary, "requirements": reqs, "changes": changes, "verify": verify, "links": links,
+    result = {"status": status, "summary": summary, "requirements": reqs, "changes": changes, "impact": impact, "verify": verify, "links": links,
               "dropped": dropped}
     crlib.save_json(os.path.join(d, "analysis.json"), result)
     return result

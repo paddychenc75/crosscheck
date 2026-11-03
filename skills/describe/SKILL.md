@@ -1,7 +1,7 @@
 ---
 name: describe
 allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git rev-parse *), Bash(git ls-files *), Bash(git cat-file *), Bash(git merge-base *)
-description: 生成 PR/MR 描述(pull request / merge request description):按改动和需求材料写出顶部表格(需求单、需求文档、设计稿)、改了什么(先一句话,再按功能分组,每组一句文字)、影响面(接口、迁移、配置与依赖、资源、函数签名,写明检查范围)、怎么验证(入口 → 能看到什么),只列事实和链接,不写对错、风险和建议。支持当前分支、提交范围,以及 GitHub PR / GitLab MR 链接或编号。只在本地生成 describe.md 和网页版,由用户自己复制粘贴,不发布、不修改平台上的描述。当用户说「写 PR 描述」「写 MR 描述」「生成描述」「帮我写一下这个 PR/MR 的说明」时使用。不做代码审查,审查用 review。
+description: 生成 PR/MR 描述(pull request / merge request description):按改动和需求材料写出顶部表格(需求单、需求文档、设计稿)、改了什么(先一句话,再按功能分组,每组一句文字)、主要影响(业务影响及必要技术变化)、怎么验证(入口 → 能看到什么),只列事实和链接,不写对错、风险和建议。支持当前分支、提交范围,以及 GitHub PR / GitLab MR 链接或编号。只在本地生成 describe.md 和网页版,由用户自己复制粘贴,不发布、不修改平台上的描述。当用户说「写 PR 描述」「写 MR 描述」「生成描述」「帮我写一下这个 PR/MR 的说明」时使用。不做代码审查,审查用 review。
 ---
 
 # describe — PR/MR 描述
@@ -63,7 +63,7 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
 
 > 阅读 `<skill_dir>/roles/analyst.md` 并严格照做。`dir` 是 `<path>`。只回复 JSON。
 
-没有启动子代理的工具时按 `roles/analyst.md` 自己执行。回复原样写成 `<dir>/analyst.json`。analyst 写一句话、改了什么(按功能分组,每组带代码块编号和锚点)、怎么验证和需求对照,不下判断。起草失败就不写这个文件,描述只用脚本的事实。
+没有启动子代理的工具时按 `roles/analyst.md` 自己执行。回复原样写成 `<dir>/analyst.json`。字段写作按角色文件执行。起草失败就不写这个文件,描述只用脚本的事实。
 
 代码块很多时 `describe-facts.json` 里有 `batches`(按目录分好的批次):每批启动一个子代理,任务在上面那段后面加一句「只写批次 `<id>` 里的代码块」,回复分别写成 `<dir>/analyst-<id>.json`(如 `analyst-B1.json`),不写 `analyst.json`。合并和去重由下一步的脚本做,不要自己合并。
 
@@ -73,7 +73,9 @@ sh <skill_dir>/scripts/collect.sh [target] [--base <分支>] [--intent "<一句�
 sh <skill_dir>/scripts/describe.sh <dir> [--tested "<作者给的执行记录>"] [--focus '<JSON>']
 ```
 
-它先校验 `analyst.json`(分批时是各个 `analyst-<id>.json`,按文件名合并):引文对不上需求材料、含结论性用语、代码块编号不存在、锚点不在所引代码块的改动行里、反引号里的词不是锚点、验证条目对应的改动组不存在、验收标准不在 `intent.md` 里、链接不是需求材料中完整出现的网页链接,整条删掉(`DROPPED:`),不要自己补回。然后写出 `describe.md`(正文约 30 行,仅作参考,不含负责人固定填写区,超出时脚本按固定顺序裁剪:其他一条并进标题、资源明细改成一行汇总、验证只留 3 行、去掉段落空行,裁完仍超出也照样输出;改了什么的分组不裁)和 `describe.html`。「改了什么」里多语言文案文件脚本按文件数汇总成一条(只含文案文件的组不收);没被任何一组引用的其他非测试代码块,脚本补一条「其他」,文件多时按所在目录汇总。「影响面」写明检查范围:脚本认不出的语言写成「未检查」,不写「无影响」。「怎么验证」每组一行「入口 → 能看到什么」,最多 5 行,脚本认出的路由、命令行、定时任务入口排在前面;没有可写的就整段不出现;有 analyst 起草的条目时输出 `NOTE:` 提醒核对。需求单里没有验收标准时不出现「需求对照」。
+脚本合并并校验 analyst 回复,不合格条目输出 `DROPPED:` 并删除,不要自己补回。字段写作与引用要求见 `roles/analyst.md`;引用校验只确认出处,不证明业务语义。排序、去重和正文裁剪由脚本负责,不要手工重写输出。
+
+短描述的「主要影响」包含业务影响及必要技术变化;普通内部新增函数、资源数量明细和技术自动识别限制只进 HTML 完整报告;改了什么保留资源文字汇总。无影响内容时省略整段。有效业务影响和必要技术事实不按数量或篇幅裁剪。资料表格后、改了什么前的负责人是单行人工占位符 `### CR负责人: @reviewer.username`,不查询或设置远端 reviewer。模板只决定展示结构。
 
 ### 4. 交付
 

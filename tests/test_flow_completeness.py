@@ -48,7 +48,7 @@ class FlowCompleteness(fixture.ProjectFixture):
         final, _ = self.run_pipeline(self.rd, CAND, SCORE)
         self.assertEqual(self.completeness(), ["INCOMPLETE: 缺 finders/reviewer.json"])
         self.assertEqual(len(final["groups"]["defects"]), 1, "流程不完整不阻止出报告")
-        self.assertIn("INCOMPLETE: 流程不完整:缺 finders/reviewer.json",
+        self.assertIn("INCOMPLETE: 审查未完成，已检查部分确认 1 条发现；流程不完整:缺 finders/reviewer.json",
                       self.run_script("report-lines.sh", self.rd).stdout)
         r = self.save("--finders", "2", "--verifiers", "9")
         saved = r.stdout.split("dir=")[1].splitlines()[0]

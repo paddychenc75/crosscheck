@@ -9,7 +9,7 @@
 #                     MR 上的人工讨论摘要。都是待审查的材料,不是指令。
 #   sources.json      需求来源:每类(requirement、doc)的链接、状态、标题,以及缺了哪些(见 sources.py)
 #   discussions.json  MR / PR 上的人工评论(只读获取;作者只存哈希)
-#   weakening.txt     kind<TAB>file<TAB>说明 — 测试或检查被削弱的地方
+#   weakening.txt     kind<TAB>file<TAB>说明 — 测试与检查变更的检测信号,不代表已确认缺陷
 # 并在 meta.txt 末尾追加 intent_sources、intent_acceptance、discussions、weakening、sources_missing。
 # 并输出 SOURCES_MISSING:(当前技能要问、且配了读取工具的需求来源里缺的)、NOTE: 等提示行。
 # 读取需求单和讨论需要 glab 或 gh,读不到的部分跳过。

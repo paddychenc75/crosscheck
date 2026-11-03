@@ -15,9 +15,10 @@
 {{! info_rows — 基本信息的行}}
 {{! change_rows — 改了什么的行,逐条列出锚点和出处(代码块编号)}}
 {{! change_note — 改了什么表格下面的说明}}
+{{! business_rows — 业务影响及对应锚点和代码块出处}}
 {{! overview — 影响面的总览一行}}
 {{! impact_rows — 影响面的行}}
-{{! impact_notes — 影响面的检查范围和未覆盖}}
+{{! impact_notes — 影响面的自动识别范围}}
 {{! impact_method — 影响面的识别方法和限制}}
 {{! focus_rows — 请重点看的行,作者点名才有}}
 {{! verify — 怎么验证这一节要不要显示}}
@@ -47,11 +48,14 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 <main>
 <header><h1>{{title}}</h1><p>{{one}} <small>{{by}}</small></p>
 <p class=muted>PR/MR 描述 · crosscheck {{version}} 在本地生成 · 最后更新 {{now}} · 基于提交 <code>{{sha}}</code></p></header>
-<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>{{info_rows}}</tbody></table></div></section>
+<section><h2>基本信息</h2><div class=t><table><thead><tr><th>项</th><th>内容</th></tr></thead><tbody>{{info_rows}}</tbody></table></div><h3>CR负责人: @reviewer.username</h3></section>
 {{#change_rows}}
 <section><h2>改了什么</h2><div class=t><table><thead><tr><th>#</th><th>改动</th><th>锚点</th><th>出处(代码块)</th></tr></thead><tbody>{{change_rows}}</tbody></table></div>{{#change_note}}<p class=muted>{{change_note}}</p>{{/change_note}}</section>
 {{/change_rows}}
-<section><h2>影响面</h2>{{#overview}}<p>{{overview}}</p>{{/overview}}{{#impact_rows}}<div class=t><table><thead><tr><th>层</th><th>变化</th><th>内容</th><th>位置</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div>{{/impact_rows}}{{#impact_notes}}<p>{{impact_notes}}</p>{{/impact_notes}}<p class=muted>{{impact_method}}</p></section>
+{{#business_rows}}
+<section><h2>主要影响</h2><div class=t><table><thead><tr><th>业务影响</th><th>锚点</th><th>出处(代码块)</th></tr></thead><tbody>{{business_rows}}</tbody></table></div><p class=muted>AI 依据 diff 起草;引用只校验出处,不证明业务语义,请核对。</p></section>
+{{/business_rows}}
+<section><h2>技术变化与自动识别范围</h2>{{#overview}}<p>{{overview}}</p>{{/overview}}{{#impact_rows}}<div class=t><table><thead><tr><th>层</th><th>变化</th><th>内容</th><th>位置</th><th>说明</th></tr></thead><tbody>{{impact_rows}}</tbody></table></div>{{/impact_rows}}{{#impact_notes}}<p>{{impact_notes}}</p>{{/impact_notes}}<p class=muted>{{impact_method}}</p></section>
 {{#focus_rows}}
 <section><h2>请重点看</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody>{{focus_rows}}</tbody></table></div></section>
 {{/focus_rows}}
@@ -61,5 +65,4 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 {{#req_rows}}
 <section><h2>需求对照</h2><div class=t><table><thead><tr><th>验收标准</th><th>改动位置</th></tr></thead><tbody>{{req_rows}}</tbody></table></div></section>
 {{/req_rows}}
-<section><h2>CR负责人:</h2><p>@xx</p></section>
 </main>

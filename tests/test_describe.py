@@ -276,7 +276,7 @@ class AnalystCheck(Describe):
         """analysis.json 只有一句话、需求对照、改了什么、怎么验证和链接;回复里多写的字段不进去。"""
         _, a = self.check({"summary": {"text": "改成游标分页", "quote": "订单列表改为游标分页"},
                            "groups": [{"title": "接口", "hunks": self.hunks[:1]}], "risks": ["x"]})
-        self.assertEqual(sorted(a), ["changes", "dropped", "links", "requirements", "status", "summary", "verify"])
+        self.assertEqual(sorted(a), ["changes", "dropped", "impact", "links", "requirements", "status", "summary", "verify"])
         text = Path(fixture.DESCRIBE_SCRIPTS, "..", "roles", "analyst.md").read_text(encoding="utf-8")
         self.assertNotIn("groups", text)
         for phrase in ("不能出现任何对错、风险或建议", "已实现、已覆盖、没问题、无风险、建议、可能出错、行为变化这类结论",
@@ -417,6 +417,33 @@ class AnalystCheck(Describe):
         out, md = self.describe(self.rd)
         self.assertIn("1. `listOrders` 改收 `cursor` 参数\n2. 新增配置 `enabled`\n", md)
 
+    def test_impact_validates_independently_and_never_uses_head_fallback(self):
+        good = {"text": "翻页请求携带游标时继续读取订单", "hunks": ["H1"], "anchors": ["cursor"]}
+        out, a = self.check({"changes": [self.CHANGE], "impact": [good, dict(good, anchors=["from"])]})
+        self.assertEqual(a["impact"], [good])
+        self.assertEqual(len(a["changes"]), 1)
+        self.assertIn("DROPPED: 主要影响 2", out)
+        _, md = self.describe(self.rd)
+        self.assertIn(good["text"], md)
+        self.assertIn("签名变化 `listOrders`", md)
+        self.assertIn("新增配置文件", md)
+        for bad in ("invalid", [None], [dict(good, hunks=["H99"])], [dict(good, anchors=[])], [dict(good, text="已实现分页")]):
+            with self.subTest(bad=bad):
+                _, a = self.check({"impact": bad})
+                self.assertEqual(a["impact"], [])
+                _, md = self.describe(self.rd)
+                self.assertIn("签名变化 `listOrders`", md)
+
+    def test_impact_batches_dedupe_and_keep_all_valid_items(self):
+        good = {"text": "翻页请求携带游标时继续读取订单", "hunks": ["H1"], "anchors": ["cursor"]}
+        for batch, items in ((1, [dict(good, anchors=["missing"]), good, self.CHANGE]),
+                             (2, [good] + [dict(good, text="场景%d使用游标读取订单" % i) for i in range(4)])):
+            Path(self.rd, "analyst-B%d.json" % batch).write_text(json.dumps({"impact": items, "changes": [self.CHANGE]}))
+        self.run_describe("analysis_check.py", self.rd)
+        a = self.load(os.path.join(self.rd, "analysis.json"))
+        self.assertEqual([x["text"] for x in a["impact"]], [good["text"]] + ["场景%d使用游标读取订单" % i for i in range(4)])
+        self.assertEqual(len(a["changes"]), 1)
+
     def test_criteria_must_be_in_intent(self):
         out, a = self.check({"requirements": [{"criterion": "接口返回 next_cursor", "hunks": self.hunks[:1]}]})
         self.assertEqual(a["requirements"], [])
@@ -449,7 +476,8 @@ class Note(Describe):
         out, md = self.describe(self.rd, "--tested", "本地跑了 jest")
         self.assertTrue(md.startswith("| 资料 | 链接 |\n|---|---|\n"))
         self.assertIn("### 改了什么\n订单列表改为游标分页\n", md)
-        self.assertTrue(md.endswith("### CR负责人:\n\n@xx\n"))
+        self.assertLess(md.index("| 设计稿 |"), md.index("### CR负责人: @reviewer.username\n"))
+        self.assertLess(md.index("### CR负责人:"), md.index("### 改了什么"))
         for word in ("<!--", "crosscheck", "在本地生成", "基于提交"):
             self.assertNotIn(word, md)
         self.assertIn("| 需求单 | https://tickets.acme.example.com/story/42 |", md)
@@ -543,7 +571,7 @@ class Note(Describe):
         self.assertIn("### 改了什么\n订单列表改为游标分页\n1. `listOrders` 改收 `cursor` 参数\n2. 其他:1 处(app.yml)\n", md)
         self.assertIn("- 订单列表翻页 → 请求里带 `cursor`\n", md)
         self.assertIn("NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对", out)
-        self.assertLess(md.index("### 改了什么"), md.index("### 影响面"))
+        self.assertLess(md.index("### 改了什么"), md.index("### 主要影响"))
         page = Path(self.out_dir(), "describe.html").read_text(encoding="utf-8")
         self.assertIn("<code>listOrders</code>、<code>cursor</code>", page)          # 锚点逐条列出
         self.assertIn("H1 <code>api/orders.ts:1</code>", page)                         # 出处是代码块编号和位置
@@ -776,7 +804,7 @@ class Packaging(Describe):
             self.assertIn(phrase, desc)
         self.assertTrue((self.skill_dir() / "agents" / "openai.yaml").is_file())
         self.assertFalse(re.search(r"PR/MR 报告|MR 说明", text), "对外叫法统一为「PR/MR 描述」")
-        for phrase in ("改了什么", "影响面", "怎么验证"):
+        for phrase in ("改了什么", "主要影响", "怎么验证"):
             self.assertIn(phrase, desc)
         self.assertNotIn("请重点看", desc)
         for old in ("阅读顺序", "需注意", "可跳过", "审查量", "可能相关的测试", "不下结论", "可能值得重点看", "groups", "--untested",

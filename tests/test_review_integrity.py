@@ -8,6 +8,91 @@ import fixture
 sys.dont_write_bytecode = True
 sys.path.insert(0, fixture.SCRIPTS)
 import project_rules
+import weakening
+
+
+class ReportContractTests(fixture.Base):
+    def report(self, groups=None, findings=None, completeness='OK: 查找角色和核实结果都已落盘\n'):
+        rd = Path(self.tmp, 'report-input')
+        rd.mkdir(exist_ok=True)
+        (rd/'meta.txt').write_text('mode=local\ndepth=standard\nonly=bug\nsubagent_note=独立性存疑\n')
+        (rd/'final.json').write_text(json.dumps(dict(groups=groups or {}, trimmed={'defects': 2},
+            pre_existing=[dict(file='old.py', line=1)], ignored_by_history=[dict(id='history-1')],
+            counts=dict(passed=99))))
+        (rd/'findings.json').write_text(json.dumps(findings or []))
+        (rd/'rejected.json').write_text('[{"id":"rejected-1","no":1}]')
+        (rd/'completeness.txt').write_text(completeness)
+        (rd/'weakening.txt').write_text('suppression-added\ta.py\t新增抑制\n')
+        return self.run_script('report-lines.sh', str(rd)).stdout
+
+    def test_completeness_uses_display_count_and_not_independence_note(self):
+        for count in (0, 2):
+            groups = {'defects': [dict(no=i+1, id='f%d' % i) for i in range(count)]}
+            for gap in ('缺 finders/reviewer.json', 'reviewer: 覆盖受限:预算达限'):
+                with self.subTest(count=count, gap=gap):
+                    out = self.report(groups, completeness='INCOMPLETE: '+gap+'\n')
+                    self.assertIn('INCOMPLETE: 审查未完成，已检查部分确认 %d 条发现' % count, out)
+                    self.assertIn(gap, out)
+            with self.subTest(count=count, complete=True):
+                out = self.report(groups)
+                self.assertNotIn('INCOMPLETE:', out)
+                self.assertNotIn('审查未完成', out)
+
+    def test_feedback_requires_displayed_record_and_uses_its_number(self):
+        for groups, findings in (
+            ({}, []),
+            ({}, [dict(id='hidden-1')]),
+            ({'rules': [dict(no=4, id='missing')]}, [dict(id='other')]),
+        ):
+            with self.subTest(groups=groups, findings=findings):
+                self.assertNotIn('FEEDBACK:', self.report(groups, findings))
+        out = self.report({'rules': [dict(no=4, id='f4')]}, [dict(no=4, id='f4')])
+        self.assertIn('FEEDBACK:', out)
+        self.assertIn('「4 误报:说明原因」', out)
+        self.assertIn('代码或判断前提变化时会重新核实', out)
+        self.assertNotIn('不再重复报', out)
+
+    def test_different_change_signals_keep_same_neutral_report_protocol(self):
+        rd = Path(self.tmp, 'signals')
+        rd.mkdir()
+        changes = [
+            ('tests/deleted.test.ts', 'expect(a).toBe(1);', '', True),
+            ('tests/changed.test.ts', 'expect(a).toBe(1);', 'expect(a).toBe(2);', False),
+            ('tests/removed.test.ts', 'assert result', '', False),
+            ('src/a.ts', '', '// @ts-ignore', False),
+            ('src/b.py', '', '# noqa', False),
+            ('.github/workflows/test.yml', 'run: test', 'continue-on-error: true', False),
+        ]
+        patch = ''
+        for path, old, new, deleted in changes:
+            patch += 'diff --git a/{0} b/{0}\n'.format(path)
+            if deleted:
+                patch += 'deleted file mode 100644\n'
+            patch += '@@ -7,1 +7,1 @@\n'
+            patch += ('-'+old+'\n') if old else ''
+            patch += ('+'+new+'\n') if new else ''
+        (rd/'diff.patch').write_text(patch)
+        weak = weakening.scan(str(rd))
+        self.assertTrue({'test-file-deleted', 'assertion-changed', 'assertions-removed',
+                         'suppression-added', 'ci-check-removed', 'ci-weakened'} <= {x[0] for x in weak})
+        weakening.write(str(rd), weak)
+        (rd/'meta.txt').write_text('mode=local\ndepth=standard\nonly=bug\n')
+        out = self.run_script('report-lines.sh', str(rd)).stdout
+        self.assertEqual(out.count('WEAKEN:'), len(weak))
+        self.assertNotIn('FEEDBACK:', out)
+
+    def test_agent_template_requires_neutral_signals_and_patch_locations(self):
+        root = Path(fixture.SCRIPTS).parent
+        template = (root/'templates/report.md').read_text()
+        contract = (root/'references/report-format.md').read_text()
+        self.assertIn('### 测试与检查变更', template)
+        self.assertNotIn('测试和检查被削弱', template)
+        for phrase in ('审查未完成', '已检查部分确认 <N> 条发现', '不计入发现条数'):
+            self.assertIn(phrase, template)
+        for phrase in ('hunk 的新旧侧行号', '删除行注明「旧版」', '不得从说明文字猜行号',
+                       '无法定位时如实说明', '不得编造修复 diff', '**问题代码**必须是原文',
+                       '仅有 `subagent_note=`', '0 展示条目时不默认提示'):
+            self.assertIn(phrase, contract)
 
 
 class ReviewIntegrityTests(fixture.Base):

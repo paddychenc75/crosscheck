@@ -14,8 +14,7 @@ DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_ch
 
 只读:不调用托管平台,不发布、不修改 PR/MR 的描述、评论或状态。
 内容只有事实和链接:一句话和基本信息(每项一行);改了什么(analyst 按功能分的组,经校验,没被任何组引用的非测试代码块
-由脚本补一条「其他」);影响面(接口 > 数据库与迁移 > 配置与依赖 > 资源 > 内部函数,每层最多 2 条,资源最多 3 条,不在识别范围的语言写明
-未检查);作者点名的请重点看;怎么验证(脚本认出的入口在前、analyst 按组写的「入口 → 能看到什么」在后,最多 5 行,
+由脚本补一条「其他」);主要影响(业务影响及必要技术变化;完整技术明细与识别范围只在网页版);作者点名的请重点看;怎么验证(脚本认出的入口在前、analyst 按组写的「入口 → 能看到什么」在后,最多 5 行,
 作者给了 --tested 才有执行记录);需求对照和规模只在网页版。超过约 MAX_LINES 行时按 TRIM 的顺序裁剪(30 行只是参考,裁完仍超出照样输出)。
 来源:sources.json、describe-facts.json(脚本)、analysis.json(analyst 的回复,经校验)。
 结构和措辞在 ../templates/describe.md、describe.html(团队可以改它们适配自己的格式),本脚本只算事实、填进去;模板写法见 render()。
@@ -50,11 +49,10 @@ TRIGGER = {"route": ("请求 ", ""), "cli_command": ("运行子命令 ", ""), "c
 PLURAL = {"route": "请求 ", "cli_command": "运行子命令 ", "cli_flag": "命令行带上 ", "event": "事件/队列 ", "cron": "定时任务 ",
           "config": "配置开关 "}
 TRIGGER_ORDER = ["route", "cli_command", "cli_flag", "event", "cron", "config"]
-# 超过 MAX_LINES(约 30 行,仅作参考)时逐步多裁一项:「其他」组并进标题 → 资源明细改成一行汇总 → 验证只留 MAX_VERIFY_CUT 行
+# 超过 MAX_LINES(约 30 行,仅作参考)时逐步多裁一项:「其他」组并进标题 → 验证只留 MAX_VERIFY_CUT 行
 # → 段落之间的空行。「改了什么」的分组本身不裁。
-TRIM = ["other", "resources", "verify", "blank"]
+TRIM = ["other", "verify", "blank"]
 MAX_LINES = 30
-PER_LAYER = 2
 MAX_VERIFY = 5
 MAX_VERIFY_CUT = 3
 MAX_OTHER_FILES = 3
@@ -120,7 +118,7 @@ def parse_focus(value):
     return [{"where": str(x["where"]), "ask": str(x.get("ask") or "")} for x in items[:MAX_FOCUS]]
 
 
-CR_OWNER = "### CR负责人:\n\n@xx\n"
+CR_OWNER = "### CR负责人: @reviewer.username\n"
 
 
 def body_lines(text):
@@ -359,7 +357,7 @@ class Note:
             elif t == "dependency":
                 parts = a.get("parts") or []
                 out["config"].append(self.item("config", ch, "删除依赖文件" if ch == "removed" else "依赖变化", None, a["file"],
-                                               extra=short(parts, 2, unit="项"), type=t))
+                                               extra="、".join(parts), type=t))
             elif t == "resource":
                 out["res"].append(self.item("res", ch, VERB.get(ch, "") + "资源", a["name"], a["file"],
                                             extra="%d 个文件" % a.get("files", 1), type=t, files=a.get("files", 1), paths=a["paths"]))
@@ -400,9 +398,9 @@ class Note:
         if not un:
             return "检查范围:%d 个文件按%s检查过,没有认出这几类变化" % (n, CHECKED) if n and not any(layers.values()) else ""
         if not n:
-            return "接口、迁移、签名:%s 文件不在自动识别范围,未检查" % langs
+            return "接口、迁移、签名:%s 文件不在技术自动识别范围;业务说明依据 diff 起草" % langs
         found = any(layers[k] for k in ("api", "db", "func"))
-        return "接口、迁移、签名:已检查 %d 个文件%s;另有 %d 个 %s 文件不在自动识别范围,未检查" % (
+        return "接口、迁移、签名:已检查 %d 个文件%s;另有 %d 个 %s 文件不在技术自动识别范围;业务说明依据 diff 起草" % (
             n, "" if found else ",没有认出", sum(x["files"] for x in un), langs)
 
     def body_only(self):
@@ -436,22 +434,21 @@ class Note:
             out.append("%s %d 个文件%s" % (label, len(xs), "(%s)" % ",".join(notes) if notes else ""))
         return ";".join(out)
 
+    def impact(self):
+        """业务影响与 changes 原文去重;校验和去重在 analysis_check 中完成。"""
+        return self.analysis.get("impact") or []
+
     def impact_md(self, layers, cut):
-        """各层一行,没有内容的层不出现;资源和配置并列一行,被裁剪时只写数量。"""
-        lines = []
+        """业务影响加必要技术变化;技术事实不受业务条数和正文额度裁剪。"""
+        lines = ["- " + x["text"] for x in self.impact()]
         for key, title in LAYERS:
-            items = layers[key]
-            if not items:
-                continue
             if key == "res":
-                lines.append("- %s:%s" % (title, "%d 处(见完整版)" % len(items) if "resources" in cut else self.res_summary(items)))
-            else:
-                lines.append("- %s:%s" % (title, short(items, PER_LAYER, self.item_md, ";", "项")))
-        if self.scope(layers):
-            lines.append("- " + self.scope(layers))
-        n = len(self.body_only())
-        if n:
-            lines.append("- 未覆盖:另有 %d 个函数只改了实现,行为变化不在此列" % n)
+                continue
+            items = layers[key]
+            if key == "func":
+                items = [x for x in items if x["change"] in ("removed", "signature_changed")]
+            if items:
+                lines.append("- %s:%s" % (title, ";".join(self.item_md(x) for x in items)))
         return "\n".join(lines)
 
     # ---------- 怎么验证 ----------
@@ -597,12 +594,16 @@ class Note:
         ctx["change_rows"] = rows(data)
         ctx["change_note"] = e("按功能分组由 AI 依据 diff 起草,锚点都已核对在所引代码块的改动行里") if changes else ""
 
+        ctx["business_rows"] = rows([[ticks_html(x["text"]), anchors(x["anchors"]),
+                                      "<br>".join(self.hunk_ref(h, md=False) for h in x["hunks"])] for x in self.impact()])
         layers = f["layers"]
         ctx["overview"] = e(self.overview(layers))
         data = []
         for key, title in sorted(LAYERS, key=lambda kt: kt[0] == "res"):   # 网页版的表里资源放在最后
             for x in layers[key]:
                 note = e(x["extra"])
+                if x.get("paths"):
+                    note += "<br>" + "<br>".join(e(VERB.get(p["change"], p["change"])) + " " + where(p["path"]) for p in x["paths"])
                 s = x.get("symbol")
                 if s and s.get("old_sig") and s.get("new_sig") and x["change"] == "signature_changed":
                     note += "<br><small>%s → %s</small>" % (e(s["old_sig"]), e(s["new_sig"]))
@@ -616,7 +617,7 @@ class Note:
         ctx["impact_rows"] = rows(data)
         n = len(self.body_only())
         notes = ([self.scope(layers)] if self.scope(layers) else []) + \
-                (["未覆盖:另有 %d 个函数只改了实现,行为变化不在此列" % n] if n else [])
+                (["自动识别范围:另有 %d 个函数只改了实现,不列入签名与接口变化表;业务影响由 analyst 依据 diff 起草" % n] if n else [])
         ctx["impact_notes"] = "<br>".join(e(x) for x in notes)
         ctx["impact_method"] = e(";".join([self.facts.get("method") or af.METHOD] + list(self.facts.get("limits") or [])))
 

@@ -72,7 +72,7 @@ if rm.get("errors"):
 for n in final.get("notes", []):
     print("RULES_NOTE: %s%s" % (n.get("summary", ""), "(%s)" % n["file"] if n.get("file") else ""))
 
-# 测试或检查被削弱
+# 测试与检查变更信号,不代表已确认缺陷
 try:
     for l in open(os.path.join(d, "weakening.txt"), encoding="utf-8"):
         k, p, why = (l.rstrip("\n").split("\t") + ["", ""])[:3]
@@ -140,11 +140,17 @@ try:
             gaps.append(l.rstrip("\n").split(": ", 1)[1])
 except OSError:
     pass
+shown = [f for fs in final.get("groups", {}).values() for f in fs]
 if gaps:
-    print("INCOMPLETE: 流程不完整:" + "；".join(gaps))
+    print("INCOMPLETE: 审查未完成，已检查部分确认 %d 条发现；流程不完整:%s" % (len(shown), "；".join(gaps)))
 
 # 改动代码里的原有问题:真实存在,但 base 版本里同样存在、不是本次引入的(不计入发现,放在报告末尾单列)
 for p in final.get("pre_existing") or []:
     print("PREEXIST: %s:%s\t%s\t%s" % (p.get("file", ""), p.get("line", ""), p.get("summary", ""), p.get("verdict", "")))
 
-print("FEEDBACK: 看完可以直接回复,例如「1 对,2 误报:上游已经重试」「3 先不改:下个版本再处理」,判断会被记下来,之后同样的问题不再重复报。")
+# 默认只为本次展示且能对应记录的发现提示反馈;被隐藏或否决的条目按用户询问另行处理。
+findings = crlib.load_json(os.path.join(d, "findings.json"), [])
+feedback_ids = {f.get("id") for f in findings if f.get("id")}
+feedback = [f for f in shown if f.get("no") and f.get("id") in feedback_ids]
+if feedback:
+    print("FEEDBACK: 看完可以直接回复,例如「%s 误报:说明原因」或「%s 先不改:说明原因」,判断会被记录并供后续审查参考;代码或判断前提变化时会重新核实。" % (feedback[0]["no"], feedback[0]["no"]))

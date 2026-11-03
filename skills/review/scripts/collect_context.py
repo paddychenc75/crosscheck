@@ -1,4 +1,4 @@
-"""collect-context.sh 的实现:意图(含需求单和需求来源)、人工讨论、测试削弱,依次收集。用法见 collect-context.sh。"""
+"""collect-context.sh 的实现:意图(含需求单和需求来源)、人工讨论、测试与检查变更信号,依次收集。用法见 collect-context.sh。"""
 import json
 import os
 import sys
@@ -36,7 +36,7 @@ def main(review_dir):
             f.write("%s=%s\n" % (k, v))
 
     if weak:
-        print("WEAKENING: 发现 %d 处测试或检查被削弱,报告里单独列出(weakening.txt)" % len(weak))
+        print("WEAKENING: 检测到 %d 处测试与检查变更信号,不代表已确认缺陷,报告里单独列出(weakening.txt)" % len(weak))
     for n in it.notes:
         print("NOTE: " + n)
     for item in crlib.load_json(os.path.join(review_dir, "sources.json"), {}).get("items", []):

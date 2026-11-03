@@ -4,17 +4,15 @@
 | 需求文档 |  |
 | 设计稿 |  |
 
+### CR负责人: @reviewer.username
+
 ### 改了什么
 分支 feature 的改动
 1. 改动:2 处(orders.ts、app.yml)
 
-### 影响面
+### 主要影响
 - 配置与依赖:新增配置文件 `config/app.yml`(1 个键)
 - 内部函数:签名变化 `listOrders`(`api/orders.ts:1`,diff 外 2 处调用)
 
 ### 怎么验证
 - 开启配置 `order.cursor.enabled`(`config/app.yml:3`)
-
-### CR负责人:
-
-@xx
