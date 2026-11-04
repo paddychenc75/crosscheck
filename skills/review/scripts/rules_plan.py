@@ -15,6 +15,7 @@ FIELDS = ("候选", "去向", "动作", "规则", "原因", "严重级别", "范
 REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重级别", "不要报"),
             "suppress": ("候选", "去向", "动作", "规则", "范围")}
 SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
+EXAMPLES = ("反例", "正例")
 ACTIONS = ("待定", "写入", "跳过", "已写入")
 SECTIONS = ("每次都要检查", "不要报")
 RULES_DIR = ".agents/rules"
@@ -27,6 +28,19 @@ FIELD = re.compile(r"^(\s*[-*]\s+\*\*)([^*]+?)(\*\*\s*[::]\s*)(.*)$")
 def one(s):
     """折成一行。文字里的 HTML 注释记号换成全角破折号:live_lines 会把它当注释,吞掉后面的行。"""
     return " ".join(str(s or "").split()).replace("<!--", "<!——").replace("-->", "——>")
+
+
+def example_lines(name, text, lang="", indent="  "):
+    """反例 / 正例:字段行后跟一个围栏代码块,plan.md 和规则文件同一写法。围栏比代码里最长的反引号串再长一格,代码原样保留。"""
+    rows = [x.rstrip() for x in str(text or "").strip("\n").split("\n")]
+    while rows and not rows[-1]:
+        rows.pop()
+    if not any(rows):
+        return []
+    run = max((len(m) for m in re.findall(r"`+", "\n".join(rows))), default=0)
+    fence = "`" * max(3, run + 1)
+    return (["- **%s**:" % name, indent + fence + (lang or "").strip()]
+            + [indent + x if x else "" for x in rows] + [indent + fence])
 
 
 def refs(c):
@@ -69,6 +83,8 @@ def evidence_lines(c):
                 out.append(">   !%s 评论 %s「%s」" % (b["mr"], b["note"], one(b["quote"])))
     if c.get("review"):
         out.append("> 语义复核(模型判断):" + one(c["review"]))
+    if c.get("severity_reason"):
+        out.append("> 严重级别依据(模型判断):" + one(c["severity_reason"]))
     coverage = c.get("coverage", {})
     if coverage:
         out.append("> 已有约束(%s):%s" % (coverage["status"], one(coverage["reason"])))
@@ -84,7 +100,7 @@ def render_block(c, dest):
     lines += ["- **候选**:%d(%s;评审人 %d 位)" % (c["no"], " ".join(refs(c)) or "-", c.get("people", 0)),
              "- **去向**:" + dest,
              "- **动作**:待定",
-             "- **规则**:" + one(c["rule"])]
+             "- **规则**:" + one(c["rule"]).rstrip(crlib.RULE_PUNCT)]
     if c.get("why"):
         lines.append("- **原因**:" + one(c["why"]))
     if c["kind"] == "rule":
@@ -92,8 +108,7 @@ def render_block(c, dest):
     lines.append("- **范围**:" + ", ".join(c.get("paths") or ["**"]))
     if c["kind"] == "rule":
         for name, key in (("反例", "bad_example"), ("正例", "good_example")):
-            if c.get(key):
-                lines.append("- **%s**:%s" % (name, one(c[key])))
+            lines += example_lines(name, c.get(key), c.get("lang", ""))
         lines.append("- **不要报**:" + one(c.get("exceptions")))
     return lines + evidence_lines(c)
 
@@ -110,7 +125,7 @@ def render(cands, root, meta):
     project = os.path.basename((meta.get("repo_root") or root or "").rstrip("/")) or meta.get("repo_id", "")
     lines = [TITLE, "",
              "- 项目:" + project,
-             "- 范围:最近 %s 天,%s 个 MR" % (meta.get("days", "?"), meta.get("mrs", "?")),
+             "- 扫描:最近 %s 天,%s 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)" % (meta.get("days", "?"), meta.get("mrs", "?")),
              "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
              "",
              "<!-- candidates-sha256: %s -->" % fingerprint(cands),
@@ -122,10 +137,16 @@ def render(cands, root, meta):
 
 
 def live_lines(text):
-    """逐行去掉 HTML 注释(可跨行),返回 [(行号, 去注释后的文字)];最后一个值表示文件末尾还有没闭合的注释。"""
+    """逐行去掉 HTML 注释(可跨行),返回 [(行号, 去注释后的文字)];最后一个值表示文件末尾还有没闭合的注释。
+    围栏代码块里的行原样保留:示例代码里的 <!-- 不是注释。"""
     out, in_comment = [], False
-    for i, raw in enumerate(text.split("\n")):
+    rows = text.split("\n")
+    fenced = crlib.fence_mask(rows)
+    for i, raw in enumerate(rows):
         line = raw
+        if fenced[i] and not in_comment:
+            out.append((i, line))
+            continue
         if in_comment:
             if "-->" not in line:
                 out.append((i, ""))
@@ -141,10 +162,29 @@ def live_lines(text):
 
 
 def parse(text):
-    """-> (blocks, errors)。block: n 序号、title、head 标题行号、cand 候选编号、fields {字段: 值}、at {字段: 行号}。
+    """-> (blocks, errors)。block: n 序号、title、head 标题行号、cand 候选编号、fields {字段: 值}、at {字段: 行号}、
+    lang {字段: 代码块语言}。反例 / 正例可以是字段行后的围栏代码块(多行),也可以写在同一行。
     errors: [(块标号, 字段, 原因)]。只检查格式,内容(规则句、去向)由调用方校验。"""
     lines, open_comment = live_lines(text)
+    fenced = crlib.fence_mask([x for _, x in lines])
     blocks, errors, cur, seen = [], [], None, set()
+    skip_to = -1          # 已经并进字段值的代码块行
+
+    def code_after(k):
+        """第 k 行是值为空的字段行时,取紧跟的围栏代码块 -> (代码, 语言, 结束下标);没有代码块返回 None。"""
+        j = k + 1
+        m = crlib.FENCE.match(lines[j][1]) if j < len(lines) else None
+        if not m or not fenced[j]:
+            return None
+        token, indent, lang = m.group(1), lines[j][1][:m.start(1)], lines[j][1][m.end(1):].strip()
+        body = []
+        for t in range(j + 1, len(lines)):
+            row = lines[t][1]
+            end = crlib.FENCE.match(row)
+            if end and end.group(1)[0] == token[0] and len(end.group(1)) >= len(token):
+                return "\n".join(body), lang, t
+            body.append(row[len(indent):] if row.startswith(indent) else (row.lstrip() if row.strip() else ""))
+        return "\n".join(body), lang, -1
 
     def close():
         nonlocal cur
@@ -160,7 +200,13 @@ def parse(text):
         blocks.append(cur)
         cur = None
 
-    for i, line in lines:
+    for k, (i, line) in enumerate(lines):
+        if k <= skip_to:
+            continue
+        if fenced[k]:
+            errors.append(((cur or {}).get("label", "-"), "格式", "代码块只能紧跟在「反例」或「正例」字段行后面"))
+            skip_to = next((t for t in range(k, len(lines)) if not fenced[t]), len(lines)) - 1
+            continue
         s = line.strip()
         h = HEADING.match(s)
         if h:
@@ -174,7 +220,7 @@ def parse(text):
             if n in seen:
                 errors.append((str(n), "格式", "序号重复"))
             seen.add(n)
-            cur = dict(n=n, label=str(n), title=m.group(2).strip(), head=i, cand=None, fields={}, at={})
+            cur = dict(n=n, label=str(n), title=m.group(2).strip(), head=i, cand=None, fields={}, at={}, lang={})
             continue
         if cur is None or not s or s.startswith(">"):     # > 开头是证据引用块,不是字段
             continue
@@ -183,6 +229,16 @@ def parse(text):
             errors.append((cur["label"], "格式", "看不懂这一行(字段应写成「- **字段**:值」):" + s[:30]))
             continue
         name, value = f.group(2).strip(), f.group(4).strip()
+        lang = ""
+        if name in EXAMPLES and not value:
+            code = code_after(k)
+            if code:
+                value, lang, end = code
+                if end < 0:
+                    errors.append((cur["label"], name, "代码块没有结束的围栏"))
+                    skip_to = len(lines)
+                else:
+                    skip_to = end
         if name not in FIELDS:
             errors.append((cur["label"], name, "未知字段(可用:%s)" % "、".join(FIELDS)))
         elif name in cur["fields"]:
@@ -190,6 +246,8 @@ def parse(text):
         else:
             cur["fields"][name] = value
             cur["at"][name] = i
+            if name in EXAMPLES:
+                cur["lang"][name] = lang
     close()
     if open_comment:
         errors.append((blocks[-1]["label"] if blocks else "-", "格式", "有没闭合的 <!-- 注释"))

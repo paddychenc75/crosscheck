@@ -26,8 +26,10 @@ HEAD = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 def split_suppress(body):
     """把「不要报」一节(到下一个同级或更高级标题为止)和其余正文分开。"""
     keep, sup, level = [], [], None
-    for line in body.split("\n"):
-        m = HEAD.match(line)
+    rows = body.split("\n")
+    fenced = crlib.fence_mask(rows)
+    for i, line in enumerate(rows):
+        m = None if fenced[i] else HEAD.match(line)      # 示例代码里的 # 不是标题
         if m and level is not None and len(m.group(1)) <= level:
             level = None
         if m and level is None and crlib.is_suppress_title(m.group(2)):

@@ -55,25 +55,18 @@ def source_note(c):
     return "<!-- 来源:%s -->" % " ".join(refs) if refs else ""
 
 
-def code(s):
-    s = str(s).strip()
-    return "`%s`" % s.replace("`", "'") if s else ""
-
-
 def block_of(c):
-    """一条规则一个 ## 块。"""
+    """一条规则一个 ## 块;反例 / 正例是字段行后的围栏代码块,和 plan.md 同一写法。"""
     title = c.get("title") or c["rule"][:24]
     if crlib.is_suppress_title(title):
         title = c["rule"][:24]      # 不能让这条规则被当成「不要报」一节
     lines = ["## " + title, ""]
-    lines.append("- **规则**:" + c["rule"])
+    lines.append("- **规则**:" + c["rule"].rstrip(crlib.RULE_PUNCT))
     if c.get("why"):
         lines.append("- **原因**:" + c["why"])
     lines.append("- **严重级别**:" + (c.get("severity") or "轻微"))
-    if c.get("bad_example"):
-        lines.append("- **反例**:" + code(c["bad_example"]))
-    if c.get("good_example"):
-        lines.append("- **正例**:" + code(c["good_example"]))
+    lines += rules_plan.example_lines("反例", c.get("bad_example"), c.get("bad_lang", ""))
+    lines += rules_plan.example_lines("正例", c.get("good_example"), c.get("good_lang", ""))
     lines.append("- **不要报**:" + c.get("exceptions", ""))
     note = source_note(c)
     if note:
@@ -181,15 +174,19 @@ def body_start(lines):
     return 0
 
 
+def headings(lines):
+    """所有 ## 标题的行号;围栏代码块里的行不算。"""
+    fenced = crlib.fence_mask(lines)
+    return [i for i, x in enumerate(lines) if x.startswith("## ") and not fenced[i]]
+
+
 def section_range(lines, section):
     """(标题行, 下一个 ## 之前) ;没有这一节返回 None。「不要报」用 is_suppress_title 判定。"""
-    for i in range(body_start(lines), len(lines)):
-        x = lines[i]
-        if not x.startswith("## "):
-            continue
-        title = x[3:].strip()
+    heads = [i for i in headings(lines) if i >= body_start(lines)]
+    for i in heads:
+        title = lines[i][3:].strip()
         if (crlib.is_suppress_title(title) if section == "不要报" else title.rstrip(":：").strip() == section):
-            end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
+            end = next((j for j in heads if j > i), len(lines))
             return i, end
     return None
 
@@ -274,12 +271,20 @@ def check_block(b, c, root):
         except ValueError as e:
             errs.append(("去向", str(e)))
 
-    def strip_ticks(s):
-        s = s.strip()
-        return s[1:-1] if len(s) > 1 and s[0] == s[-1] == "`" else s
-    merged = dict(c, title=b["title"], rule=rule, why=crlib.norm(f.get("原因", "")), exceptions=exceptions, paths=paths,
+    why = crlib.norm(f.get("原因", ""))
+    if crlib.MR_REF.search(why):
+        errs.append(("原因", "不要写 MR 号(%s):来源由脚本按候选编号写在末尾的注释里" % crlib.MR_REF.search(why).group(0)))
+
+    def example(name):
+        s = f.get(name, "")
+        if "\n" not in s:               # 写在同一行的,去掉包着的反引号
+            s = s.strip()
+            s = s[1:-1] if len(s) > 1 and s[0] == s[-1] == "`" else s
+        return s
+    merged = dict(c, title=b["title"], rule=rule, why=why, exceptions=exceptions, paths=paths,
                   severity=crlib.RULE_SEVERITY.get(severity.strip(), ""), dest=dest,
-                  bad_example=strip_ticks(f.get("反例", "")), good_example=strip_ticks(f.get("正例", "")))
+                  bad_example=example("反例"), good_example=example("正例"),
+                  bad_lang=b.get("lang", {}).get("反例", ""), good_lang=b.get("lang", {}).get("正例", ""))
     return errs, merged
 
 
@@ -336,12 +341,12 @@ def build(root, todo):
                 continue
             if path not in changed:
                 changed.append(path)
+            heads = [i for i in headings(lines) if is_suppress_head(lines[i].strip())]
             if c["kind"] == "suppress":
-                if not any(is_suppress_head(x.strip()) for x in lines):
+                if not heads:
                     lines += ["", SUPPRESS_HEAD, ""]
                 lines.append(suppress_line(c))
             else:
-                heads = [i for i, x in enumerate(lines) if is_suppress_head(x.strip())]
                 at = heads[0] if heads else len(lines)
                 while at > 0 and not lines[at - 1].strip():
                     at -= 1
@@ -351,9 +356,10 @@ def build(root, todo):
         lines, rel = touched[path], os.path.relpath(path, root)
         text = "\n".join(lines)
         if os.path.basename(path) == "REVIEW.md":
-            n = sum(1 for x in lines if re.match(r"^[-*+]\s", x))
+            fenced = crlib.fence_mask(lines)
+            n = sum(1 for i, x in enumerate(lines) if re.match(r"^[-*+]\s", x) and not fenced[i])
         else:
-            n = sum(1 for x in lines if x.startswith("## ") and not is_suppress_head(x.strip()))
+            n = sum(1 for i in headings(lines) if not is_suppress_head(lines[i].strip()))
         if n > MAX_RULES or len(text) > MAX_CHARS:
             warns.append("WARN: %s 已有 %d 条规则、%d 个字符,超过约 %d 条或 %d 字符,建议按目录或主题拆成几个文件" % (rel, n, len(text), MAX_RULES, MAX_CHARS))
     return skips, touched, before, changed, wrote, warns
@@ -389,7 +395,7 @@ def main():
         return 1
 
     blocks, errors = rules_plan.parse(plan_text)
-    todo, pending = [], 0
+    todo, pending, unmet = [], 0, []
     for b in blocks:
         action = b["fields"].get("动作", "")
         if "动作" not in b["fields"]:
@@ -409,6 +415,8 @@ def main():
             pending += 1
         elif action == "写入" and not errs:
             todo.append((b, merged))
+            if cands[b["cand"]].get("unmet"):      # 待确认项只提醒,写不写由负责人定
+                unmet.append("WARN: 块 %s 标了写入,仍有%s" % (b["label"], ";".join(cands[b["cand"]]["unmet"])))
     if errors:
         for label, name, why in errors:
             print("ERROR: 块 %s %s: %s" % (label, name, why))
@@ -430,7 +438,7 @@ def main():
             old = open(path, encoding="utf-8").read().splitlines(True) if os.path.exists(path) else []
             new = ("\n".join(touched[path]).rstrip("\n") + "\n").splitlines(True)
             print("".join(difflib.unified_diff(old, new, fromfile=os.path.relpath(path, root), tofile=os.path.relpath(path, root))), end="")
-    for w in warns:
+    for w in unmet + warns:
         print(w)
     if pending:
         print("PENDING: %d 块还是待定" % pending)

@@ -325,6 +325,31 @@ def is_suppress_title(title):
     return bool(SUPPRESS_TITLE.match(str(title).strip()))
 
 
+FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+
+def fence_mask(lines):
+    """每行是否在围栏代码块里(围栏行本身也算)。规则文件和计划里的示例代码不参与标题、字段和章节识别。"""
+    out, fence = [], None
+    for line in lines:
+        m = FENCE.match(line)
+        if m:
+            token = m.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+            out.append(True)
+            continue
+        out.append(fence is not None)
+    return out
+
+
+# 规则句末尾的标点:写进计划和规则文件前统一去掉,REVIEW.md 的一行由脚本自己补句号
+RULE_PUNCT = "。.;；"
+# 原因里的 MR/PR 号(!123、#123):来源由脚本按候选编号写在注释里,原因里再写会重复
+MR_REF = re.compile(r"(?<![\w/])[!#]\d+")
+
 RULE_MUST = re.compile(r"必须|禁止|不得|不能|不要|不允许|只能|应当|应该|一律|统一|must|never|always|do not|don't", re.I)
 RULE_SEVERITY = {"重要": "重要", "major": "重要", "轻微": "轻微", "minor": "轻微"}
 

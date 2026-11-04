@@ -34,7 +34,7 @@ class MiningRuleSourcesTests(fixture.Base):
         records = project_rules.mining_sources(repo)
         indexed = {r['file']: r for r in records}
         item = indexed['.claude/rules/python.md']
-        self.assertEqual(item['source_path'], str(shared / 'python.md'))
+        self.assertEqual(item['source_path'], str((shared / 'python.md').resolve()))
         self.assertIn('Shared policy', item['text'])
         self.assertTrue(project_rules.matches(item, 'src/a.py'))
         self.assertFalse(project_rules.matches(item, 'a.py'))
@@ -55,9 +55,9 @@ class MiningRuleSourcesTests(fixture.Base):
         (repo / 'src/AGENTS.md').symlink_to(origin)
         records = project_rules.mining_sources(repo)
         indexed = {r['file']: r for r in records}
-        self.assertEqual(indexed['src/AGENTS.md']['source_path'], str(origin))
+        self.assertEqual(indexed['src/AGENTS.md']['source_path'], str(origin.resolve()))
         item = indexed['src/style.txt']
-        self.assertEqual(item['source_path'], str(style))
+        self.assertEqual(item['source_path'], str(style.resolve()))
         self.assertEqual(item['text'], style.read_text())
         self.assertEqual(item['referenced_by'], 'src/AGENTS.md')
         self.assertEqual(item['patterns'], ['src/**'])
@@ -107,7 +107,7 @@ Run cat docs/command.md
         original_open = open
 
         def guarded_open(path, *args, **kwargs):
-            if Path(path) == denied:
+            if Path(path).resolve() == denied.resolve():     # 临时目录可能经过符号链接,比较物理路径
                 raise PermissionError('test denied')
             return original_open(path, *args, **kwargs)
 

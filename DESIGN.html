@@ -1217,10 +1217,16 @@ paths: ["src/orders/**"]
 ## 总页数要向上取整
 
 - **规则**:在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor
-- **原因**:向下取整会丢掉最后一页不满的数据(!118、!131、!140)
+- **原因**:向下取整会丢掉最后一页不满的数据
 - **严重级别**:重要
-- **反例**:`Math.floor(total / pageSize)`
-- **正例**:`Math.ceil(total / pageSize)`
+- **反例**:
+  ```ts
+  const pages = Math.floor(total / pageSize)
+  ```
+- **正例**:
+  ```ts
+  const pages = Math.ceil(total / pageSize)
+  ```
 - **不要报**:只做展示估算、不决定取多少条数据的页数
 &lt;!-- 来源:!118 !131 !140 --&gt;</code></pre>
       <p class="muted">“不要报”这个字段必填，写不出来说明这条还不够具体。团队明确不想再被提醒的情况，会另放在文件末尾的“## 不要报”一节。</p>
@@ -1229,7 +1235,7 @@ paths: ["src/orders/**"]
       <p>只能用命令调用（<code>/crosscheck:improve</code>、Codex 的 <code>$crosscheck:improve</code>（拷贝安装为 <code>$improve</code>）），不会被自然语言自动触发。它不会改业务代码，只会写规则文件（<code>.agents/rules/</code> 下的文件，或某目录 <code>REVIEW.md</code> 的指定章节）。沉淀是“先出计划，再写入”：先生成一份 <code>plan.md</code>，你和 agent 对话修改，每次改完预演，你说“确定”才写进工作区；写入后不做 <code>git add</code> 或提交，由你自己看 diff、提交。审当前分支时读工作区规则；PR/MR、其他分支和提交范围从 base 读。</p>
       <div class="lifecycle">
         <span class="state s1">从 MR 评论归纳候选</span>
-        <span class="edge">脚本按准入清单核对</span>
+        <span class="edge">脚本核对结构、引文与来源</span>
         <span class="state s3">生成 plan.md，动作默认“待定”</span>
         <span class="edge">对话修改，每次改完预演 --check</span>
         <span class="state s3">你逐条标“写入”，说“确定”</span>
@@ -1314,7 +1320,7 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
             <div class="tpre"># 规则沉淀计划
 
 - 项目:demo-shop
-- 范围:最近 180 天,48 个 MR
+- 扫描:最近 180 天,48 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)
 - 生成:2026-10-28 10:15
 
 &lt;!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。改完用 rules-write.py &lt;work_dir&gt; --check 预演,没问题再 --apply。--&gt;
@@ -1328,8 +1334,14 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
 - **原因**:向下取整会丢掉最后一页不满的数据
 - **严重级别**:重要
 - **范围**:src/orders/**
-- **反例**:Math.floor(total / pageSize)
-- **正例**:Math.ceil(total / pageSize)
+- **反例**:
+  ```ts
+  const pages = Math.floor(total / pageSize)
+  ```
+- **正例**:
+  ```ts
+  const pages = Math.ceil(total / pageSize)
+  ```
 - **不要报**:只做展示估算、不决定取多少条数据的页数
 
 &gt; 提及 3 个 MR:模型判断已采纳 3,未知/结论不一致 0,未采纳 0
@@ -1437,8 +1449,14 @@ paths: ["src/orders/**"]
 - **规则**:在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor
 - **原因**:向下取整会丢掉最后一页不满的数据
 - **严重级别**:重要
-- **反例**:`Math.floor(total / pageSize)`
-- **正例**:`Math.ceil(total / pageSize)`
+- **反例**:
+  ```ts
+  const pages = Math.floor(total / pageSize)
+  ```
+- **正例**:
+  ```ts
+  const pages = Math.ceil(total / pageSize)
+  ```
 - **不要报**:只做展示估算、不决定取多少条数据的页数
 &lt;!-- 来源:!118 !131 !140 --&gt;</div>
             <div class="ta"><span class="bul">●</span>追加了一行的 <code>src/orders/REVIEW.md</code>（<code>git diff</code>）：</div>

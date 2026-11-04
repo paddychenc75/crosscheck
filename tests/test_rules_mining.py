@@ -408,7 +408,7 @@ class RulesMining(fixture.Base):
         self.assertIn("1. [", r.stdout)                                    # 原有的列表输出还在
         cands = {c["rule"]: c for c in self.load(os.path.join(work, "candidates.json"))}
         plan = self.plan_text(work)
-        self.assertTrue(plan.startswith("# 规则沉淀计划\n\n- 项目:shop\n- 范围:最近 90 天,5 个 MR\n- 生成:"))
+        self.assertTrue(plan.startswith("# 规则沉淀计划\n\n- 项目:shop\n- 扫描:最近 90 天,5 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)\n- 生成:"))
         blocks = {b["cand"]: b for b in self.parse_plan(plan)}
         self.assertEqual(len(blocks), 4)
         self.assertEqual({b["fields"]["动作"] for b in blocks.values()}, {"待定"})
@@ -642,8 +642,8 @@ class RulesMining(fixture.Base):
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
         self.assertTrue(text.startswith('---\npaths: ["src/api/**"]\n---\n# api\n'))
         self.assertIn("## 分页参数要有上限\n\n- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限(最多 100)\n"
-                      "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:`list(limit)`\n"
-                      "- **正例**:`list(Math.min(limit, 100))`\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
+                      "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:\n  ```ts\n  list(limit)\n  ```\n"
+                      "- **正例**:\n  ```ts\n  list(Math.min(limit, 100))\n  ```\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
         # plan.md 只有写过的那块的动作变了
         after = self.plan_text(work)
         self.assertEqual(after, before.replace("- **动作**:写入", "- **动作**:已写入"))        # 只有这一处不同
@@ -783,12 +783,127 @@ class RulesMining(fixture.Base):
 
     def test_long_rule_file_warns(self):
         import hashlib
-        many = [rule(title="规则 %d" % i, rule="必须 " + hashlib.sha1(str(i).encode()).hexdigest()) for i in range(16)]
+        # 示例代码里的 ## 不算规则块
+        many = [rule(title="规则 %d" % i, rule="必须 " + hashlib.sha1(str(i).encode()).hexdigest(), bad_example="## 不是标题\nx()") for i in range(16)]
         work, no = self.prepare(*many)
         self.assertEqual(len(no), 16)
         self.write_all(work, no.values())
         out = self.write_rules(work, "--check")
         self.assertIn("WARN: .agents/rules/api.md 已有 16 条规则", out)
+
+    def test_examples_are_code_blocks_in_plan_and_rule_file(self):
+        bad = "const s = `tpl`\n## 不要报\n<!-- 代码里的注释 -->\n\n  indented()"
+        good = "```\nfenced inside\n```"
+        r = rule(bad_example=bad, good_example=good)
+        work, no = self.prepare(r, self.sup())
+        n, ns = no[r["rule"]], no[self.sup()["rule"]]
+        plan = self.plan_text(work)
+        # 计划里是围栏代码块:语言来自证据文件后缀,围栏比内容里的反引号串长,代码原样
+        self.assertIn("- **反例**:\n  ```ts\n  const s = `tpl`\n  ## 不要报\n  <!-- 代码里的注释 -->\n\n    indented()\n  ```\n", plan)
+        self.assertIn("- **正例**:\n  ````ts\n  ```\n  fenced inside\n  ```\n  ````\n", plan)
+        block = {b["cand"]: b for b in self.parse_plan(plan)}[n]
+        self.assertEqual((block["fields"]["反例"], block["fields"]["正例"]), (bad, good))
+        self.assertEqual(block["lang"], {"反例": "ts", "正例": "ts"})
+        self.assertEqual(block["fields"]["不要报"], "内部管理后台接口不限")          # 代码块后面的字段照常解析
+        # 用户把语言标记改成别的,写入时跟着变;代码里的 ## 不要报 不是章节,不要报类追加到真正的那一节
+        Path(work, "plan.md").write_text(plan.replace("  ````ts\n", "  ````js\n"), encoding="utf-8")
+        self.edit_plan(work, ns, "去向", ".agents/rules/api.md")
+        self.write_all(work, [n, ns])
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
+        self.assertIn("- **反例**:\n  ```ts\n  const s = `tpl`\n  ## 不要报\n  <!-- 代码里的注释 -->\n\n    indented()\n  ```\n"
+                      "- **正例**:\n  ````js\n  ```\n  fenced inside\n  ```\n  ````\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
+        self.assertEqual((text.count("\n  ## 不要报\n"), text.count("\n## 不要报\n")), (1, 1))   # 一个在代码里,一个是真正的章节
+        self.assertTrue(text.rstrip("\n").endswith("- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->"))
+        self.assertLess(text.index("<!-- 来源:!12 !15 -->"), text.rindex("## 不要报"))
+        # 再写一次:完整块一致,跳过
+        self.write_all(work, [n, ns])
+        out = self.write_rules(work, "--apply")
+        self.assertNotIn("WRITE:", out)
+        self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), text)
+        # 审查时 collect-rules 读这个文件:代码里的 ## 不要报 留在规则正文,真正的「不要报」一节单独放
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-qm", "rules")
+        self.git(self.repo, "switch", "-qc", "feature")
+        self.commit(self.repo, {"src/api/orders.ts": "changed\n"}, "change")
+        rd = self.review_dir(self.run_script("collect-diff.sh", cwd=self.repo).stdout)
+        self.run_script("collect-rules.sh", rd)
+        api = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}[".agents/rules/api.md"]
+        self.assertIn("  ## 不要报\n", api["text"])
+        self.assertIn("fenced inside", api["text"])
+        self.assertTrue(api["suppress"].startswith("## 不要报"))
+        self.assertIn("mock 数据里的硬编码金额", api["suppress"])
+        self.assertNotIn("tpl", api["suppress"])
+
+    def test_single_line_example_and_broken_fence(self):
+        r = rule(bad_example="", good_example="")
+        work, no = self.prepare(r)
+        n = no[r["rule"]]
+        self.assertNotIn("反例", self.plan_text(work).split("\n> ")[0].split("## 1.")[1])
+        # 用户在对话里补一行示例:写在同一行也认,写进文件时仍是代码块
+        self.edit_plan(work, n, "反例", "`list(limit)`")
+        self.write_all(work, [n])
+        out = self.write_rules(work, "--check")
+        self.assertIn("+- **反例**:\n+  ```\n+  list(limit)\n+  ```\n", out)
+        # 围栏没有结束:报 ERROR,什么都不写
+        plan = self.plan_text(work).replace("- **反例**:`list(limit)`", "- **反例**:\n  ```ts\n  list(limit)")
+        Path(work, "plan.md").write_text(plan, encoding="utf-8")
+        res = self.run_write(work, "--check")
+        self.assertEqual(res.returncode, 2, res.stdout)
+        self.assertIn("ERROR: 块 %d 反例: 代码块没有结束的围栏" % n, res.stdout)
+        # 代码块不跟在示例字段后面也是 ERROR
+        plan = self.plan_text(work).replace("- **动作**:写入\n", "- **动作**:写入\n  ```\n  x\n  ```\n").replace("  list(limit)", "  list(limit)\n  ```")
+        Path(work, "plan.md").write_text(plan, encoding="utf-8")
+        res = self.run_write(work, "--check")
+        self.assertEqual(res.returncode, 2, res.stdout)
+        self.assertIn("代码块只能紧跟在「反例」或「正例」字段行后面", res.stdout)
+
+    def test_unmet_items_warn_when_marked_write(self):
+        lone = rule(rule="金额相关的计算禁止使用浮点数", bad_example="",
+                    evidence=[{"mr": 18, "note": 401, "quote": "别用浮点"}, {"mr": 12, "note": 101, "quote": "分页参数"}])
+        work, no = self.prepare(rule(), lone)
+        n1, n2 = no[rule()["rule"]], no[lone["rule"]]
+        self.write_all(work, [n1, n2])
+        out = self.write_rules(work, "--check")
+        self.assertIn("WARN: 块 %d 标了写入,仍有待确认:评审人仅 1 位;待确认:缺反例或正例\n" % n2, out)
+        self.assertNotIn("WARN: 块 %d " % n1, out)
+        self.assertIn("WRITE: .agents/rules/api.md", out)                          # 只提醒,不拦
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WARN: 块 %d 标了写入,仍有待确认" % n2, out)
+        self.assertIn("金额相关的计算禁止使用浮点数", Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
+
+    def test_reason_must_not_carry_mr_numbers(self):
+        r = rule(why="评审明确要求统一校验(!12、!15)")
+        work, no = self.prepare(r)
+        n = no[r["rule"]]
+        self.assertIn("待确认:原因里写了 MR 号", self.plan_text(work))
+        self.write_all(work, [n])
+        res = self.run_write(work, "--check")
+        self.assertEqual(res.returncode, 2, res.stdout)
+        self.assertIn("ERROR: 块 %d 原因: 不要写 MR 号(!12)" % n, res.stdout)
+        self.edit_plan(work, n, "原因", "评审明确要求统一校验,见 PR #15")
+        res = self.run_write(work, "--check")
+        self.assertIn("ERROR: 块 %d 原因: 不要写 MR 号(#15)" % n, res.stdout)
+        self.edit_plan(work, n, "原因", "评审明确要求统一校验;颜色 #fff 和 a/b#1 不算")
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        self.assertIn("原因**:评审明确要求统一校验;颜色 #fff 和 a/b#1 不算", out)
+
+    def test_rule_punctuation_header_and_severity_reason(self):
+        r = rule(rule="在 src/api/** 的接口里,必须校验分页参数的上限。", severity_reason="不限会一次查出全表,是实际缺陷")
+        work, no = self.prepare(r)
+        self.assertEqual(list(no), ["在 src/api/** 的接口里,必须校验分页参数的上限"])      # 末尾标点去掉
+        plan = self.plan_text(work)
+        self.assertIn("- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限\n", plan)
+        self.assertIn("> 严重级别依据(模型判断):不限会一次查出全表,是实际缺陷\n", plan)
+        n = no["在 src/api/** 的接口里,必须校验分页参数的上限"]
+        self.edit_plan(work, n, "规则", "在 src/api/** 的接口里,必须校验分页参数的上限;")     # 用户改措辞又带了标点
+        self.write_all(work, [n])
+        self.write_rules(work, "--apply")
+        text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
+        self.assertIn("- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限\n", text)
+        self.assertNotIn("严重级别依据", text)                                      # 依据只在计划里给人看
 
     def test_written_rules_are_read_in_review(self):
         r2 = rule(title="金额用分", rule="在订单接口里,返回的金额必须统一用分", paths=["src/api/orders.ts"], bad_example="", good_example="")

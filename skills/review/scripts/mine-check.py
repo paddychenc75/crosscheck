@@ -198,7 +198,7 @@ def main(argv):
         kept = []
         root = inputs.meta.get("repo_root", "")
         for c in result["candidates"]:
-            rule, kind = crlib.norm(c.get("rule", "")), c.get("kind", "rule")
+            rule, kind = crlib.norm(c.get("rule", "")).rstrip(crlib.RULE_PUNCT), c.get("kind", "rule")
             # 即使候选不合格也记录其已核对的判断记录,避免把排除误报当漏处理。
             for e in c.get("evidence", []) if isinstance(c.get("evidence"), list) else []:
                 if isinstance(e, dict) and str(e.get("feedback", "")) in inputs.feedback:
@@ -254,9 +254,18 @@ def main(argv):
                     unmet.append("待确认:已有约束未核对完整")
                 if kind == "rule" and not (c.get("bad_example") and c.get("good_example")):
                     unmet.append("待确认:缺反例或正例")
+                why = crlib.norm(c.get("why", ""))
+                if crlib.MR_REF.search(why):
+                    unmet.append("待确认:原因里写了 MR 号,写入前要删掉(来源由脚本写在注释里)")
+                severity_reason = c.get("severity_reason", "")
+                require(severity_reason == "" or nonempty(severity_reason), "severity_reason 应为非空字符串")
+                # 示例的代码块语言:证据所在文件的扩展名一致时取它,否则留空,不猜
+                exts = {os.path.splitext(e["file"])[1][1:].lower() for e in ev if e.get("file")}
                 kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule,
-                                 why=crlib.norm(c.get("why", "")), severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""),
+                                 why=why, severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""),
+                                 severity_reason=crlib.norm(severity_reason),
                                  bad_example=str(c.get("bad_example") or ""), good_example=str(c.get("good_example") or ""),
+                                 lang=next(iter(exts)) if len(exts) == 1 else "",
                                  exceptions=crlib.norm(c.get("exceptions", "")), paths=paths,
                                  topic=re.sub(r"[^a-z0-9-]+", "-", str(c.get("topic") or "general").lower()).strip("-") or "general",
                                  evidence=ev, mrs=sorted({e["mr"] for e in ev if "mr" in e}),

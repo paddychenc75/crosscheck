@@ -114,17 +114,10 @@ def _credential_path(path):
 
 def _local_references(text):
     """只接受 Markdown 链接及独占一行的 @path，忽略代码块与图片。"""
-    fence = None
-    for line in text.splitlines():
-        marker = re.match(r'^\s{0,3}(`{3,}|~{3,})', line)
-        if marker:
-            token = marker.group(1)
-            if fence is None:
-                fence = token
-            elif token[0] == fence[0] and len(token) >= len(fence):
-                fence = None
-            continue
-        if fence or line.startswith(('    ', '\t')):
+    rows = text.splitlines()
+    fenced = crlib.fence_mask(rows)
+    for i, line in enumerate(rows):
+        if fenced[i] or line.startswith(('    ', '\t')):
             continue
         # 不从行内代码、示例命令里采集路径。
         prose = re.sub(r'(`+).*?\1', '', line)

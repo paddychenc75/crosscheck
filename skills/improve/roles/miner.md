@@ -35,6 +35,7 @@
 2. 逐个 MR 阅读整条讨论,判断 accepted / rejected / unknown。作者明确拒绝、解释后保留原实现属于 rejected;只有 resolved、局部代码变化或一句「好的」而没有落实依据时是 unknown。后续推翻此前意见的材料不能省略。原始平台状态由脚本保留,不要覆盖。
 3. 核对已有规范和实际运行的检查。可按主任务提供的仓库根目录,用只读文件工具或 `git grep` 找配置、检查规则、文档和相关代码,沿明确引用查阅必要材料。不要执行项目/配置代码、安装工具、访问凭证或换 CLI 查询平台。只搜到相同词语不证明覆盖,搜不到也不证明未覆盖。记录具体文件和原文;来源不可读、共享工具无法检查时写 unknown。
 4. 主动找反例,确认范围和例外。脚本不会核实语义,不能用一组自检 true 代替具体说明。
+5. 一条候选只含一个能对照代码检查的约束。证据分别指向不同的 API、触发条件或例外时拆成多条,各自计数,不把两件事的证据数合在一起凑门槛;反例、正例要对应规则主句,只能给其中一个分支写示例的,说明该拆。
 
 材料过大时按主题分段整理,始终保留观察 ID、支持/反对证据和未知项,最后检查所有观察都有去向。不能因为上下文不足只交前几个候选。归并阶段既可由主代理完成,也可委托一个有完整观察索引的代理;无需重复执行整个采集。
 
@@ -45,9 +46,10 @@
     "kind": "rule", "topic": "api", "title": "查询参数遵守项目上限",
     "rule": "在 src/api/** 中,必须按公共查询协议校验 limit 上限",
     "why": "未校验的查询可能一次读取过多数据",
-    "severity": "重要", "paths": ["src/api/**"],
-    "bad_example": "query({limit: input.limit})",
-    "good_example": "query(validateQuery(input))",
+    "severity": "重要", "severity_reason": "不限上限会一次读出全表,接口超时,是实际缺陷",
+    "paths": ["src/api/**"],
+    "bad_example": "router.get('/orders', async (req, res) => {\n  res.json(await query({limit: input.limit}))\n})",
+    "good_example": "router.get('/orders', async (req, res) => {\n  res.json(await query(validateQuery(input)))\n})",
     "exceptions": "明确声明不同分页协议的离线导出不适用",
     "review": "两份讨论指向同一公共查询协议;离线导出的协议不同,已排除。",
     "coverage": {"status": "unknown", "reason": "现有规范仅约束日志,未规定查询上限;还需核对项目检查配置", "sources": [
@@ -69,8 +71,9 @@
 
 - `kind`:rule 是要检查的约束;suppress 是带明确条件的「不要报」边界。suppress 不填 severity、正反例和 exceptions,边界直接写入 rule;同样核对反例与已有规范。不能只因两次 invalid 就全局不报。
 - `rule`:一句能对照代码检查的约束,rule 类使用「必须 / 禁止」;不夸大评论要求。`paths` 使用仓库内相对 glob,范围来自证据。
-- `why`:rule 写违反约束的后果;suppress 写该条件下为什么不应报告。不要写 MR 号或复述自检过程。
-- `severity`:按后果写重要或轻微,不按评论语气。正反例尽量来自材料,不要虚构现成工具函数。
+- `why`:rule 写违反约束的后果;suppress 写该条件下为什么不应报告。不要写 MR 号(脚本会标为待确认,写入前必须删掉)或复述自检过程。
+- `severity`:按后果写重要或轻微,不按评论语气;`severity_reason` 一句话说明是实际缺陷还是规范偏离,展示在计划的证据区。
+- `bad_example` / `good_example`:来自材料的代码,可以多行(JSON 字符串里用 `\n`),写最短能说明问题的几行;不要虚构现成工具函数。计划和规则文件里都渲染成代码块,语言标记由脚本按证据所在文件的后缀给出。
 - `coverage`:uncovered 是已核对未覆盖;partial 是仅覆盖部分,候选只保留未覆盖边界;covered 不进入可写计划,在 excluded 说明来源更合适;unknown 是材料不足。不能因某工具理论上能检查就说项目已有检查。sources 引用 rules-sources.json 冻结规则的逻辑 file 或 meta.txt 中 head 版本的仓库文件和逐字 quote。补充配置与代码上下文时用该 head 读取,不要把当前工作区的后续变动混入本次依据。任何读取失败都保留为未知;未知不能写成「检查通过」。
 - `assessment.basis`:采纳/拒绝必须引用同一讨论的具体原文并说明关联;允许引用该意见自身,但原文真实不代表支持采纳。必要时核对本次材料记录的代码版本;无法证明修改对应这条意见时用 unknown。
 - 判断记录证据使用 `{"feedback":"<key或id>","quote":"<原因原文>"}`。valid 可支持 rule;invalid 可支持有条件 suppress;wontfix 不能支持长期不报。保持记录的失败场景与例外,不能把不同原因凑次数。
