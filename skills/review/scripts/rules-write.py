@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""rules-write.py — 按 plan.md(规则沉淀计划)里标了「写入」的块,把规则写进仓库。
+"""rules-write.py — 按候选规则文件 rule-candidates.md 里标了「写入」的块,把规则写进仓库。
 
 用法: python3 rules-write.py WORK_DIR --check [--repo DIR]     预演:校验并打印会写什么,不写任何文件
-      python3 rules-write.py WORK_DIR --apply [--repo DIR]     确定写入,并把 plan.md 里写过的块改成「已写入」
+      python3 rules-write.py WORK_DIR --apply [--repo DIR]     确定写入,并把候选规则文件里写过的块改成「已写入」
 
-  WORK_DIR  mine-mrs.sh 的工作目录(里面有 mine-check.py 写的 candidates.json 和 plan.md)
+  WORK_DIR  mine-mrs.sh 的工作目录(里面有 mine-check.py 写的 candidates.json 和 rule-candidates.md)
   --repo    仓库根目录,默认取 WORK_DIR/meta.txt 的 repo_root
 
-plan.md 每条候选一个「## 序号. 标题」块,字段:候选、去向、动作、规则、原因、严重级别、范围、反例、正例、不要报
-(格式和字段见 rules_plan.py、improve/templates/plan.md;块末尾 > 开头的引用块是证据,只给人看,不读)。动作是 待定 / 写入 / 跳过 / 已写入:只处理「写入」,
+候选规则文件每条候选一个「## 序号. 标题」块,字段:候选、去向、动作、规则、原因、严重级别、范围、反例、正例、不要报
+(格式和字段见 rule_candidates.py、improve/templates/rule-candidates.md;块末尾 > 开头的引用块是证据,只给人看,不读)。动作是 待定 / 写入 / 跳过 / 已写入:只处理「写入」,
 「待定」只统计,「跳过」「已写入」忽略。去向是下面三种之一:
   .agents/rules/<主题>.md                 rule 类:写成一个「## 标题」块;新建的文件头部 paths、globs 写同一串逗号分隔的 glob
   .agents/rules/<主题>.md#<规则标题>      suppress 类,这条是该规则的例外:并进那个「## 规则标题」块的「不要报」字段,
@@ -18,18 +18,25 @@ plan.md 每条候选一个「## 序号. 标题」块,字段:候选、去向、�
 范围不等于目标本身的范围(REVIEW.md 所在目录、规则文件的 paths)时,把范围写进句子开头;目录 REVIEW.md 的范围要在该目录里。
 
 先逐块校验:格式、规则句(按 mine-check.py 的写法要求)、去向、候选编号是否在 candidates.json 里。任一块 ERROR 则整批
-什么都不写,退出码 2。来源注释 <!-- 来源:!123 !145 --> 按「候选」编号从 candidates.json 取,不取 plan.md 里的文字。
+什么都不写,退出码 2。来源注释按「候选」编号从 candidates.json 取,不取候选规则文件里的文字:至多 3 个典型 MR 的
+网页地址(没有地址写 !N),再加总数,如 <!-- 来源:<地址> <地址> <地址> 等 5 个 MR -->、<!-- 来源:!12 !15(共 2 个 MR) -->。
 写新规则时只往带 crosscheck 沉淀标记的文件里追加,团队手写的文件(没有标记,或头部解析不了)跳过,另起 <主题>-2.md;
-目标里完整内容、范围和边界都一致才跳过并补计划状态。根目录 REVIEW.md 头部(---)没写完整时拒绝写。不 git add、不提交。
---apply 写了 .agents/rules 后打印接入建议(软链接命令、AGENTS.md 里的链接行),只打印,不执行;已经接上的不提示。
+目标里完整内容、范围和边界都一致才跳过并补候选规则文件里的状态。根目录 REVIEW.md 头部(---)没写完整时拒绝写。不 git add、不提交。
+候选规则文件的头部字段「接入 AGENTS.md」(本批有规则类候选时才有)取值同动作:标「写入」时,对本次写入或确认已在其中的
+每个 .agents/rules 文件,在 AGENTS.md 的「## 代码约束」一节保证有一行 - [<x>](.agents/rules/<x>.md):改 <范围> 时先读这个文件并遵守
+(范围取文件头部的 paths;已有指向同一文件的链接不重复写;节不存在就在末尾新建,文件不存在就新建,不动其他内容),
+--apply 后改成「已写入」。值不认识时 ERROR,整批不写。
+--apply 写了 .agents/rules 后打印 .claude/、.cursor/ 软链接建议,只打印,不执行;已经接上的不提示。
 
 输出(每行一条):
-  WRITE: <相对路径> +<n>行        --check 会写 / --apply 写了
+  WRITE: <相对路径> +<n>行        --check 会写 / --apply 写了(含 AGENTS.md)
   SKIP: 块 <n> 已在 <相对路径> 里
+  SKIP: AGENTS.md 里已有 <规则文件> 的链接
   ERROR: 块 <n> <字段>: <原因>
+  ERROR: 头部 接入 AGENTS.md: <原因>
   WARN: …                          文件超过约 15 条或 4000 字符
-  PENDING: <k> 块还是待定
-  SUGGEST: …                       接入建议,由用户决定做不做
+  PENDING: <k> 块还是待定[,「接入 AGENTS.md」还是待定]
+  SUGGEST: …                       软链接建议,由用户决定做不做
   NOTE: …
 """
 import argparse
@@ -45,7 +52,7 @@ import sys
 sys.dont_write_bytecode = True
 import crlib
 import project_rules
-import rules_plan
+import rule_candidates
 
 MARK = "由 crosscheck 从 MR 评论沉淀"
 MAX_RULES, MAX_CHARS = 15, 4000
@@ -54,19 +61,20 @@ PUNCT = "。.;；"
 
 
 def source_note(c):
-    refs = rules_plan.refs(c)
-    return "<!-- 来源:%s -->" % " ".join(refs) if refs else ""
+    """来源注释:典型 MR 的网页地址加总数、判断记录来源,写法见 rule_candidates.source_refs。"""
+    refs = rule_candidates.source_refs(c)
+    return "<!-- 来源:%s -->" % refs if refs else ""
 
 
 def block_of(c):
-    """一条规则一个 ## 块;反例 / 正例是字段行后的围栏代码块,和 plan.md 同一写法。"""
+    """一条规则一个 ## 块;反例 / 正例是字段行后的围栏代码块,和候选规则文件同一写法。"""
     lines = ["## " + (c.get("title") or c["rule"][:24]), ""]
     lines.append("- **规则**:" + c["rule"].rstrip(crlib.RULE_PUNCT))
     if c.get("why"):
         lines.append("- **原因**:" + c["why"])
     lines.append("- **严重级别**:" + (c.get("severity") or "轻微"))
-    lines += rules_plan.example_lines("反例", c.get("bad_example"), c.get("bad_lang", ""))
-    lines += rules_plan.example_lines("正例", c.get("good_example"), c.get("good_lang", ""))
+    lines += rule_candidates.example_lines("反例", c.get("bad_example"), c.get("bad_lang", ""))
+    lines += rule_candidates.example_lines("正例", c.get("good_example"), c.get("good_lang", ""))
     lines.append("- **不要报**:" + c.get("exceptions", ""))
     note = source_note(c)
     if note:
@@ -118,7 +126,7 @@ def merge_exception(lines, head, item):
     end = next((j for j in headings(lines) if j > head), len(lines))
     fenced = crlib.fence_mask(lines)
     for i in range(head + 1, end):
-        f = rules_plan.FIELD.match(lines[i])
+        f = rule_candidates.FIELD.match(lines[i])
         if f and not fenced[i] and f.group(2).strip() == "不要报":
             value = f.group(4).strip()
             if item in value:
@@ -149,7 +157,7 @@ def safe_target(root, path):
 
 def atomic_write(path, text, root=None):
     target = safe_target(root, path) if root else path
-    os.makedirs(os.path.dirname(target), exist_ok=True)  # 写记录目录的例外:工作区规则或已授权的计划目录
+    os.makedirs(os.path.dirname(target), exist_ok=True)  # 写记录目录的例外:工作区规则或已授权的 work_dir
     fd, tmp = tempfile.mkstemp(prefix=".crosscheck-", dir=os.path.dirname(target))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -255,7 +263,7 @@ def insert_review(lines, section, item):
 
 def check_dest(root, kind, value):
     """去向 -> (相对路径, REVIEW.md 的章节、规则标题或 None);不合法时抛 ValueError。"""
-    path, section = rules_plan.parse_dest(value)
+    path, section = rule_candidates.parse_dest(value)
     full = os.path.join(root, path)
     safe_target(root, full)
     if os.path.basename(path) == "REVIEW.md":
@@ -283,11 +291,11 @@ def check_dest(root, kind, value):
 def check_block(b, c, root):
     """返回 ([(字段, 原因)], 写入用的候选字典)。"""
     f, kind, errs = b["fields"], c["kind"], []
-    for name in rules_plan.REQUIRED[kind]:
+    for name in rule_candidates.REQUIRED[kind]:
         if not f.get(name, "").strip():
             errs.append((name, "缺少这个字段" if name not in f else "不能为空"))
     if kind == "suppress":
-        errs += [(name, "不要报类不用这个字段") for name in rules_plan.SUPPRESS_ONLY_FORBIDS if f.get(name, "").strip()]
+        errs += [(name, "不要报类不用这个字段") for name in rule_candidates.SUPPRESS_ONLY_FORBIDS if f.get(name, "").strip()]
     rule = crlib.norm(f.get("规则", ""))
     exceptions = crlib.norm(f.get("不要报", ""))
     severity = f.get("严重级别", "")
@@ -331,11 +339,12 @@ def check_block(b, c, root):
     return errs, merged
 
 
-# ---------- 写入计划 ----------
+# ---------- 要写的内容 ----------
 
 def build(root, todo):
-    """todo: [(块, 候选字典)]。返回 (SKIP 提示, 要写的文件 {绝对路径: 行}, 每个文件原来的行数, 写过的块, 警告)。"""
-    touched, before, changed, skips, wrote, warns = {}, {}, [], [], [], []
+    """todo: [(块, 候选字典)]。返回 (SKIP 提示, 要写的文件 {绝对路径: 行}, 每个文件原来的行数, 要改的文件, 写过的块, 警告,
+    本次写入或确认已在其中的 .agents/rules 文件)。"""
+    touched, before, changed, skips, wrote, warns, rule_files = {}, {}, [], [], [], [], []
 
     def load(p, new_text=None):
         """读进 touched;文件不存在时用 new_text 起头(None 表示必须已存在)。"""
@@ -363,6 +372,8 @@ def build(root, todo):
             path = os.path.join(root, rel_dest)
             lines = load(path)
             head = find_rule(lines, section, rel_dest)
+            if path not in rule_files:
+                rule_files.append(path)
             if not merge_exception(lines, head, suppress_text(c, file_scope(path, "\n".join(lines), root))):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], rel_dest))
                 wrote.append(b)
@@ -373,6 +384,8 @@ def build(root, todo):
             path, new = pick_file(rules_dir, topic, c["paths"], touched, root)
             title = os.path.splitext(os.path.basename(path))[0]
             lines = load(path, front(c["paths"]) + "# %s\n\n%s,经人工挑选。每条规则后面的注释是证据所在的 MR。\n" % (title, MARK) if new else None)
+            if path not in rule_files:
+                rule_files.append(path)
             if has_rule(lines, c):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], os.path.relpath(path, root)))
                 wrote.append(b)
@@ -393,7 +406,61 @@ def build(root, todo):
             n = len(headings(lines))
         if n > MAX_RULES or len(text) > MAX_CHARS:
             warns.append("WARN: %s 已有 %d 条规则、%d 个字符,超过约 %d 条或 %d 字符,建议按目录或主题拆成几个文件" % (rel, n, len(text), MAX_RULES, MAX_CHARS))
-    return skips, touched, before, changed, wrote, warns
+    return skips, touched, before, changed, wrote, warns, rule_files
+
+
+# ---------- 接入 AGENTS.md ----------
+
+def agents_line(root, path, text):
+    """AGENTS.md 里指向规则文件 path 的一行;范围取文件头部的 paths(globs),头部写错时抛 ValueError。"""
+    rel = os.path.relpath(path, root).replace(os.sep, "/")
+    scope = file_scope(path, text, root)
+    if not scope:
+        raise ValueError("%s 的头部范围写错了,先修好再接入 AGENTS.md" % rel)
+    where = "所有文件" if scope == ["**"] else ", ".join(scope)
+    return "- [%s](%s):改 %s 时先读这个文件并遵守" % (os.path.splitext(os.path.basename(rel))[0], rel, where)
+
+
+def linked(lines, rel):
+    """AGENTS.md 里已有指向 rel(仓库相对路径)的 Markdown 链接或 @ 引用;写法不同(./、多余的 /)也算同一个文件。"""
+    return any(os.path.normpath(ref).replace(os.sep, "/") == rel for ref in project_rules._local_references("\n".join(lines)))
+
+
+def insert_agents(lines, items):
+    """把 items 追加到 AGENTS.md 的「## 代码约束」一节:节不存在就在文件末尾新建(节首一句说明),不动其他内容。"""
+    section = rule_candidates.AGENTS_SECTION
+    if section_range(lines, section) is None:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines += ([""] if lines else []) + ["## " + section, "", rule_candidates.AGENTS_INTRO, ""] + items
+        return
+    for item in items:
+        insert_review(lines, section, item)
+
+
+def hookup_agents(root, rule_files, touched, before, changed):
+    """候选规则文件头部的「接入 AGENTS.md」标了写入时调用:保证 AGENTS.md 里有指向每个 rule_files 的链接行。
+    已有指向同一文件的链接时不重复写。改动并进 touched / changed,和其他文件一起预演、原子写入。返回 SKIP 提示。"""
+    path = os.path.join(root, rule_candidates.AGENTS_FILE)
+    safe_target(root, path)
+    if path not in touched:
+        exists = os.path.exists(path)
+        text = open(path, encoding="utf-8").read() if exists else ""
+        before[path] = len(text.rstrip("\n").split("\n")) if exists else 0
+        touched[path] = text.rstrip("\n").split("\n") if exists else []
+    lines, items, skips = touched[path], [], []
+    for p in rule_files:
+        rel = os.path.relpath(p, root).replace(os.sep, "/")
+        if linked(lines, rel):
+            skips.append("SKIP: %s 里已有 %s 的链接" % (rule_candidates.AGENTS_FILE, rel))
+            continue
+        text = "\n".join(touched[p]) if p in touched else open(p, encoding="utf-8").read()
+        items.append(agents_line(root, p, text))
+    if items:
+        insert_agents(lines, items)
+        if path not in changed:
+            changed.append(path)
+    return skips
 
 
 def main():
@@ -410,29 +477,34 @@ def main():
     if not cands:
         print("rules-write: %s 里没有候选,请先运行 mine-check.py" % a.work, file=sys.stderr)
         return 1
-    plan_path = os.path.join(a.work, "plan.md")
+    md_path = os.path.join(a.work, rule_candidates.FILE)
     try:
-        with open(plan_path, encoding="utf-8") as f:
-            plan_text = f.read()
+        with open(md_path, encoding="utf-8") as f:
+            md_text = f.read()
     except OSError:
-        print("rules-write: 找不到 %s,请先运行 mine-check.py 生成" % plan_path, file=sys.stderr)
+        print("rules-write: 找不到 %s,请先运行 mine-check.py 生成" % md_path, file=sys.stderr)
         return 1
-    if not rules_plan.bound(plan_text, candidates):
-        print("ERROR: candidates.json 与 plan.md 的绑定不一致;请使用原配对,或在新采集目录生成计划。")
+    if not rule_candidates.bound(md_text, candidates):
+        print("ERROR: candidates.json 与 %s 的绑定不一致;请使用原配对,或在新采集目录重新生成候选规则。" % rule_candidates.FILE)
         return 2
     root = a.repo or crlib.read_kv(os.path.join(a.work, "meta.txt")).get("repo_root", "")
     if not root or not os.path.isdir(root):
         print("rules-write: 找不到仓库目录,请用 --repo 指定", file=sys.stderr)
         return 1
 
-    blocks, errors = rules_plan.parse(plan_text)
+    blocks, errors = rule_candidates.parse(md_text)
+    head_fields, field_errors = rule_candidates.head_fields(md_text)
+    errors += field_errors
+    hook, hook_at = head_fields.get(rule_candidates.HOOKUP, (None, None))      # 没有这个字段:本批不涉及 AGENTS.md
+    if hook is not None and hook not in rule_candidates.ACTIONS:
+        errors.append((None, rule_candidates.HOOKUP, "应为 %s 之一,现在是「%s」" % ("、".join(rule_candidates.ACTIONS), hook)))
     todo, pending, unmet = [], 0, []
     for b in blocks:
         action = b["fields"].get("动作", "")
         if "动作" not in b["fields"]:
             errors.append((b["label"], "动作", "缺少这个字段"))
-        elif action not in rules_plan.ACTIONS:
-            errors.append((b["label"], "动作", "应为 %s 之一,现在是「%s」" % ("、".join(rules_plan.ACTIONS), action)))
+        elif action not in rule_candidates.ACTIONS:
+            errors.append((b["label"], "动作", "应为 %s 之一,现在是「%s」" % ("、".join(rule_candidates.ACTIONS), action)))
         if b.get("cand") is None:
             continue
         if b["cand"] not in cands:
@@ -450,12 +522,16 @@ def main():
                 unmet.append("WARN: 块 %s 标了写入,仍有%s" % (b["label"], ";".join(cands[b["cand"]]["unmet"])))
     if errors:
         for label, name, why in errors:
-            print("ERROR: 块 %s %s: %s" % (label, name, why))
-        print("NOTE: 有 %d 处错误,什么都没写。改好 plan.md 再运行。" % len(errors))
+            print(("ERROR: 块 %s %s: %s" % (label, name, why)) if label is not None else "ERROR: 头部 %s: %s" % (name, why))
+        print("NOTE: 有 %d 处错误,什么都没写。改好 %s 再运行。" % (len(errors), rule_candidates.FILE))
         return 2
 
+    hooked = False          # AGENTS.md 已保证有本次规则文件的链接,apply 后把头部字段改成已写入
     try:
-        skips, touched, before, changed, wrote, warns = build(root, todo)
+        skips, touched, before, changed, wrote, warns, rule_files = build(root, todo)
+        if hook == "写入" and rule_files:
+            skips += hookup_agents(root, rule_files, touched, before, changed)
+            hooked = True
         for path in touched:
             safe_target(root, path)
     except (OSError, ValueError) as e:
@@ -463,6 +539,9 @@ def main():
         return 2
     for x in skips:
         print(x)
+    if hook == "写入" and not rule_files:
+        print("NOTE: 「%s」标了写入,但这次没有写入或确认 .agents/rules 里的文件,%s 不会改;"
+              "要接入已写过的规则,把对应块重新标成写入(已在文件里的会 SKIP 并确认)。" % (rule_candidates.HOOKUP, rule_candidates.AGENTS_FILE))
     if a.check:
         for path in changed:
             print("WRITE: %s +%d行" % (os.path.relpath(path, root), len(touched[path]) - before[path]))
@@ -471,8 +550,9 @@ def main():
             print("".join(difflib.unified_diff(old, new, fromfile=os.path.relpath(path, root), tofile=os.path.relpath(path, root))), end="")
     for w in unmet + warns:
         print(w)
-    if pending:
-        print("PENDING: %d 块还是待定" % pending)
+    if pending or hook == "待定":
+        print("PENDING: " + ",".join(x for x in ("%d 块还是待定" % pending if pending else "",
+                                                 "「%s」还是待定" % rule_candidates.HOOKUP if hook == "待定" else "") if x))
     if a.check:
         if not todo:
             print("NOTE: 没有动作为「写入」的块,不会写任何文件。")
@@ -484,15 +564,18 @@ def main():
             atomic_write(path, "\n".join(touched[path]).rstrip("\n") + "\n", root)
             completed.append(path)
             print("WRITE: %s +%d行" % (os.path.relpath(path, root), len(touched[path]) - before[path]))
-        if wrote:
+        if wrote or hooked:
             for b in wrote:
-                plan_text = rules_plan.set_action(plan_text, b, "已写入")
-            with crlib.record_write(plan_path):
-                atomic_write(plan_path, plan_text)
+                md_text = rule_candidates.set_action(md_text, b, "已写入")
+            if hooked:
+                md_text = rule_candidates.set_value(md_text, hook_at, "已写入")
+            with crlib.record_write(md_path):
+                atomic_write(md_path, md_text)
     except (OSError, ValueError, SystemExit) as e:
-        print("ERROR: 写入中断;已完成: %s;未完成: %s;plan.md 未更新,修复后重跑同一命令核对完整内容并补状态。" % (
+        print("ERROR: 写入中断;已完成: %s;未完成: %s;%s 未更新,修复后重跑同一命令核对完整内容并补状态。" % (
             ", ".join(os.path.relpath(p, root) for p in completed) or "无",
-            ", ".join(os.path.relpath(p, root) for p in changed if p not in completed) or "无(仅计划状态待更新)"))
+            ", ".join(os.path.relpath(p, root) for p in changed if p not in completed) or "无(仅候选规则文件里的状态待更新)",
+            rule_candidates.FILE))
         if isinstance(e, SystemExit):
             return e.code
         print(str(e), file=sys.stderr)
@@ -502,18 +585,18 @@ def main():
         return 0
     print("NOTE: 只改了工作区,没有 git add 或提交。")
     rules = [os.path.relpath(p, root).replace(os.sep, "/") for p in changed]
-    tips = [x for rel in rules if rel.startswith(rules_plan.RULES_DIR + "/") for x in hookup(root, rel)]
+    tips = [x for rel in rules if rel.startswith(rule_candidates.RULES_DIR + "/") for x in hookup(root, rel)]
     if tips:
-        print("NOTE: crosscheck 审查时会读 .agents/rules/,写代码的工具不会自动读。下面是接入建议,只打印、没有执行;"
-              "命令在仓库根目录运行,做不做由用户决定。")
+        print("NOTE: crosscheck 审查时会读 .agents/rules/,Claude Code、Cursor 写代码时不会自动读(AGENTS.md 由候选规则文件头部的"
+              "「%s」负责)。下面是软链接建议,只打印、没有执行;命令在仓库根目录运行,做不做由用户决定。" % rule_candidates.HOOKUP)
         for x in tips:
             print("SUGGEST: " + x)
     return 0
 
 
 def hookup(root, rel):
-    """让写代码的工具也读到 rel 这个规则文件的建议:仓库里有 .claude/、.cursor/ 时给软链接命令,有 AGENTS.md 时给一行
-    普通 Markdown 链接(不用 @ 引用)。链接或这行已经有了的不再提示。"""
+    """让 Claude Code、Cursor 写代码时也读到 rel 这个规则文件的建议:仓库里有 .claude/、.cursor/ 时给软链接命令,
+    链接已经有了的不再提示。只打印不执行;AGENTS.md 不在这里,由头部字段「接入 AGENTS.md」决定写不写。"""
     name = os.path.splitext(os.path.basename(rel))[0]
     out = []
     for tool, link, note in ((".claude", ".claude/rules/%s.md" % name, ""),
@@ -521,12 +604,6 @@ def hookup(root, rel):
         if os.path.isdir(os.path.join(root, tool)) and not os.path.lexists(os.path.join(root, link)):
             target = os.path.relpath(rel, os.path.dirname(link)).replace(os.sep, "/")
             out.append("mkdir -p %s && ln -s %s %s%s" % (shlex.quote(os.path.dirname(link)), shlex.quote(target), shlex.quote(link), note))
-    agents = os.path.join(root, "AGENTS.md")
-    if os.path.isfile(agents) and rel not in open(agents, encoding="utf-8").read():
-        text = open(os.path.join(root, rel), encoding="utf-8").read()
-        scope = file_scope(os.path.join(root, rel), text, root)
-        where = "所有文件" if scope == ["**"] else ", ".join(scope) or "(头部范围写错了,先修好)"
-        out.append("在 AGENTS.md 里加一行:- [%s](%s):改 %s 时遵守" % (name, rel, where))
     return out
 
 

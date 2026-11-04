@@ -14,9 +14,11 @@ try:
 except host_target.TargetError:
     target_error = True
     target = None
+repo_url = ""        # 仓库网页地址,快照里的 MR 没有网页地址时 mine-check 用它拼
 if target:
     platform = target["platform"]
     repo_id = target["identity"]
+    repo_url = target["scheme"] + "://" + target["identity"]
 
 CACHE_VERSION = 1
 BATCH_CHAR_BUDGET = 48000  # JSON 序列化字符数，仅用于分配上下文，不估算 token、不截正文。
@@ -323,9 +325,9 @@ with open(os.path.join(work, "existing-rules.txt"), "w", encoding="utf-8") as f:
 
 
 with open(os.path.join(work, "meta.txt"), "w", encoding="utf-8") as f:
-    f.write("repo_root=%s\nrepo_id=%s\nplatform=%s\ndays=%d\nsince=%s\nmrs=%d\nnotes=%d\nreviewers=%d\nbatches=%d\n"
+    f.write("repo_root=%s\nrepo_id=%s\nrepo_url=%s\nplatform=%s\ndays=%d\nsince=%s\nmrs=%d\nnotes=%d\nreviewers=%d\nbatches=%d\n"
             "feedback=%d\ncache=%s\nproject_dir=%s\ncomplete=%s\nbatch_char_budget=%d\nhead=%s\n"
-            % (root, repo_id, platform, days, since_s, len(records), len(notes), len(people), len(batches), len(fb), cache, pdir, str(complete).lower(), BATCH_CHAR_BUDGET, head))
+            % (root, repo_id, repo_url, platform, days, since_s, len(records), len(notes), len(people), len(batches), len(fb), cache, pdir, str(complete).lower(), BATCH_CHAR_BUDGET, head))
 
 print("mining: 最近 %d 天合并的 MR %d 个(新拉取 %d,用缓存 %d%s),评论 %d 条,非作者评论账号 %d 位,分成 %d 批;crosscheck 判断记录 %d 条"
       % (days, len(records), fetched, reused, ",读取失败 %d" % failed if failed else "", len(notes), len(people), len(batches), len(fb)))

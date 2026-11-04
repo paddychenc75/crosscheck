@@ -65,6 +65,26 @@ class MiningRuleSourcesTests(fixture.Base):
         self.assertFalse(project_rules.matches(item, 'a.py'))
         self.assertEqual(indexed['src/extra.md']['patterns'], ['src/**'])
 
+    def test_references_to_rule_directory_files_do_not_read_them_again(self):
+        """入口文件或别的规则引用规则目录里的文件时,那条规则只按它自己的范围出现一次;任意规则目录都一样。"""
+        repo = Path(self.make_repo('app', {
+            '.agents/rules/api.md': '---\npaths: "src/api/**"\n---\n- 接口规则\n',
+            '.claude/rules/web.md': '---\npaths: web/**\n---\n- 前端规则 [接口](../../.agents/rules/api.md)\n',
+            '.github/instructions/ios.instructions.md': '---\napplyTo: ios/**\n---\n- iOS 规则\n',
+            'AGENTS.md': '## 代码约束\n\n- [api](.agents/rules/api.md):改 src/api/** 时先读\n- [指南](docs/guide.md)\n',
+            'CLAUDE.md': '- [web](./.claude/rules/web.md)\n@.github/instructions/ios.instructions.md\n',
+            'docs/guide.md': '普通文档\n',
+        }))
+        records = project_rules.mining_sources(repo)
+        by_file = {}
+        for r in records:
+            by_file.setdefault(r['file'], []).append(r)
+        for file, scope in (('.agents/rules/api.md', ['src/api/**']), ('.claude/rules/web.md', ['web/**']),
+                            ('.github/instructions/ios.instructions.md', ['ios/**'])):
+            self.assertEqual([(r['patterns'], r.get('referenced_by')) for r in by_file[file]], [(scope, None)], file)
+        guide = by_file['docs/guide.md']                     # 规则目录以外的引用照常跟随,继承引用方范围
+        self.assertEqual([(r['patterns'], r['referenced_by']) for r in guide], [(['**'], 'AGENTS.md')])
+
     def test_only_explicit_local_file_references_are_read(self):
         repo = Path(self.make_repo('app', {'CLAUDE.md': '''Ordinary prose docs/prose.md and user@example.com
 @someone

@@ -65,7 +65,7 @@ class MiningContract(Base):
     def assertRejected(self, result, text):
         self.assertNotEqual(0, result.returncode)
         self.assertIn(text, result.stderr)
-        self.assertFalse((self.work / 'plan.md').exists())
+        self.assertFalse((self.work / 'rule-candidates.md').exists())
 
     def test_single_mr_observations_merge_only_in_global_stage(self):
         self.assertEqual(0, self.observe().returncode)
@@ -152,7 +152,7 @@ class MiningContract(Base):
         self.assertEqual(0, r.returncode, r.stderr)
         c = self.get('candidates.json')[0]
         self.assertEqual((1, 1), (c['support'], c['unknown']))
-        self.assertIn('待确认', (self.work / 'plan.md').read_text())
+        self.assertIn('待确认', (self.work / 'rule-candidates.md').read_text())
 
     def test_boolean_and_null_do_not_substitute_for_review_reasons(self):
         for value in (True, None, 42):
@@ -179,15 +179,15 @@ class MiningContract(Base):
         c = self.get('candidates.json')[0]
         self.assertEqual(self.head, c['coverage']['sources'][0]['ref'])
 
-    def test_mutable_cache_and_rules_do_not_change_plan(self):
+    def test_mutable_cache_and_rules_do_not_change_candidates(self):
         r = self.synthesize()
         self.assertEqual(0, r.returncode, r.stderr)
-        before = (self.work / 'plan.md').read_bytes()
+        before = (self.work / 'rule-candidates.md').read_bytes()
         (self.root / 'REVIEW.md').write_text('已经改过的规范')
         self.put('cache.json', {'records': []})
         r = self.synthesize()
         self.assertEqual(0, r.returncode, r.stderr)
-        self.assertEqual(before, (self.work / 'plan.md').read_bytes())
+        self.assertEqual(before, (self.work / 'rule-candidates.md').read_bytes())
 
     def test_all_feedback_requires_a_disposition(self):
         self.snapshot['feedback'] = [dict(key='k1', id='f1', reason='单次不修', verdict='wontfix')]

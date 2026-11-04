@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.10] - 2026-11-04
+
+**improve:沉淀时接入 AGENTS.md**
+
+- Codex 只读 `AGENTS.md`,不读 `.agents/rules/`。候选规则文件头部新增字段 `- **接入 AGENTS.md**:待定`,不属于任何候选块,只在本批有规则类候选时出现;取值同「动作」(待定 / 写入 / 跳过 / 已写入),待定和跳过都不写。
+- 标写入时,`--apply` 对本次写入或确认已在其中的每个 `.agents/rules/<主题>.md`(新写的规则块、并进例外的规则文件、SKIP 确认已在的),在 `AGENTS.md` 的 `## 代码约束` 一节保证有一行 `- [<主题>](.agents/rules/<主题>.md):改 <范围> 时先读这个文件并遵守`,范围取文件头部的 `paths`。这一节不存在就在末尾新建,节首一句说明;`AGENTS.md` 不存在就新建、只写这一节;已有指向同一文件的链接(`./` 等写法不同也算)不重复写,打印 `SKIP: AGENTS.md 里已有 … 的链接`;不动其他内容,沿用临时文件加原子替换。写完字段改成已写入。
+- `--check` 和其他文件一样输出 `WRITE: AGENTS.md +<n>行` 和 diff;字段待定时 `PENDING:` 一并提示;值不认识、字段重复或头部写了不认识的字段时报 `ERROR: 头部 …`,整批不写;任一块 ERROR 时 `AGENTS.md` 也不写。标了写入但本次没有涉及任何 `.agents/rules` 文件时不改 `AGENTS.md`,字段保持写入并给 `NOTE:`。
+- `SUGGEST:` 收窄为 `.claude/`、`.cursor/` 软链接命令,仍只打印不执行;去掉 0.3.8 里「在 AGENTS.md 里加一行」的建议,`--apply` 输出前的 NOTE 相应改写。
+
+**improve:plan.md 改名为候选规则 rule-candidates.md**
+
+- 沉淀生成的文件从 `plan.md` 改名为 `rule-candidates.md`,统称「候选规则」;模板 `templates/plan.md` 改为 `templates/rule-candidates.md`,标题改为「# 候选规则」。给脚本用的 `candidates.json` 不改名,两者照旧按内容指纹冻结配对。不兼容旧名:之前生成的 `plan.md` 需要重新运行 mine-check 生成。
+- 输出和提示里的「计划」改为「候选规则」或「候选规则文件」:mine-check 最后一行由 `PLAN: <路径>` 改为 `RULE_CANDIDATES: <路径>`;头部字段报错由 `ERROR: 计划 …` 改为 `ERROR: 头部 …`,「未知的计划字段」改为「未知的头部字段」。脚本模块 `rules_plan.py` 改名为 `rule_candidates.py`。
+
+**improve:证据区和来源注释只放典型 MR**
+
+- 候选规则文件和规则文件会给别人看,原来每条候选的证据区列出每个 MR 的每条评论原文、判断依据长文(带 commit 和代码片段)和语义复核全文,候选一多就很长。现在证据区第一行仍是统计(提及几个 MR,已采纳、未知/结论不一致、未采纳各几个);随后至多 3 个典型 MR,每个一行 `- [!N](<MR 网页地址>)「一句评论原话」[采纳结论]`,原话超过 60 字截断加省略号;其余 MR 写「另有 N 个 MR:!a !b」;判断记录同样至多 3 条,来源写成「审查 <对象> 发现 <id>」,不加链接。已有约束来源的原文同样截断。
+- 典型 MR 的挑法固定、可复现:每个 MR 只取一条证据;按这个 MR 的采纳结论排,已采纳在前,未知/结论不一致其次,未采纳最后;同一档里编号大的在前。个数是 `rule_candidates.TYPICAL`(3),只是展示条数,不是数据上限。
+- 判断依据长文不再写进 md,语义复核只留第一句(最多 100 字);它们和完整证据仍在 `candidates.json`,供本机 agent 回答追问。文件里不写「其余见 candidates.json」这类指向本机文件的话。「候选」行括号里由逐个 MR 号改为个数(`2 个 MR;评审人 2 位`)。
+- MR 链接优先用快照里平台给的地址(GitLab `web_url`、GitHub `html_url`);没有时按 `meta.txt` 新增的 `repo_url`(origin 对应的仓库网页地址)拼,GitHub `/pull/N`,GitLab `/-/merge_requests/N`;拼不出只写 `!N`,不编造。地址带空白、尖括号、括号等会破坏链接或注释的字符时同样不用。
+- 规则文件和 REVIEW.md 末尾的来源注释同样收紧:至多 3 个典型 MR 的网页地址(注释里的 Markdown 不渲染,直接写地址),MR 多于 3 个时写「等 N 个 MR」,否则写「(共 N 个 MR)」;判断记录的来源照旧。来源仍按候选编号从 `candidates.json` 取,「原因里不能写 MR 号」等校验不变。
+- miner 的 `review` 要求第一句写结论和边界,证据 `quote` 摘最能说明要求的一句。
+
+**规则来源:引用不重复读规则目录里的文件**
+
+- improve 采集已有规则(`mining_sources`)跟随正文本地引用时,引用的真实路径已经作为规则目录(`.agents/rules`、`.claude/rules`、`.cursor/rules`、`.github/instructions`)里的文件读过的,不再按引用读一遍。此前 `AGENTS.md` 链接 `.agents/rules/x.md` 会让同一条规则继承 `AGENTS.md` 的全局范围再出现一次。审查装配规则(collect-rules)本来不跟随引用,不受影响。
+
 ## [0.3.9] - 2026-11-04
 
 **review:影响面线索**

@@ -73,9 +73,10 @@
 - `exception_of`:suppress 必填,决定默认去向。这条是某条已有规则的例外(被判不成立的发现引用的就是那条规则)时写 `{"file": ".agents/rules/<主题>.md", "title": "<那条规则的 ## 标题>"}`,file 和 title 从 rules-sources.json 冻结的规则原文里取,不要编;是压住审查器自己的通用直觉(「应该加重试」「应该补测试」「可以重构」这类不来自任何项目规则的建议)时写 `null`。例外的规则不在 `.agents/rules/` 里(比如在 CLAUDE.md)时也写 `null`,在证据说明里写清是哪条。rule 类不填。
 - `rule`:一句能对照代码检查的约束,rule 类使用「必须 / 禁止」;不夸大评论要求。`paths` 使用仓库内相对 glob,范围来自证据。
 - `why`:rule 写违反约束的后果;suppress 写该条件下为什么不应报告。不要写 MR 号(脚本会标为待确认,写入前必须删掉)或复述自检过程。
-- `severity`:按后果写重要或轻微,不按评论语气;`severity_reason` 一句话说明是实际缺陷还是规范偏离,展示在计划的证据区。
-- `bad_example` / `good_example`:来自材料的代码,可以多行(JSON 字符串里用 `\n`),写最短能说明问题的几行;不要虚构现成工具函数。计划和规则文件里都渲染成代码块,语言标记由脚本按证据所在文件的后缀给出。
-- `coverage`:uncovered 是已核对未覆盖;partial 是仅覆盖部分,候选只保留未覆盖边界;covered 不进入可写计划,在 excluded 说明来源更合适;unknown 是材料不足。不能因某工具理论上能检查就说项目已有检查。sources 引用 rules-sources.json 冻结规则的逻辑 file 或 meta.txt 中 head 版本的仓库文件和逐字 quote。补充配置与代码上下文时用该 head 读取,不要把当前工作区的后续变动混入本次依据。任何读取失败都保留为未知;未知不能写成「检查通过」。
+- `severity`:按后果写重要或轻微,不按评论语气;`severity_reason` 一句话说明是实际缺陷还是规范偏离,展示在候选规则文件的证据区。
+- `bad_example` / `good_example`:来自材料的代码,可以多行(JSON 字符串里用 `\n`),写最短能说明问题的几行;不要虚构现成工具函数。候选规则文件和规则文件里都渲染成代码块,语言标记由脚本按证据所在文件的后缀给出。
+- `coverage`:uncovered 是已核对未覆盖;partial 是仅覆盖部分,候选只保留未覆盖边界;covered 不进入可写的候选规则,在 excluded 说明来源更合适;unknown 是材料不足。不能因某工具理论上能检查就说项目已有检查。sources 引用 rules-sources.json 冻结规则的逻辑 file 或 meta.txt 中 head 版本的仓库文件和逐字 quote。补充配置与代码上下文时用该 head 读取,不要把当前工作区的后续变动混入本次依据。任何读取失败都保留为未知;未知不能写成「检查通过」。
+- `review`:第一句写结论和适用边界。候选规则文件的证据区只展示第一句,全文留在 candidates.json 给本机追问用。证据 `quote` 摘最能说明要求的一句,证据区每个典型 MR 只显示一句原话,过长会截断。
 - `assessment.basis`:采纳/拒绝必须引用同一讨论的具体原文并说明关联;允许引用该意见自身,但原文真实不代表支持采纳。必要时核对本次材料记录的代码版本;无法证明修改对应这条意见时用 unknown。
 - 判断记录证据使用 `{"feedback":"<key或id>","quote":"<原因原文>"}`。valid 可支持 rule;invalid 可支持有条件 suppress;wontfix 不能支持长期不报。保持记录的失败场景与例外,不能把不同原因凑次数。
 - 所有观察必须进入某个 candidate 或 excluded。所有判断记录须被候选引用,或者在 excluded.feedback 列出其 key 并写理由。排除项的 observations/feedback 可以一方为空,不能都为空。零候选也返回这个对象和排除记录。

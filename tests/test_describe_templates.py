@@ -795,7 +795,7 @@ class TemplateFiles(fixture.Base):
         skills = os.path.join(PLUGIN, "skills")
         self.assertEqual(sorted(os.listdir(os.path.join(skills, "review", "templates"))), ["report.md"])
         self.assertEqual(sorted(os.listdir(os.path.join(skills, "describe", "templates"))), ["describe.html", "describe.md"])
-        self.assertEqual(sorted(os.listdir(os.path.join(skills, "improve", "templates"))), ["REVIEW.md", "plan.md", "rule.md"])
+        self.assertEqual(sorted(os.listdir(os.path.join(skills, "improve", "templates"))), ["REVIEW.md", "rule-candidates.md", "rule.md"])
 
     def test_template_placeholders_are_all_provided_by_the_script(self):
         """模板注释里列出的可用名字就是脚本提供的名字,没有多也没有少。"""

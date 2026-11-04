@@ -162,12 +162,14 @@ def mining_sources(root):
     仅在已识别的规则目录内跟随目录链接；正文引用只读取明确的单个
     文本文件。引用使用真实文档所在目录解析，适用范围继承逻辑规则。
     读取失败也保留记录，供冻结 existing-rules 时报告不完整的采集。
-    同一份规则经链接出现多次时按 unique 只读一条。
+    同一份规则经链接出现多次时按 unique 只读一条。正文引用的真实路径已经作为规则目录
+    里的文件读过时不再按引用读，避免同一条规则以引用方的范围再出现一次。
     discover(Source(...)) 的 review/commit 语义不受此入口影响。
     """
     root = Path(root).absolute()
     records, seen = [], set()
     pending = {}      # 入口规则文件 逻辑路径 -> 物理路径；按真实路径去重后再读
+    in_rule_dirs = set()   # 规则目录里的文件（真实路径）：自己带范围读一次，正文引用到它时不再按引用方的范围重读
 
     def record(file, text, source_path, parent=None, issue=None):
         if parent is None and kind(file):
@@ -189,6 +191,9 @@ def mining_sources(root):
         # 真实路径既作来源标记，也用于跨链接/引用的循环检测。
         real = os.path.realpath(path)
         key = (file, real, tuple(parent['patterns']) if parent else None)
+        if parent is not None and real in in_rule_dirs:
+            # 例如 AGENTS.md 里链接 .agents/rules/x.md：按引用读会继承 AGENTS.md 的全局范围，同一条规则出现两次
+            return
         if real in ancestors:
             record(file, '', real, parent, '规则来源循环引用: ' + real)
             return
@@ -259,7 +264,9 @@ def mining_sources(root):
         if os.path.lexists(path):
             walk_rules(directory, path)
     base = os.path.realpath(root)
-    for file in unique(sorted(pending), lambda f: os.path.realpath(pending[f]),
-                       lambda f: os.path.realpath(pending[f]) != os.path.join(base, f)):
+    entries = unique(sorted(pending), lambda f: os.path.realpath(pending[f]),
+                     lambda f: os.path.realpath(pending[f]) != os.path.join(base, f))
+    in_rule_dirs.update(os.path.realpath(pending[f]) for f in entries if f.startswith(tuple(d + '/' for d in _RULE_DIRS)))
+    for file in entries:
         read_file(file, pending[file])
     return records

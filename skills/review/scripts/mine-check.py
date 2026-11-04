@@ -4,7 +4,7 @@
 python3 mine-check.py WORK_DIR --observations
     核对所有 batch/result 的线程覆盖与引文,写 observations.json。
 python3 mine-check.py WORK_DIR synthesis.json
-    重新核对观察,校验全局归并的来源、范围和结构,生成冻结配对的 plan.md。
+    重新核对观察,校验全局归并的来源、范围和结构,生成与 candidates.json 冻结配对的候选规则文件 rule-candidates.md。
 
 所有评论与判断记录均取自本次 snapshot.json,不读取共享缓存。
 """
@@ -16,7 +16,7 @@ import sys
 sys.dont_write_bytecode = True
 import crlib
 import project_rules
-import rules_plan
+import rule_candidates
 
 FB_VERDICTS = {"rule": ("valid",), "suppress": ("invalid",)}
 STATES = {"accepted": "模型判断已采纳", "rejected": "模型判断未采纳", "unknown": "未知"}
@@ -49,12 +49,15 @@ class Input:
         snapshot = load(os.path.join(work, "snapshot.json"))
         require(snapshot.get("version") == 1 and snapshot.get("complete") is True, "采集不完整或快照版本不支持,请重新采集")
         self.notes, self.threads = {}, set()
+        repo_url, platform = self.meta.get("repo_url", ""), self.meta.get("platform", "")
         for rec in snapshot["records"]:
+            # MR 网页地址:快照里平台给的优先,没有就按仓库地址拼,拼不出为空(证据区退回只写 !N),不编造
+            url = rule_candidates.mr_web_url(rec.get("web_url"), repo_url, platform, rec["iid"])
             for note in rec["notes"]:
                 thread = "%s:%s" % (rec["iid"], note["discussion"])
                 key = (str(rec["iid"]), str(note["id"]))
                 require(key not in self.notes, "快照里有重复评论编号")
-                self.notes[key] = dict(note, mr=rec["iid"], mr_author=rec.get("author"), thread=thread, url=rec.get("web_url", ""))
+                self.notes[key] = dict(note, mr=rec["iid"], mr_author=rec.get("author"), thread=thread, url=url)
                 self.threads.add(thread)
         self.feedback, self.feedback_ids = {}, set()
         for row in snapshot.get("feedback", []):
@@ -154,7 +157,7 @@ def coverage_review(work, root, c):
             require(path in repository.files(), "复核来源不是固定版本的仓库文件")
             text = repository.read(path) or ""
         require(quote in text, "已有约束引文在来源里找不到:" + path)
-        sources.append(dict(file=path, quote=quote, content_sha256=rules_plan.fingerprint(text), ref="snapshot" if records else head))
+        sources.append(dict(file=path, quote=quote, content_sha256=rule_candidates.fingerprint(text), ref="snapshot" if records else head))
     require(sources or review["status"] == "unknown", "没有核对来源时只能标记 unknown,不能宣称未覆盖")
     status, reason = review["status"], crlib.norm(review["reason"])
     if issues and status != "covered":
@@ -216,8 +219,8 @@ def main(argv):
                     of = c["exception_of"]
                     if of is not None:
                         require(isinstance(of, dict) and nonempty(of.get("title")), "exception_of 应为 {file, title} 或 null")
-                        file, section = rules_plan.parse_dest(str(of.get("file", "")))
-                        require(file.startswith(rules_plan.RULES_DIR + "/") and not section, "exception_of.file 应为 .agents/rules/<主题>.md")
+                        file, section = rule_candidates.parse_dest(str(of.get("file", "")))
+                        require(file.startswith(rule_candidates.RULES_DIR + "/") and not section, "exception_of.file 应为 .agents/rules/<主题>.md")
                         exception_of = dict(file=file, title=crlib.norm(of["title"]))
                 coverage = coverage_review(work, root, c)
                 require(coverage["status"] != "covered", "已有约束覆盖:" + coverage["reason"])
@@ -286,33 +289,34 @@ def main(argv):
                 dropped.append(dict(rule=rule, kind=kind, reason=str(error)))
         require(feedback_used == inputs.feedback_ids, "全局归并遗漏判断记录:" + ",".join(sorted(inputs.feedback_ids - feedback_used)))
         merged = []
-        for c in sorted(kept, key=lambda x: (-x["support"], -x["people"], x["rule"], rules_plan.fingerprint(x))):
+        for c in sorted(kept, key=lambda x: (-x["support"], -x["people"], x["rule"], rule_candidates.fingerprint(x))):
             if c not in merged:
                 merged.append(c)
         for i, c in enumerate(merged, 1):
             c["no"] = i
-        plan = os.path.join(work, "plan.md")
-        if os.path.exists(plan):
+        out = os.path.join(work, rule_candidates.FILE)
+        if os.path.exists(out):
             previous = load(os.path.join(work, "candidates.json"))
-            with open(plan, encoding="utf-8") as f:
-                require(previous == merged and rules_plan.bound(f.read(), previous), "已有计划的候选配对已冻结,原文件未修改;请在新采集目录生成另一份计划")
+            with open(out, encoding="utf-8") as f:
+                require(previous == merged and rule_candidates.bound(f.read(), previous),
+                        "已有候选规则文件与 candidates.json 的配对已冻结,原文件未修改;请在新采集目录重新生成候选规则")
         else:
             crlib.save_json(os.path.join(work, "candidates.json"), merged)
             crlib.save_json(os.path.join(work, "dropped.json"), dropped)
         print("candidates=%d dropped=%d" % (len(merged), len(dropped)))
         for c in merged:
             tag = "不要报 · " + c["topic"] if c["kind"] == "suppress" else "%s · %s" % (c["topic"], c["severity"])
-            print("%d. [%s] %s → %s%s" % (c["no"], tag, c["rule"], rules_plan.suggest_dest(c, root),
+            print("%d. [%s] %s → %s%s" % (c["no"], tag, c["rule"], rule_candidates.suggest_dest(c, root),
                                          "(" + ";".join(c["unmet"]) + ")" if c["unmet"] else ""))
         for item in dropped:
             print("排除: %s — %s" % (item["rule"], item["reason"]))
         if merged:
-            if os.path.exists(plan):
-                print("NOTE: %s 已存在,没有覆盖;候选与计划配对保持不变。" % plan)
+            if os.path.exists(out):
+                print("NOTE: %s 已存在,没有覆盖;它与 candidates.json 的配对保持不变。" % out)
             else:
-                with open(plan, "w", encoding="utf-8") as f:
-                    f.write(rules_plan.render(merged, root, inputs.meta))
-            print("PLAN: " + plan)
+                with open(out, "w", encoding="utf-8") as f:
+                    f.write(rule_candidates.render(merged, root, inputs.meta))
+            print("RULE_CANDIDATES: " + out)
         return 0
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print("mine-check: " + str(error), file=sys.stderr)

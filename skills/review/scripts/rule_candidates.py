@@ -1,5 +1,5 @@
-# rules_plan.py — 规则沉淀计划 plan.md 的格式:mine-check.py 生成,rules-write.py 解析。
-# 只被本目录下的脚本 import,不单独运行。字段名、动作、去向的写法都以这里为准。
+# rule_candidates.py — 候选规则文件 rule-candidates.md 的格式:mine-check.py 生成,rules-write.py 解析。
+# 只被本目录下的脚本 import,不单独运行。字段名、动作、去向、证据区和来源注释的写法都以这里为准。
 
 import datetime
 import hashlib
@@ -9,7 +9,8 @@ import re
 
 import crlib
 
-TITLE = "# 规则沉淀计划"
+FILE = "rule-candidates.md"    # 和 candidates.json 放在同一个 work_dir,按指纹冻结配对
+TITLE = "# 候选规则"
 FIELDS = ("候选", "去向", "动作", "规则", "原因", "严重级别", "范围", "反例", "正例", "不要报")
 # 各类候选必填的字段;suppress 类不用严重级别、反例、正例、不要报
 REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重级别", "不要报"),
@@ -18,6 +19,24 @@ SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
 EXAMPLES = ("反例", "正例")
 ACTIONS = ("待定", "写入", "跳过", "已写入")
 RULES_DIR = ".agents/rules"
+# 头部字段:写在头部(第一个 ## 块之前),不属于任何候选块。取值和块的「动作」一样,也用 ACTIONS
+HOOKUP = "接入 AGENTS.md"
+HEAD_FIELDS = (HOOKUP,)
+AGENTS_FILE = "AGENTS.md"
+AGENTS_SECTION = "代码约束"
+AGENTS_INTRO = ("改动下面某一行写的路径之前,先打开那一行链接的规则文件读完并遵守"
+                "(由 crosscheck 从 MR 评论沉淀,审查时也按它检查)。")
+
+# 证据区和来源注释只放几个典型 MR(挑法见 typical),其余只给个数:候选规则文件和规则文件会给别人看,
+# 证据要靠链接点回平台独立看懂。这是展示条数,不是数据上限:完整证据、判断依据仍在 candidates.json 里。
+TYPICAL = 3
+QUOTE_CHARS = 60          # 典型例子里评论原话最多显示的字数,超过截断并加省略号
+REVIEW_CHARS = 100        # 语义复核只留第一句,最多这么多字
+MR_STATE = {"accepted": "模型判断已采纳", "unknown": "未知", "mixed": "结论不一致", "rejected": "模型判断未采纳"}
+STATE_RANK = {"accepted": 0, "unknown": 1, "mixed": 1, "rejected": 2}
+# MR 网页地址:快照里没有现成地址时按仓库地址拼
+MR_PATHS = {"github": "/pull/%s", "gitlab": "/-/merge_requests/%s"}
+WEB_URL = re.compile(r"https?://[^\s<>()\[\]\"'`]+")
 
 HEADING = re.compile(r"^##\s+(.*)$")
 NUMBERED = re.compile(r"^(\d+)\s*[.．、]\s*(.*)$")
@@ -30,7 +49,7 @@ def one(s):
 
 
 def example_lines(name, text, lang="", indent="  "):
-    """反例 / 正例:字段行后跟一个围栏代码块,plan.md 和规则文件同一写法。围栏比代码里最长的反引号串再长一格,代码原样保留。"""
+    """反例 / 正例:字段行后跟一个围栏代码块,候选规则文件和规则文件同一写法。围栏比代码里最长的反引号串再长一格,代码原样保留。"""
     rows = [x.rstrip() for x in str(text or "").strip("\n").split("\n")]
     while rows and not rows[-1]:
         rows.pop()
@@ -42,13 +61,97 @@ def example_lines(name, text, lang="", indent="  "):
             + [indent + x if x else "" for x in rows] + [indent + fence])
 
 
-def refs(c):
-    """候选的来源:MR 编号;判断记录写成「审查 <对象> 发现 <id>」,与 after-report.md 定规则时的写法一致。"""
-    out = ["!%s" % m for m in c.get("mrs", [])]
+def clip(text, limit):
+    """折成一行,超过 limit 个字截断并加省略号。"""
+    s = one(text)
+    return s if len(s) <= limit else s[:limit].rstrip() + "…"
+
+
+def first_sentence(text, limit):
+    """第一句(到第一个句号、问号、叹号为止),再按 limit 截断。"""
+    s = one(text)
+    m = re.search(r"[。!?!?]", s)
+    return clip(s[:m.end()] if m else s, limit)
+
+
+def web_url(url):
+    """完整的 http(s) 地址原样返回;空、带空白、尖括号、括号等写进 Markdown 链接或注释会出问题的,返回空串。"""
+    url = str(url or "").strip()
+    return url if WEB_URL.fullmatch(url) else ""
+
+
+def mr_web_url(snapshot_url, repo_url, platform, number):
+    """MR 的网页地址:优先用快照里平台给的地址;没有时按仓库网页地址和平台拼(GitHub /pull/N,GitLab /-/merge_requests/N);
+    拼不出返回空串,调用方退回只写 !N。不猜平台、不补协议。"""
+    url = web_url(snapshot_url)
+    if url:
+        return url
+    base = web_url(repo_url).rstrip("/")
+    if base and platform in MR_PATHS and str(number).isdigit():
+        return base + MR_PATHS[platform] % number
+    return ""
+
+
+def mr_ref(mr, url, markdown=True):
+    """有网页地址时 Markdown 写 [!N](地址),注释里直接写地址(注释里的 Markdown 不渲染);没有地址时写 !N。"""
+    if not url:
+        return "!%s" % mr
+    return "[!%s](%s)" % (mr, url) if markdown else url
+
+
+def feedback_ref(e):
+    """判断记录的来源写成「审查 <对象> 发现 <id>」,与 after-report.md 定规则时的写法一致;不加链接。"""
+    return " ".join(x for x in ("审查", one(e.get("target")), "发现", one(e["feedback"])) if x)
+
+
+def typical(c, n=TYPICAL):
+    """典型 MR -> (例子, 其余 MR 编号)。例子是 [{mr, url, quote, state}],每个 MR 最多一条,最多 n 条。
+    MR 的结论:各条证据的模型判断(assessment.state)都一样就取它,不一样记为 mixed(结论不一致)。
+    排序:已采纳优先,其次未知 / 结论不一致,最后未采纳;同一档里编号大的(较新的)在前。MR 内取第一条证据。
+    只看 candidates.json 里的字段,同一输入结果固定;其余 MR 按编号从小到大。"""
+    by = {}
     for e in c.get("evidence", []):
-        if e.get("feedback"):
-            out.append(" ".join(x for x in ("审查", one(e.get("target")), "发现", one(e["feedback"])) if x))
-    return list(dict.fromkeys(out))
+        if e.get("mr") is not None:
+            by.setdefault(e["mr"], []).append(e)
+    rows = []
+    for mr, es in by.items():
+        states = {(e.get("assessment") or {}).get("state") or "unknown" for e in es}
+        state = states.pop() if len(states) == 1 else "mixed"
+        rows.append(dict(mr=mr, url=web_url(es[0].get("url")), quote=es[0].get("quote", ""), state=state))
+    num = lambda mr: int(mr) if str(mr).isdigit() else 0
+    rows.sort(key=lambda r: (STATE_RANK.get(r["state"], 1), -num(r["mr"]), str(r["mr"])))
+    return rows[:n], sorted((r["mr"] for r in rows[n:]), key=lambda mr: (num(mr), str(mr)))
+
+
+def feedback_rows(c):
+    """候选里的判断记录证据,同一条只算一次,保持原顺序。"""
+    seen, out = set(), []
+    for e in c.get("evidence", []):
+        if e.get("feedback") and e["feedback"] not in seen:
+            seen.add(e["feedback"])
+            out.append(e)
+    return out
+
+
+def source_refs(c, n=TYPICAL):
+    """规则文件 / REVIEW.md 末尾来源注释里的文字:典型 MR 的网页地址(没有就写 !N),再加总数;判断记录同样只列前 n 条。"""
+    picked, rest = typical(c, n)
+    parts = []
+    if picked:
+        refs = " ".join(mr_ref(r["mr"], r["url"], markdown=False) for r in picked)
+        parts.append(refs + (" 等 %d 个 MR" % (len(picked) + len(rest)) if rest else "(共 %d 个 MR)" % len(picked)))
+    fb = feedback_rows(c)
+    if fb:
+        refs = " ".join(feedback_ref(e) for e in fb[:n])
+        parts.append(refs + (" 等 %d 条判断记录" % len(fb) if len(fb) > n else ""))
+    return ";".join(parts)
+
+
+def count_refs(c):
+    """「候选」行括号里的来源个数,只给人看。"""
+    fb = len(feedback_rows(c))
+    return "、".join(x for x in ("%d 个 MR" % len(c.get("mrs", [])) if c.get("mrs") else "",
+                                  "判断记录 %d 条" % fb if fb else "") if x)
 
 
 def suggest_dest(c, root):
@@ -68,7 +171,9 @@ def suggest_dest(c, root):
 
 
 def evidence_lines(c):
-    """块末尾的证据说明,写成引用块(> 开头):提及与模型采纳判断、逐条原文、复核来源。parse 不读这些行,只给人看。"""
+    """块末尾的证据说明,写成引用块(> 开头),parse 不读这些行,只给人看。第一行是统计;随后是至多 TYPICAL 个典型 MR,
+    每个一行(链接、截断的评论原话、采纳结论),其余 MR 只列编号;判断记录同样至多 TYPICAL 条。
+    判断依据长文和逐条评论不写进来(仍在 candidates.json 里),语义复核只留第一句。这份文件会给别人看,不写指向本机文件的话。"""
     mrs = len(c["mrs"])
     fb = c["mentions"] - mrs                      # 判断记录一律算接受
     accepted = c["support"] - fb
@@ -78,16 +183,18 @@ def evidence_lines(c):
     if fb:
         head.append("判断记录 %d 条" % fb)
     out = ["", "> " + ";".join(head)]
-    for e in c["evidence"]:
-        who = " ".join(x for x in ("!%s" % e["mr"], one(e.get("author"))) if x) if e.get("mr") else "判断记录 " + one(e["feedback"])
-        out.append("> - %s「%s」[%s]" % (who, one(e["quote"]), e["state"]))
-        assessment = e.get("assessment", {})
-        if assessment:
-            out.append(">   判断依据:" + one(assessment["reason"]))
-            for b in assessment.get("basis", []):
-                out.append(">   !%s 评论 %s「%s」" % (b["mr"], b["note"], one(b["quote"])))
+    picked, rest = typical(c)
+    for r in picked:
+        out.append("> - %s「%s」[%s]" % (mr_ref(r["mr"], r["url"]), clip(r["quote"], QUOTE_CHARS), MR_STATE[r["state"]]))
+    if rest:
+        out.append("> 另有 %d 个 MR:%s" % (len(rest), " ".join("!%s" % mr for mr in rest)))
+    fb = feedback_rows(c)
+    for e in fb[:TYPICAL]:
+        out.append("> - %s「%s」[%s]" % (feedback_ref(e), clip(e["quote"], QUOTE_CHARS), e["state"]))
+    if len(fb) > TYPICAL:
+        out.append("> 另有 %d 条判断记录" % (len(fb) - TYPICAL))
     if c.get("review"):
-        out.append("> 语义复核(模型判断):" + one(c["review"]))
+        out.append("> 语义复核(模型判断):" + first_sentence(c["review"], REVIEW_CHARS))
     if c.get("severity_reason"):
         out.append("> 严重级别依据(模型判断):" + one(c["severity_reason"]))
     if c["kind"] == "suppress":
@@ -97,7 +204,7 @@ def evidence_lines(c):
     if coverage:
         out.append("> 已有约束(%s):%s" % (coverage["status"], one(coverage["reason"])))
         for source in coverage.get("sources", []):
-            out.append("> - %s「%s」" % (one(source["file"]), one(source["quote"])))
+            out.append("> - %s「%s」" % (one(source["file"]), clip(source["quote"], QUOTE_CHARS)))
     return out
 
 
@@ -105,7 +212,7 @@ def render_block(c, dest):
     lines = ["## %d. %s" % (c["no"], one(c.get("title")) or one(c["rule"])[:24]), ""]
     if c["unmet"]:
         lines += ["> " + ";".join(c["unmet"]), ""]
-    lines += ["- **候选**:%d(%s;评审人 %d 位)" % (c["no"], " ".join(refs(c)) or "-", c.get("people", 0)),
+    lines += ["- **候选**:%d(%s;评审人 %d 位)" % (c["no"], count_refs(c) or "-", c.get("people", 0)),
              "- **去向**:" + dest,
              "- **动作**:待定",
              "- **规则**:" + one(c["rule"]).rstrip(crlib.RULE_PUNCT)]
@@ -134,11 +241,18 @@ def render(cands, root, meta):
     lines = [TITLE, "",
              "- 项目:" + project,
              "- 扫描:最近 %s 天,%s 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)" % (meta.get("days", "?"), meta.get("mrs", "?")),
-             "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-             "",
-             "<!-- candidates-sha256: %s -->" % fingerprint(cands),
-             "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。每块末尾 > 开头的引用块是证据,只给人看,改它不影响写入。",
-             "改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->"]
+             "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]
+    # 本批有规则类候选(去 .agents/rules)时才问要不要接入 AGENTS.md:Codex 只读 AGENTS.md,不读 .agents/rules
+    hookup = any(c.get("kind") == "rule" for c in cands)
+    if hookup:
+        lines.append("- **%s**:待定" % HOOKUP)
+    lines += ["",
+              "<!-- candidates-sha256: %s -->" % fingerprint(cands),
+              "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。每块末尾 > 开头的引用块是证据,只给人看,改它不影响写入。"]
+    if hookup:
+        lines.append("「%s」也是待定 / 写入 / 跳过:标写入时,把本次写入的 .agents/rules 文件以链接行写进 %s 的「## %s」一节,"
+                     "让只读 %s 的工具(如 Codex)也知道改哪些路径前要先读哪个文件。" % (HOOKUP, AGENTS_FILE, AGENTS_SECTION, AGENTS_FILE))
+    lines.append("改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->")
     for c in cands:
         lines += [""] + render_block(c, suggest_dest(c, root))
     return "\n".join(lines) + "\n"
@@ -263,6 +377,27 @@ def parse(text):
     return blocks, errors
 
 
+def head_fields(text):
+    """头部(第一个 ## 块之前)的字段 -> ({字段: (值, 行号)}, errors)。errors 的块标号是 None。
+    头部其余的普通列表行(项目、扫描、生成)不是字段,不管;加粗写成字段样子却不认识的报错。"""
+    lines, _ = live_lines(text)
+    fields, errors = {}, []
+    for i, line in lines:
+        if HEADING.match(line.strip()):
+            break
+        f = FIELD.match(line)
+        if not f:
+            continue
+        name, value = f.group(2).strip(), f.group(4).strip()
+        if name not in HEAD_FIELDS:
+            errors.append((None, name, "未知的头部字段(头部只能写:%s)" % "、".join(HEAD_FIELDS)))
+        elif name in fields:
+            errors.append((None, name, "字段重复"))
+        else:
+            fields[name] = (value, i)
+    return fields, errors
+
+
 def parse_dest(value):
     """去向 -> (文件, # 后面的部分或 None);写法不对时抛 ValueError。只看写法,目录在不在、能不能写由调用方查。
     REVIEW.md 后面是章节,只能是「不要报」;.agents/rules/<主题>.md 后面是规则标题(这条不要报是那条规则的例外)。"""
@@ -287,8 +422,12 @@ def parse_dest(value):
 
 def set_action(text, block, action):
     """把某个块的「动作」改成 action,其余文字原样不动。"""
+    return set_value(text, block["at"]["动作"], action)
+
+
+def set_value(text, i, action):
+    """把第 i 行字段的值(第一个词)改成 action,其余文字原样不动。头部字段也用它。"""
     lines = text.split("\n")
-    i = block["at"]["动作"]
     f = FIELD.match(lines[i])
     if f:
         lines[i] = lines[i][:f.start(4)] + re.sub(r"[^<\s]+", action, lines[i][f.start(4):], count=1)
