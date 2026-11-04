@@ -20,4 +20,5 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 <section><h2>改了什么</h2><div class=t><table><thead><tr><th>#</th><th>改动</th><th>锚点</th><th>出处(代码块)</th></tr></thead><tbody><tr><td>1</td><td>改动:2 处(orders.ts、app.yml)<br><small>没有被上面任何一组引用的代码块,由脚本补上</small></td><td></td><td>H1 <code>api/orders.ts:1</code><br>H2 <code>config/app.yml:1</code></td></tr></tbody></table></div></section>
 <section><h2>技术变化与自动识别范围</h2><p>检查范围:2 个文件按接口、迁移、配置、签名检查过,没有认出这几类变化<br>自动识别范围:另有 1 个函数只改了实现,不列入签名与接口变化表;业务影响由 analyst 依据 diff 起草</p><p class=muted>按名字在本仓库文本匹配(git grep -w),只看签名变化</p></section>
 <section><h2>怎么验证</h2><h3>执行记录</h3><p>作者提供:本地跑了 jest</p></section>
+<section><h2>材料与分析状态</h2><p>引用校验只确认出处,不代表业务已验证;验证建议未经执行确认。<br>缺少可用分析,仅展示确定事实和未归组代码块。<br>分析缺项:analyst.json — 缺少分析</p></section>
 </main>

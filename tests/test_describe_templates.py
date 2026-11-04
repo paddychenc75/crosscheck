@@ -235,7 +235,7 @@ def scenarios():
     @case
     def criteria_mapped(c):
         c.criteria = ["接口支持 cursor <参数>", "旧参数继续可用"]
-        c.analysis = {"requirements": [{"criterion": "接口支持 cursor <参数>(来自 需求单)", "hunks": ["H1", "H99"]}]}
+        c.analysis = {"requirements": [{"criterion": "接口支持 cursor <参数>(来自 需求单)", "hunks": ["H1"]}]}
 
     @case
     def rich_layers(c):
@@ -334,7 +334,7 @@ class Templates(fixture.Base):
         meta = dict(c.meta, repo_root="/nonexistent/shop", store_dir=store)
         c.meta = meta
         Path(rd, "meta.txt").write_text("".join("%s=%s\n" % kv for kv in meta.items()), encoding="utf-8")
-        for fname, data in (("describe-facts.json", c.facts), ("analysis.json", c.analysis)):
+        for fname, data in (("describe-facts.json", c.facts), ("analyst.json", c.analysis)):
             if data is not None:
                 Path(rd, fname).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         items = [dict(v, kind=k) for k, v in c.sources.items()]
@@ -343,7 +343,24 @@ class Templates(fixture.Base):
         text = "# 这次改动的意图\n\n"
         if c.criteria:
             text += "## 验收标准\n\n" + "".join("%d. %s(来自 需求单)\n" % (i, x) for i, x in enumerate(c.criteria, 1))
+        # 模板场景也经过真实 analysis_check -> describe 链路;原文行是固定夹具。
+        raw = dict(c.analysis or {})
+        if isinstance(raw.get("summary"), dict):
+            raw["summary"] = dict(raw["summary"], quote="模板场景需求原文")
+        if c.analysis is not None:
+            Path(rd, "analyst.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        text += "\n模板场景需求原文\n"
+        text += "\n".join(x["url"] for x in raw.get("links", []) if isinstance(x, dict))
         Path(rd, "intent.md").write_text(text, encoding="utf-8")
+        patches = []
+        for h in c.facts.get("hunks", []):
+            anchors = [a for field in ("changes", "impact", "verify")
+                       for item in (raw.get(field) if isinstance(raw.get(field), list) else [])
+                       if isinstance(item, dict) and h["id"] in item.get("hunks", [])
+                       for a in item.get("anchors", [])]
+            patches.append("diff --git a/{0} b/{0}\n--- a/{0}\n+++ b/{0}\n@@ -1 +1 @@\n-old\n+{1}\n".format(
+                h["file"], " ".join(anchors) or "fixture"))
+        Path(rd, "diff.patch").write_text("".join(patches), encoding="utf-8")
         os.makedirs(self.out, exist_ok=True)
         Path(self.out, "author.json").write_text(json.dumps(c.author, ensure_ascii=False), encoding="utf-8")
         return rd
@@ -393,7 +410,7 @@ class Templates(fixture.Base):
         for f in sorted(os.listdir(GOLDEN)):
             if not f.endswith(".md"):
                 continue
-            text = open(os.path.join(GOLDEN, f), encoding="utf-8").read()
+            text = Path(GOLDEN, f).read_text(encoding="utf-8")
             m = re.search(r"### 改了什么.*?\n(.*?)\n\n", text, re.S)
             if m:
                 self.assertNotRegex(m.group(1), r"\]\(|\(H\d", f)
@@ -431,7 +448,7 @@ class Templates(fixture.Base):
                       md["basic"])
         self.assertIn("### 改了什么\n订单列表改为游标分页\n1. 改动:2 处(orders.ts、app.yml)\n", md["basic"])
         self.assertNotIn("签名变 1", md["basic"])      # 总览只在完整版
-        self.assertIn(VERIFY + "\n- 开启配置 `order.cursor.enabled`(`config/app.yml:3`)\n- 执行记录:作者提供:本地跑了 jest\n", md["basic"])
+        self.assertIn(VERIFY + "\n- 执行记录:作者提供:本地跑了 jest\n", md["basic"])
         self.assertIn("\n1. `listOrders` 改收 `cursor` 参数\n2. 其他:2 处(app.yml、export.ts)\n", md["changes_and_verify"])
         self.assertIn("- 订单列表翻页 → 请求带 `cursor`\n", md["changes_and_verify"])
         self.assertNotIn("自动识别范围", md["swift_unchecked"])
@@ -439,7 +456,7 @@ class Templates(fixture.Base):
         self.assertIn("- 配置与依赖:修改工程配置 `App/Info.plist`\n- 配置与依赖:依赖变化 `Podfile`\n", md["swift_unchecked"])
         self.assertIn("1. `XViewController` 右上角加 `rightBarButtonItem`\n2. 新增图标 `icon_history_v2`\n"
                       "3. 其他:2 处(YView.swift、Info.plist)\n", md["swift_unchecked"])     # 测试代码块不进「其他」
-        self.assertTrue(md["swift_unchecked"].endswith(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n"))
+        self.assertIn(VERIFY + "\n- <功能A> 页 → 右上角出现历史按钮\n", md["swift_unchecked"])
         self.assertNotIn("怎么验证", md["swift_partial"])
         self.assertNotIn("怎么验证", md["no_verify_no_tested"])
         for name, text in md.items():
@@ -447,15 +464,15 @@ class Templates(fixture.Base):
                 self.assertTrue(text.startswith("| 资料 | 链接 |\n|---|---|\n| 需求单 |") and text.count(OWNER) == 1, text)
                 self.assertNotIn("自动识别范围", text)
                 self.assertEqual("- 执行记录:" in text, bool(scenarios()[name].author.get("tested")))
-                for word in ("已实现", "已覆盖", "无风险", "建议", "无影响", "预期通过", "不下结论", "阅读顺序", "可跳过", "需注意", "审查量",
+                for word in ("已实现", "已覆盖", "无风险", "无影响", "预期通过", "不下结论", "阅读顺序", "可跳过", "需注意", "审查量",
                              "可能值得重点看", "可能相关的测试文件", "需求文档:未提供", "> 只按名字", "<!--", "crosscheck", "在本地生成",
-                             "未发现", "未验证", "没有认出路由", "/work/shop", "回滚方式", "(第 "):
+                             "未发现", "没有认出路由", "/work/shop", "回滚方式", "(第 "):
                     self.assertNotIn(word, text)
                 if "### 需求对照" not in text:
                     self.assertNotIn("未提供(需求材料", text)
             with self.subTest(scenario=name, page="html"):
                 page = Path(GOLDEN, "%s.html" % name).read_text(encoding="utf-8")
-                for word in ("未发现", "未验证", "没有认出路由", "/Users/", "回滚方式"):
+                for word in ("未发现", "没有认出路由", "/Users/", "回滚方式"):
                     self.assertNotIn(word, page)
 
 
@@ -614,7 +631,7 @@ class Sections(Templates):
         section = md.split(VERIFY)[1].split("\n\n")[0]
         self.assertNotIn("make e2e", md)
         self.assertNotIn("手工点一下", md)
-        self.assertEqual(section.strip().splitlines(), ["- 开启配置 `order.cursor.enabled`(`config/app.yml:3`)", "- 执行记录:作者提供:本地跑了 jest"])
+        self.assertEqual(section.strip().splitlines(), ["- 执行记录:作者提供:本地跑了 jest"])
 
     def test_no_verify_section_when_nothing_to_write(self):
         c = Case()
@@ -652,25 +669,27 @@ class Sections(Templates):
         self.assertNotIn("GET /r", md)
         self.assertIn("NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对", out)
         for i in range(1, 4):      # 完整版逐条列出,不丢入口
-            self.assertIn("<td>请求 <code>GET /r%d</code> → 进入 <code>h%d</code></td>" % (i, i), page)
-        self.assertEqual(page.count("脚本认出的入口"), 3)
+            self.assertIn("<td><code>GET /r%d</code> / <code>h%d</code></td>" % (i, i), page)
+        self.assertEqual(page.count("脚本入口线索,未核对调用链"), 3)
         self.assertEqual(page.count("AI 起草,请核对"), 7)
 
-    def test_script_entries_fill_in_only_when_analysis_has_no_verify(self):
-        """analyst 一条验证都没有时,脚本认出的入口逐条一行补位(不设上限、不合并,同一 文件:行 去掉);有一条就不补。"""
+    def test_script_entries_never_fill_in_model_verify(self):
+        """没有模型建议时 md 不补入口,HTML 保留明确标注的技术线索。"""
         c = Case()
         c.facts["entrypoints"] = entrypoints(triggers=[entry("route", "GET /r%d" % i, line=i, handler="h%d" % i) for i in range(1, 8)] +
                                              [entry("route", "GET /dup", line=1)])      # 和第一条同一 文件:行,去掉
         c.author = {}
         md = self.md_of(c, "fill")
-        lines = md.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines()
-        self.assertEqual(lines, ["- 请求 `GET /r%d` → 进入 `h%d`(`api/routes.ts:%d`)" % (i, i, i) for i in range(1, 8)])
-        self.assertNotIn("GET /dup", md)
+        self.assertNotIn(VERIFY, md)
+        self.assertNotIn("GET /r", md)
+        page = Path(self.out, "describe.html").read_text()
+        self.assertIn("脚本入口线索,未核对调用链", page)
+        self.assertNotIn("→ 进入", page)
         # 脚本的入口对不上某一组,所以按整体判断:只有部分组写了验证时,也不再补入口
         c.analysis = {"changes": [change("改 `listOrders` %d" % i, ["H1"], ["listOrders"]) for i in range(1, 3)],
                       "verify": [verify(1, "入口 1 → 看到 `listOrders`", ["H1"], ["listOrders"])]}
         md = self.md_of(c, "partial")
-        self.assertEqual(md.split(VERIFY + "\n")[1].splitlines(), ["- 入口 1 → 看到 `listOrders`"])
+        self.assertEqual(md.split(VERIFY + "\n")[1].split("\n\n")[0].splitlines(), ["- 入口 1 → 看到 `listOrders`"])
         self.assertNotIn("GET /r", md)
 
     def test_tests_and_untested_are_only_in_the_full_page(self):
@@ -695,12 +714,16 @@ class Sections(Templates):
         c = Case()
         c.analysis = {"requirements": [{"criterion": "编的一条", "hunks": ["H1"]}]}
         md = self.md_of(c)
-        self.assertNotIn("需求对照", md)
-        self.assertNotIn("需求对照", Path(self.out, "describe.html").read_text(encoding="utf-8"))
+        self.assertNotIn("### 需求对照", md)
+        self.assertNotIn("<h2>需求对照", Path(self.out, "describe.html").read_text(encoding="utf-8"))
+        self.assertIn("不是 intent.md 里列出的验收标准", md)
 
-    def test_typical_description_is_short(self):
+    def test_missing_analysis_disclosure_does_not_invent_verification(self):
         md = Path(GOLDEN, "basic.md").read_text(encoding="utf-8")
-        self.assertLessEqual(len(md.replace(OWNER, "").strip().splitlines()), 20)
+        self.assertIn("缺少可用分析", md)
+        self.assertEqual(md.count("引用校验只确认出处"), 1)
+        self.assertNotIn("开启配置", md)
+        self.assertIn("- 执行记录:作者提供:本地跑了 jest", md)
 
     def test_template_edit_changes_the_output(self):
         """团队改 templates/describe.md、describe.html 就能改描述的结构;脚本读的是模板,不是写死的。"""

@@ -726,7 +726,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         </div>
 
         <div class="wpane tbody" id="dTerm" role="tabpanel" aria-labelledby="dTabTerm" tabindex="0">
-          <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck 0.3.5</span><span class="muted">~/demo-shop · main</span></div>
+          <div class="tbanner"><b>✻ AI 编程助手</b><span>已加载插件 crosscheck 0.3.6</span><span class="muted">~/demo-shop · main</span></div>
 
           <div class="tterm" data-track="review">
             <div class="tc" data-scene="0">
@@ -830,16 +830,18 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
               <div class="tp ty a" data-ms="45"><span class="pr">›</span>/crosscheck:improve 从最近的 MR 评论里整理规则</div>
               <div class="ta ty a"><span class="bul">●</span>沉淀规则：从最近 90 天已合并的 MR 评论里归纳候选。只读，不会改代码托管上的任何东西。</div>
               <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-mrs.sh --days 90</div>
-              <div class="to a"><span class="tree">└</span>已合并 MR 23 个（新拉取 23 · 缓存 0）· 人工评论 41 条 · 评审人 6 位</div>
+              <div class="to a"><span class="tree">└</span>已合并 MR 23 个（新拉取 23 · 缓存 0）· 评论 41 条 · 非作者评论账号 6 位</div>
               <div class="to k a">判断记录 9 条 · 现有规则 2 份</div>
             </div>
             <div class="tc" data-scene="1" hidden>
-              <div class="tsub a" data-fx="agent" data-done="1800"><span class="spin ok"></span><b>miner</b><span class="tsub-d">从评论里归纳候选</span><span class="st ok" data-run="归纳中…">候选 4 条</span></div>
-              <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-check.py</div>
-              <div class="to a"><span class="tree">└</span>通过 2 · 交给 linter 1 · 证据不足 1</div>
-              <div class="ta ty a"><span class="bul">●</span>找到 2 条够格的规则：</div>
-              <div class="tcand a"><b>1. 金额计算禁止使用浮点数</b> <span class="sev hi">重要</span> <span class="muted">src/payments/**</span><br><span class="muted">4 个 MR、3 位评审人 · 证据 ✓ · 摘录原文 ✓ · 评论后改了代码 ✓ · 不重复 ✓</span></div>
-              <div class="tcand a"><b>2. 订单状态变更必须写审计日志</b> <span class="sev hi">重要</span> <span class="muted">src/orders/**</span><br><span class="muted">3 个 MR、2 位评审人 · 证据 ✓ · 摘录原文 ✓ · 评论后改了代码 ✓ · 不重复 ✓</span></div>
+              <div class="tsub a" data-fx="agent" data-done="1800"><span class="spin ok"></span><b>miner</b><span class="tsub-d">分批观察完整线程</span><span class="st ok" data-run="观察中…">观察已保存</span></div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-check.py &lt;work_dir&gt; --observations</div>
+              <div class="ta ty a"><span class="bul">●</span>全局归并观察和判断记录，回查完整讨论、已有规范及检查配置。</div>
+              <div class="tt a"><span class="bul">◆</span><b>运行</b> mine-check.py &lt;work_dir&gt; &lt;work_dir&gt;/synthesis.json</div>
+              <div class="to a"><span class="tree">└</span>候选 2 · 已有工具覆盖 1 · 独立证据不足 1；结构校验不证明语义</div>
+              <div class="ta ty a"><span class="bul">●</span>归并得到 2 条候选，请核对模型判断依据：</div>
+              <div class="tcand a"><b>1. 金额计算禁止使用浮点数</b> <span class="sev hi">重要</span> <span class="muted">src/payments/**</span><br><span class="muted">4 个 MR、3 位评审人 · 模型采纳判断及原文依据 · 已有约束已复核</span></div>
+              <div class="tcand a"><b>2. 订单状态变更必须写审计日志</b> <span class="sev hi">重要</span> <span class="muted">src/orders/**</span><br><span class="muted">3 个 MR、2 位评审人 · 模型采纳判断及原文依据 · 已有约束已复核</span></div>
               <div class="to a"><span class="tree">└</span>丢掉 2 条：变量名用驼峰（工具能查，交给 linter）；这里加个注释（只出现在 1 个 MR）</div>
               <div class="ta ty a"><span class="bul">●</span>已生成 plan.md（存在本机，不进仓库），每条的动作都是“待定”：请逐条标“写入”或“跳过”，也可以改措辞、改去向。</div>
             </div>
@@ -966,7 +968,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>生成 → 打分 → 过滤 → 去重：</b>Uber uReview 的多阶段流水线。<a href="https://www.uber.com/blog/ureview/">Uber：uReview</a></li>
           <li><b>先克隆仓库、跑工具再给模型：</b>CodeRabbit 在沙箱里跑几十种 linter / SAST，结果既当上下文也用来过滤误报。<a href="https://docs.coderabbit.ai/overview/architecture">CodeRabbit：架构（沙箱、工具结果过滤误报）</a></li>
           <li><b>两份产出：</b>评审工具的 PR 摘要和评审指南（CodeRabbit walkthrough、Qodo /describe 与 /review）与问题清单分开展示。<a href="https://docs.coderabbit.ai/pr-reviews/walkthroughs">CodeRabbit：Walkthrough 与评审工作量</a>；<a href="https://raw.githubusercontent.com/qodo-ai/pr-agent/main/docs/docs/tools/describe.md">Qodo PR-Agent：/describe</a></li>
-          <li><b>描述单独成技能，只在本地生成：</b><code>describe</code> 为评审人说明改了什么，<code>review</code> 为开发者核实问题，两者不依赖对方的产出。描述复用采集脚本，由 analyst 据 diff 和需求材料起草，脚本核对引文、代码块与锚点后渲染 <code>describe.md</code> 和 <code>describe.html</code>。引用校验只确认出处，不证明业务语义。短描述在资料表后预留人工填写的 CR 负责人，再写改动分组、主要影响和验证步骤；有效业务影响与必要技术事实不设数量或篇幅上限。普通内部新增函数、资源明细和技术识别范围留在完整版。约 30 行只是参考，超出时可缩减“其他”和验证、去掉空行，不裁功能分组和主要影响。验证步骤依据代码起草，不代表执行过；执行记录只引用作者主动提供的内容。文件留在独立的描述目录，由作者核对后复制粘贴；采集后恢复审查的 pending 和来源记录，但同一目标并发运行仍可能覆盖记录。</li>
+          <li><b>描述单独成技能，只在本地生成：</b><code>describe</code> 为评审人说明改了什么，<code>review</code> 为开发者核实问题，两者不依赖对方的产出。描述复用采集脚本，由 analyst 据 diff 和需求材料起草，脚本核对引文、代码块与锚点后渲染 <code>describe.md</code> 和 <code>describe.html</code>。引用校验只确认出处，不证明业务语义。短描述在资料表后预留人工填写的 CR 负责人，再写改动分组、主要影响和验证建议；有效业务影响与必要技术事实不设数量或篇幅上限，文字不设字数、代码名数量或固定句式门槛。普通内部新增函数、资源明细和技术识别范围留在完整版。验证建议由模型结合目标版本的必要调用链上下文起草，须关联改动组并引用具体代码；不表示执行过，执行记录只引用作者主动提供的内容。缺分析、缺批或无法确定入口时披露缺项，脚本不补造步骤、预期效果或验证结果；自动识别入口仅在完整版标为未核对调用链的线索。无子代理时按同一契约顺序起草并披露未独立复核，失败批次不补造。文件留在独立的描述目录，由作者核对后复制粘贴；采集后恢复审查的 pending 和来源记录，但同一目标并发运行仍可能覆盖记录。</li>
           <li><b>脚本、角色、编排三层：</b>脚本负责取 diff、算行范围、装配规则、核对引用、过滤排序和增量；角色负责问题判断与反证；<code>SKILL.md</code> 把用户要求转成选项并调度流程。脚本能检查格式和出处，无法证明业务语义正确。</li>
           <li><b>脚本入口是 sh，实现是 python3：</b>每个 <code>.sh</code> 只检查参数后交给同名的 <code>.py</code> 模块，一个模块只做一件事，公共函数只在 <code>crlib.py</code> 有一份。核心流程需要 python3 3.8+（只用标准库），没有时 <code>collect-diff.sh</code> 一开始就停下并提示安装；规则装配、依据校验、汇总都涉及 JSON 和文本处理，用 awk 和 sed 拼既难读也容易出错。<code>git</code> 必需，<code>gh</code> / <code>glab</code> 只在对应功能里才需要。</li>
           <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，PR/MR 描述在 <code>skills/describe/</code> 下（采集直接调用 review 的脚本，不依赖审查结果），规则维护在 <code>skills/improve/</code> 下，三者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
@@ -1275,25 +1277,28 @@ paths: ["src/orders/**"]
             <div class="ta"><span class="bul">●</span>选“沉淀”。最近半年换算成 <code>--days 180</code>，先去拉评论。</div>
           </div>
         </template>
-        <template data-track="rules" data-title="脚本拉取" data-who="脚本" data-cap="脚本只读拉取已合并 MR 上的人工评论，过滤机器人，再加上本机的判断记录。结果存在本机，不放进仓库。">
+        <template data-track="rules" data-title="脚本拉取" data-who="脚本" data-cap="脚本只读采集范围内已合并 MR 的完整讨论，按平台明确标识过滤机器人，保留作者回复，并加上本机判断记录。默认没有 MR 数量截断，快照固定本次材料；分页失败或缓存不完整时停止生成计划。规则共享来源及全文同时冻结，结果仅存本机。">
           <div class="tc">
             <div class="tt"><span class="bul">◆</span><b>运行</b> mine-mrs.sh --days 180</div>
-            <div class="to"><span class="tree">└</span>mining: 最近 180 天合并的 MR 48 个(新拉取 31,用缓存 17),人工评论 213 条,评审人 9 位,分成 3 批;crosscheck 判断记录 14 条</div>
+            <div class="to"><span class="tree">└</span>mining: 最近 180 天合并的 MR 48 个(新拉取 31,用缓存 17),评论 213 条,非作者评论账号 9 位,分成 3 批;crosscheck 判断记录 14 条</div>
             <div class="to"><span class="tree">└</span>~/.crosscheck/mining/demo-shop/run-20261028-101500</div>
           </div>
         </template>
-        <template data-track="rules" data-title="miner 归纳" data-who="miner 子代理" data-cap="每一批交给一个 miner 子代理，三批同时跑。它们只读自己那一批，归纳出候选规则，只回复 JSON，不写文件。">
+        <template data-track="rules" data-title="分批观察" data-who="miner 子代理" data-cap="宿主支持时每批交给一个 miner 并行观察，否则按同一契约顺序执行并披露。每批读完整线程，保留单 MR 线索、反证和未知，不在批内用重复次数淘汰。只回复 JSON，不写文件。">
           <div class="tc">
-            <div class="ta"><span class="bul">●</span>同时启动 3 个 miner，每批一个：</div>
-            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-1.json</span><span class="st ok">候选 3 条</span></div>
-            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-2.json</span><span class="st ok">候选 2 条</span></div>
-            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-3.json</span><span class="st ok">候选 3 条</span></div>
-            <div class="to"><span class="tree">└</span>回复原样存成 result-1.json … result-3.json，不修改</div>
+            <div class="ta"><span class="bul">●</span>本例宿主支持子代理，启动 3 个 miner，每批一个：</div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-1.json</span><span class="st ok">观察 3 条</span></div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-2.json</span><span class="st ok">观察 2 条</span></div>
+            <div class="tsub"><span class="spin ok"></span><b>miner</b><span class="tsub-d">batch-3.json</span><span class="st ok">观察 3 条</span></div>
+            <div class="to"><span class="tree">└</span>回复原样存成 result-1.json … result-3.json；声明已处理/未处理线程，排除主题附理由</div>
           </div>
         </template>
-        <template data-track="rules" data-title="核对并出计划" data-who="脚本" data-cap="脚本逐条核对：证据要是原文、至少 2 个 MR、评论后代码确实改了。通过的写进 plan.md，丢弃的写明原因。终端每条一行，括号里是没满足的准入项，要你自己看；证据原文都在 plan.md 里。plan.md 存在本机，不进仓库。">
+        <template data-track="rules" data-title="全局归并并出计划" data-who="agent · 脚本" data-cap="脚本先核对批次、线程覆盖声明和引文，生成观察索引。agent 汇合全部观察和判断记录，回查完整讨论、已有规范及实际检查配置，再应用两个独立 MR/判断记录门槛。采纳判断附具体依据，resolved/changed_after 不等于采纳。归并结果保存为 synthesis.json，脚本核对结构与来源后生成计划，不证明语义正确。">
           <div class="tc">
-            <div class="tt"><span class="bul">◆</span><b>运行</b> mine-check.py run-…/result-*.json</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> mine-check.py &lt;work_dir&gt; --observations</div>
+            <div class="to"><span class="tree">└</span>observations.json：线程覆盖声明与引文已核对，不代表语义完整</div>
+            <div class="ta"><span class="bul">●</span>全局归并观察与判断记录，回查讨论和现有约束，保存 synthesis.json；每条观察都有候选或排除理由。</div>
+            <div class="tt"><span class="bul">◆</span><b>运行</b> mine-check.py &lt;work_dir&gt; &lt;work_dir&gt;/synthesis.json</div>
             <div class="to"><span class="tree">└</span>candidates=3 dropped=5</div>
             <div class="tpre">1. [orders · 重要] 在 src/orders/** 的分页代码里,计算总页数必须用 Math.ceil,禁止用 Math.floor → .agents/rules/orders.md
 2. [api · 轻微] 在 src/api/** 里,接口返回错误时必须带 code 和 message 字段 → .agents/rules/api.md(待确认:评审人仅 1 位)
@@ -1305,7 +1310,7 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
         </template>
         <template data-track="rules" data-title="看 plan.md" data-who="你" data-cap="每条候选一个块：候选编号与 MR、去向、动作、规则、原因、严重级别、范围、反例 / 正例、不要报。去向默认：规则类进 .agents/rules；“不要报”类、范围正好是单个目录的，进该目录 REVIEW.md 的“不要报”。去向可以改。">
           <div class="tc">
-            <div class="ta"><span class="bul">●</span>计划如下，所有字段你都可以改：</div>
+            <div class="ta"><span class="bul">●</span>计划如下，可以对话修改内容、范围、去向和动作；候选编号、字段名及证据配对保持不动：</div>
             <div class="tpre"># 规则沉淀计划
 
 - 项目:demo-shop
@@ -1327,12 +1332,23 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
 - **正例**:Math.ceil(total / pageSize)
 - **不要报**:只做展示估算、不决定取多少条数据的页数
 
-&gt; 提及 3 个 MR:改了代码/已解决 3,未知 0,确定未接受 0
-&gt; - !118 lin「总页数用 floor,最后一页不满时会丢」[已改代码]
-&gt; - !131 zhao「这里应该向上取整」[已改代码]
-&gt; - !140 wu「最后几条订单翻不到」[已解决]
+&gt; 提及 3 个 MR:模型判断已采纳 3,未知/结论不一致 0,未采纳 0
+&gt; - !118 lin「总页数用 floor,最后一页不满时会丢」[模型判断已采纳]
+&gt;   判断依据:作者明确说明按要求修改。
+&gt;   !118 评论 102「已改用 ceil,保留最后不足一页的数据」
+&gt; - !131 zhao「这里应该向上取整」[模型判断已采纳]
+&gt;   判断依据:作者说明已落实分页计算要求。
+&gt;   !131 评论 202「已改成向上取整」
+&gt; - !140 wu「最后几条订单翻不到」[模型判断已采纳]
+&gt;   判断依据:作者说明已修正不足一页的计算。
+&gt;   !140 评论 302「已修正总页数计算,包含最后不足一页的订单」
+&gt; 语义复核(模型判断):三份讨论都针对取数分页的总页数计算,不扩展到展示估算。
+&gt; 已有约束(uncovered):已核对示例项目规范和检查配置,未覆盖该分页边界。
+&gt; - AGENTS.md「查询参数遵守公共协议」
 
 ## 2. 错误响应带 code 和 message
+
+&gt; 待确认:评审人仅 1 位
 
 - **候选**:2(!122 !137;评审人 1 位)
 - **去向**:.agents/rules/api.md
@@ -1340,11 +1356,16 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
 - **规则**:在 src/api/** 里,接口返回错误时必须带 code 和 message 字段
   …(原因、严重级别、范围、反例、正例、不要报)
 
-&gt; 提及 2 个 MR:改了代码/已解决 2,未知 0,确定未接受 0
-&gt; - !122 lin「错误要带 code」[已改代码]
-&gt; - !137 lin「message 也要返回」[已改代码]
-&gt;
-&gt; 待确认:评审人仅 1 位
+&gt; 提及 2 个 MR:模型判断已采纳 2,未知/结论不一致 0,未采纳 0
+&gt; - !122 lin「错误要带 code」[模型判断已采纳]
+&gt;   判断依据:作者明确确认已按接口协议修改。
+&gt;   !122 评论 402「已按协议返回 code 和 message」
+&gt; - !137 lin「message 也要返回」[模型判断已采纳]
+&gt;   判断依据:作者说明已补充响应字段。
+&gt;   !137 评论 502「已补上 message,code 保持协议值」
+&gt; 语义复核(模型判断):两份讨论引用同一错误响应约定,评审人只有一位仍待确认。
+&gt; 已有约束(partial):已核对规范和检查配置,现有约定没有完整说明错误响应字段。
+&gt; - AGENTS.md「接口响应遵守公共协议」
 
 ## 3. 导出脚本里的循环查库不要报
 
@@ -1357,7 +1378,10 @@ PLAN: ~/.crosscheck/mining/demo-shop/run-20261028-101500/plan.md</div>
 
 &gt; 判断记录 2 条
 &gt; - 判断记录 20261012-142301-3「导出脚本只在运维窗口手动跑,不在请求链路上」[判为不成立]
-&gt; - 判断记录 20261019-093040-1「一次最多几百条,循环查库可以接受」[判为不成立]</div>
+&gt; - 判断记录 20261019-093040-1「一次最多几百条,循环查库可以接受」[判为不成立]
+&gt; 语义复核(模型判断):两条判断都限定运维窗口的小规模手动导出,不扩展到请求链路。
+&gt; 已有约束(partial):已核对规范和检查配置,仅规定请求链路的批量查询要求。
+&gt; - AGENTS.md「请求链路内批量读取使用批量接口」</div>
           </div>
         </template>
         <template data-track="rules" data-title="对话并预演" data-who="你 · agent · 脚本" data-cap="你和 agent 对话修改 plan.md，改的就是落盘的内容：标“写入”或“跳过”，也可以改去向、范围。每次改完跑预演：不写任何文件，只打印会写哪些文件、还有几块没定。说“全部写入”才会批量改动作。">
@@ -1476,7 +1500,7 @@ paths: ["src/orders/**"]
       <div class="table-wrap"><table>
         <tr><th>用法</th><th>做什么</th></tr>
         <tr><td>不带参数</td><td>先列出三件事（沉淀、检查、整理 REVIEW.md），让你选一件再开始，不会直接动手。</td></tr>
-        <tr><td>说“沉淀”，或带时间范围</td><td>默认采集最近 90 天、最多 200 个已合并 MR 的人工评论和本机判断记录。miner 归纳共同约束、适用条件与反例，脚本核对引用原文和完整自检。提及、接受信号、未知分别统计；确定未接受的 MR 不凑案例，wontfix 不自动成为长期不要报的证据。有效候选生成 <code>plan.md</code>，和被丢弃的原因一起存在本机 <code>~/.crosscheck/mining/&lt;项目&gt;/</code>，不放进仓库。动作默认待定，负责人对话修改后跑预演 <code>rules-write.py &lt;work_dir&gt; --check</code>，确认才 <code>--apply</code>。</td></tr>
+        <tr><td>说“沉淀”，或带时间范围</td><td>默认最近 90 天，采集范围内所有目标分支的已合并 MR 完整讨论及本机判断记录，没有隐含 MR 数量上限；显式 <code>--limit</code> 限定最近合并数量时披露范围。仅按平台明确标识过滤机器人，保留作者回复，GitLab 去掉系统事件。完整快照固定本次材料，分页失败或缓存不完整时记录错误并停止出计划。先按完整线程分批观察，允许单 MR 线索；再全局归并所有观察与判断记录，回查讨论、已有规范和实际检查配置，最后应用两个独立 MR/判断记录的门槛。模型附依据判断采纳、拒绝或未知，<code>resolved</code>、<code>changed_after</code> 独立展示，不等于采纳；明确未采纳不凑支持，wontfix 不自动成为长期不要报。脚本只核对结构、覆盖声明与出处。候选及主题级排除原因保存在本机，零候选也说明原因；<code>plan.md</code> 动作默认待定，预演确认后才写工作区。</td></tr>
         <tr><td>带“检查”</td><td>逐条看现有规则：能不能检查、有没有范围和“不要报”的边界、是否重复或过长、是否长期误报。结果是一份修改建议，你同意后才改。</td></tr>
         <tr><td>带“整理 REVIEW.md”</td><td>这是另一个用法，整份根目录文件的起草或整理，和“沉淀”往 REVIEW.md 追加一行是两回事。没有就按模板起草，有就整理设置和结构，口径是简洁：只留会改变审查行为的内容，约 15 条以内，背景和操作说明建议移走。路径只用仓库里确实存在的；“出问题长什么样”用项目里的事实填，拿不准就提醒负责人补；“不要报”从反复被判不成立的记录里找。同样先给 diff，同意后才改。</td></tr>
       </table></div>
@@ -1485,7 +1509,9 @@ paths: ["src/orders/**"]
         <li><b>写到哪：</b>审查时当场定的一条（“以后这种别报了”“以后都要查 X”）由 <code>review</code> 写进对应目录的 <code>REVIEW.md</code>，要写清范围和不报的条件，并带来源；从 MR 评论批量沉淀的，由 <code>improve</code> 先写进 <code>plan.md</code>，每块有“去向”：<code>.agents/rules/&lt;主题&gt;.md</code>、<code>&lt;目录&gt;/REVIEW.md#每次都要检查</code> 或 <code>&lt;目录&gt;/REVIEW.md#不要报</code>。建议值是：规则类进 <code>.agents/rules</code>；“不要报”类且范围正好是单个目录的进该目录的 <code>REVIEW.md</code>，其余进 <code>.agents/rules</code>。去向可以在对话里改，放哪的标准见上面“REVIEW.md 写什么、怎么写”：少量核心的进 REVIEW.md，成批的、按路径限定的进 <code>.agents/rules</code>。</li>
         <li><b>plan.md 里有什么：</b>每条候选一个块：候选编号、去向、动作、规则、原因、严重级别、范围、反例 / 正例、不要报。可对话修改规则内容和去向；编号、字段名与块标题格式保持不动，来源 MR 由脚本从 candidates.json 取。动作默认“待定”，要你逐条标“写入”或“跳过”；说“全部写入”才批量改。预演只打印、不写文件：<code>WRITE: &lt;文件&gt; +&lt;n&gt;行</code>、<code>SKIP: 块 &lt;n&gt; 已在 &lt;文件&gt; 里</code>、<code>ERROR: 块 &lt;n&gt; &lt;字段&gt;: &lt;原因&gt;</code>、<code>PENDING: &lt;k&gt; 块还是待定</code>；任一块有 ERROR，整批都不写。</li>
         <li><b>plan.md 决定写入内容：</b>计划决定规则文本和去向，candidates.json 决定证据来源，两者以内容指纹冻结配对。相同候选可重跑，候选变化则保留旧计划并拒绝覆盖；新计划使用新采集目录。<code>--apply</code> 往 <code>.agents/rules/</code> 里的规则文件追加块；对 <code>REVIEW.md</code> 只在指定章节下追加一行，章节不存在就新建，不改头部。写入后该块的动作变成“已写入”，重复执行不会重复写。证据留在 <code>candidates.json</code>，来源 MR 的注释由脚本按候选编号写，不信任 <code>plan.md</code> 里改过的文字；不能在 <code>plan.md</code> 里凭空加没有候选编号的规则。不 <code>git add</code>、不提交。</li>
-        <li><b>写入由 plan.md 把关，“待定”不写：</b>动作是“待定”的块不会写；脚本核对证据来源、字段格式和规则句，预演有 ERROR 整批不写。准入清单里“项目特有”“工具抓不到”“不主观”这几项靠归纳时模型自评，脚本管不了，所以不让整批默认通过，模型自评的几项仍要你再看一遍。</li>
+        <li><b>写入由 plan.md 把关，“待定”不写：</b>动作是“待定”的块不会写；脚本核对证据来源、字段格式和规则句，预演有 ERROR 整批不写。共同约束、采纳依据和已有规范覆盖由模型结合具体材料判断，不能用自检 true 或词句相似度代替。证据区保留模型判断、具体引文和未知项，仍由负责人逐条核对。</li>
+        <li><b>已有规则的完整来源：</b><code>rules-sources.json</code> 与 <code>existing-rules.txt</code> 冻结逻辑文件、真实来源、范围和全文。仅在已识别的规则位置读取文件/目录符号链接，并沿正文的显式本地 Markdown 链接或独立 <code>@path</code> 读取文本；不扫描整个外部目录树、不自动读取远程链接、不执行文件或读取明显凭证。断链、循环、不可读来源都留问题，来源未核对完整时只能记未知。项目外来源只读，不放宽工作区写入边界；review/commit 的规则读取语义保持不变。</li>
+        <li><b>两阶段的记录：</b><code>snapshot.json</code> 固定评论与判断记录，<code>batch-&lt;n&gt;.json</code> 保留完整线程。<code>result-&lt;n&gt;.json</code> 经 <code>mine-check.py &lt;work_dir&gt; --observations</code> 核对为 <code>observations.json</code>，再全局归并为 <code>synthesis.json</code>。每个线程有观察或排除理由，每个观察和判断记录最终都有去向；缺批、未完成不能用空数组冒充成功。来源校验通过不代表模型读懂了材料，也不保证召回完整。</li>
       </ul>
 
       <p><b>预演与恢复：</b><code>--check</code> 展示实际 diff，任一校验错误都会阻止整批写入。REVIEW.md 只能表达所在目录的范围，范围不一致时改用带 paths 的规则文件，并保留例外条件。<code>--apply</code> 逐文件原子替换，目标物理路径不能越出工作区或进入 Git 元数据；它不是整批事务。中断时报告已完成、未完成及计划状态，重跑核对完整规则、范围和边界后才跳过并补记状态，团队手写规则文件仍受保护。</p>
@@ -1668,9 +1694,9 @@ paths: ["src/orders/**"]
         <tr><td>token 只统计 Claude Code 和 Codex；运行记录只防幻觉，不防刻意伪造</td><td>报告里写明统计不到的原因</td></tr>
         <tr><td rowspan="5">规则</td><td>规则检查防得了编造，防不了漏看；规则冲突只靠 rules-auditor 提示，脚本不检测</td><td>规则文件保持短；冲突的说明交给负责人处理</td></tr>
         <tr><td>PR/MR 里新增或修改的规则合并后才生效（从 base 读，有意的取舍）</td><td>先合入规则，再审查依赖它的改动</td></tr>
-        <tr><td>沉淀规则时，GitHub 只翻最近更新的 1000 个已关闭 PR</td><td>范围以 <code>plan.md</code> 开头写的天数和 MR 数为准</td></tr>
-        <tr><td>GitHub 上评论是否已解决（resolved）和之后是否改了代码（changed_after）多数未知，这类证据记为“未知”，plan.md 里标“待确认”放行</td><td>待确认项由你自己看；<code>plan.md</code> 的动作默认“待定”，不会整批通过</td></tr>
-        <tr><td>准入清单里“项目特有”“不主观”靠模型自评，脚本管不了</td><td>逐条标“写入”或“跳过”，预演通过再 <code>--apply</code></td></tr>
+        <tr><td>沉淀采集依赖平台分页与缓存完整性；显式数量限制会缩小范围</td><td>核对快照和披露范围，分页失败或版本不明时重新采集，不用旧缓存冒充完整材料</td></tr>
+        <tr><td>resolved、changed_after 是平台事实，不等于采纳；语义判断或共享规则来源也可能未知</td><td>回查讨论和来源，查看模型判断依据与待确认项；未知不能称为检查通过</td></tr>
+        <tr><td>分批观察、全局归并及引文校验不能保证召回完整或语义正确</td><td>核对主题级排除原因和具体引文，逐条决定“写入”或“跳过”，预演后再 <code>--apply</code></td></tr>
         <tr><td rowspan="5">平台与环境</td><td>自建 GitLab 的域名不含 “gitlab” 时认不出；部署在子路径下时 <code>glab</code> 需要的 <code>GITLAB_HOST</code> 没在真实环境验证过</td><td>配置 <code>gitlab_hosts</code> 或带 <code>--platform</code></td></tr>
         <tr><td><code>glab</code> / <code>gh</code> 相关部分主要用模拟命令测过，GitLab 只在本地实例上端到端跑过一次；<code>tools.code_host</code> 和需求来源的读取只用本地模拟验证过</td><td>首次接入先拿一个 MR 试跑；字段、分页、权限、限流都可能有差异</td></tr>
         <tr><td>“已合入”：git 回退和 <code>tools.code_host</code> 只认得出 merge commit 合入的，squash / rebase 的改动算得对但不标“已合入”；GitLab 删掉 <code>refs/merge-requests/&lt;编号&gt;/head</code> 时 git 回退取不到 head</td><td>能用 <code>gh</code> / <code>glab</code> 时让它们读平台状态</td></tr>
@@ -1804,11 +1830,11 @@ paths: ["src/orders/**"]
       edges: [['lead', 'main'], ['main', 'src'], ['src', 'cand'], ['cand', 'file']],
       scenes: [
         { title: '拉取评论', actors: ['lead', 'main', 'script', 'gitlab'], pipe: ['lead', 'main', 'src'],
-          cap: '只读拉取最近一个季度已合并 MR 的人工评论（去掉机器人和系统消息），加上 CrossCheck 记下的判断；缓存起来，下次只拉新的。',
+          cap: '只读采集最近 90 天范围内已合并 MR 的完整讨论，无隐含数量上限；按平台明确标识过滤机器人，保留作者回复，加上本机判断记录。快照固定本次材料，分页或缓存不完整就停止生成计划。',
           log: [['项目负责人', '/crosscheck:improve 从最近的 MR 评论里整理规则'], ['mine-mrs', '90 天 · 23 个 MR · 41 条评论(只读)']] },
-        { title: '筛选候选', actors: ['main', 'script'], pipe: ['cand'],
-          cap: 'miner 归纳候选，脚本核对引用原文与自检完整性，分别统计提及、接受信号与未知；语义支持仍需负责人判断，相似规则只提示。候选与 plan.md 按内容指纹绑定，动作默认待定。',
-          log: [['miner', '候选 4 条'], ['mine-check', '通过 2 · 交给 linter 1 · 证据不足 1']] },
+        { title: '观察与全局归并', actors: ['main', 'script'], pipe: ['cand'],
+          cap: '先分批观察完整线程，保留单 MR 线索、反证和未知，再全局归并全部观察与判断记录，回查讨论和已有约束，应用独立证据门槛。采纳判断附原文依据，resolved/changed_after 不等于采纳；脚本只核对结构、覆盖声明与出处，不证明语义。候选与计划按内容指纹绑定，动作默认待定。',
+          log: [['miner 观察', 'result-*.json → observations.json'], ['全局归并', '全部观察与判断记录 → synthesis.json'], ['mine-check', '候选 2 · 已有工具覆盖 1 · 独立证据不足 1']] },
         { title: '预演后写入', actors: ['lead', 'main', 'repo'], pipe: ['lead', 'file'],
           cap: '候选先生成 plan.md，每条的动作默认“待定”。你逐条标“写入”或“跳过”，每次改完预演（--check，不写文件），说“确定”才写进 .agents/rules/<主题>.md，或某目录 REVIEW.md 的指定章节：每条带规则、原因、严重级别、正反例、不要报和来源 MR。只改工作区、不提交，规则改动走团队正常的代码评审。',
           log: [['项目负责人', '两条都写入，确定'], ['rules-write', '--check 无误 → --apply'], ['rules-write', '.agents/rules/payments.md +1 · orders.md +1(未提交)']] }

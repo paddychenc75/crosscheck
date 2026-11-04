@@ -12,6 +12,7 @@
 {{! now — 最后更新时间}}
 {{! sha — 基于的提交}}
 {{! version — 插件版本}}
+{{! disclosure — 材料缺失、分析缺项及验证边界的披露}}
 {{! info_rows — 基本信息的行}}
 {{! change_rows — 改了什么的行,逐条列出锚点和出处(代码块编号)}}
 {{! change_note — 改了什么表格下面的说明}}
@@ -60,9 +61,10 @@ th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertic
 <section><h2>请重点看</h2><div class=t><table><thead><tr><th>位置</th><th>看什么</th></tr></thead><tbody>{{focus_rows}}</tbody></table></div></section>
 {{/focus_rows}}
 {{#verify}}
-<section><h2>怎么验证</h2>{{#verify_rows}}<div class=t><table><thead><tr><th>入口 → 能看到什么</th><th>对应改动</th><th>锚点</th><th>出处</th><th>来源</th></tr></thead><tbody>{{verify_rows}}</tbody></table></div>{{/verify_rows}}{{#tests}}<h3>测试线索</h3>{{#case_rows}}<div class=t><table><thead><tr><th>新增用例</th><th>位置</th></tr></thead><tbody>{{case_rows}}</tbody></table></div>{{/case_rows}}{{#assert_rows}}<div class=t><table><thead><tr><th>新增断言</th><th>位置</th></tr></thead><tbody>{{assert_rows}}</tbody></table></div>{{/assert_rows}}{{#command}}<p><code>{{command}}</code> <small>项目命令,未确认已执行</small></p>{{/command}}{{#untested}}<p>{{untested}}</p>{{/untested}}{{/tests}}{{#record}}<h3>执行记录</h3><p>{{record}}</p>{{/record}}</section>
+<section><h2>怎么验证</h2>{{#verify_rows}}<div class=t><table><thead><tr><th>验证建议或入口线索</th><th>对应改动</th><th>锚点</th><th>出处</th><th>来源</th></tr></thead><tbody>{{verify_rows}}</tbody></table></div>{{/verify_rows}}{{#tests}}<h3>测试线索</h3>{{#case_rows}}<div class=t><table><thead><tr><th>新增用例</th><th>位置</th></tr></thead><tbody>{{case_rows}}</tbody></table></div>{{/case_rows}}{{#assert_rows}}<div class=t><table><thead><tr><th>新增断言</th><th>位置</th></tr></thead><tbody>{{assert_rows}}</tbody></table></div>{{/assert_rows}}{{#command}}<p><code>{{command}}</code> <small>项目命令,未确认已执行</small></p>{{/command}}{{#untested}}<p>{{untested}}</p>{{/untested}}{{/tests}}{{#record}}<h3>执行记录</h3><p>{{record}}</p>{{/record}}</section>
 {{/verify}}
 {{#req_rows}}
 <section><h2>需求对照</h2><div class=t><table><thead><tr><th>验收标准</th><th>改动位置</th></tr></thead><tbody>{{req_rows}}</tbody></table></div></section>
 {{/req_rows}}
+<section><h2>材料与分析状态</h2><p>{{disclosure}}</p></section>
 </main>

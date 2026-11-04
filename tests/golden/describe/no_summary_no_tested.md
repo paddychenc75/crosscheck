@@ -14,5 +14,6 @@
 - 配置与依赖:新增配置文件 `config/app.yml`(1 个键)
 - 函数签名:签名变化 `listOrders`(`api/orders.ts:1`,diff 外 2 处调用)
 
-### 怎么验证
-- 开启配置 `order.cursor.enabled`(`config/app.yml:3`)
+> 引用校验只确认出处,不代表业务已验证;验证建议未经执行确认。
+> 缺少可用分析,仅展示确定事实和未归组代码块。
+> 分析缺项:analyst.json — 缺少分析

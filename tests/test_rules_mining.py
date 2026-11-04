@@ -9,7 +9,6 @@ import sys
 import fixture
 
 LIST = "projects/:id/merge_requests?state=merged&per_page=100&page=1"
-CHECKS = {k: True for k in ("project_specific", "not_tool_catchable", "not_subjective", "not_overturned", "no_conflict", "generalizable")}
 
 
 def disc(iid):
@@ -35,10 +34,50 @@ def note(nid, who, body, path=None, line=None, sha=None, system=False, bot=False
 def rule(**kw):
     c = {"kind": "rule", "topic": "api", "title": "分页参数要有上限", "rule": "在 src/api/** 的接口里,必须校验分页参数的上限",
          "why": "不校验会查全表", "severity": "重要", "bad_example": "list(limit)", "good_example": "list(Math.min(limit, 100))",
-         "exceptions": "内部管理后台接口不限", "paths": ["src/api/**"], "checks": dict(CHECKS),
+         "exceptions": "内部管理后台接口不限", "paths": ["src/api/**"],
          "evidence": [{"mr": 12, "note": 101, "quote": "分页参数没校验上限"}, {"mr": 15, "note": 201, "quote": "limit 要加上限"}]}
     c.update(kw)
     return c
+
+
+def synthesis(work, cands):
+    """构造已完成观察和模型判断的测试输入;只测试结构与写入,不冒充模型语义评测。"""
+    import copy
+    cands = copy.deepcopy(cands)
+    obs_ids = []
+    for batch in sorted(Path(work).glob("batch-*.json")):
+        rows = json.loads(batch.read_text())
+        threads = {}
+        for row in rows:
+            threads.setdefault(row["thread"], row)
+        observations = []
+        for row in threads.values():
+            observations.append({"pattern": "测试约束", "evidence": [{"mr": row["mr"], "note": row["note"], "quote": row["body"]}]})
+            obs_ids.append(batch.stem + ":" + str(len(observations)))
+        result = {"processed": list(threads), "unprocessed": [], "observations": observations, "excluded": []}
+        batch.with_name(batch.name.replace("batch-", "result-")).write_text(json.dumps(result, ensure_ascii=False))
+    sources_path = Path(work, "rules-sources.json")
+    frozen_sources = json.loads(sources_path.read_text()) if sources_path.exists() else []
+    sources = [{"file": row["file"], "quote": row["text"]}
+               for row in frozen_sources if not row.get("issues") and row.get("text", "").strip()]
+    coverage = {"status": "uncovered" if sources else "unknown",
+                "reason": "已核对采集时冻结的规范全文" if sources else "采集没有提供可核对的规范全文",
+                "sources": sources}
+    for c in cands:
+        c.setdefault("observations", obs_ids)
+        c.setdefault("review", "测试中的模型判断:证据指向同一约束,边界已说明")
+        c.setdefault("coverage", copy.deepcopy(coverage))
+        for e in c.get("evidence", []):
+            if not e.get("feedback"):
+                state = "rejected" if e.get("mr") in (16, 17) else "accepted"
+                e.setdefault("assessment", {"state": state, "reason": "测试夹具预置的语义判断", "basis": [{k: e[k] for k in ("mr", "note", "quote")}]})
+    feedback = json.loads(Path(work, "snapshot.json").read_text()).get("feedback", [])
+    used = {e["feedback"] for c in cands for e in c.get("evidence", []) if e.get("feedback")}
+    unused = [f.get("key") or f["id"] for f in feedback if f.get("key") not in used and f.get("id") not in used]
+    excluded = [{"observations": [], "feedback": unused, "reason": "本测试未采纳其它判断记录"}] if unused else []
+    if not cands and obs_ids:
+        excluded.append({"observations": obs_ids, "feedback": [], "reason": "本测试未提候选"})
+    Path(work, "synthesis.json").write_text(json.dumps({"candidates": cands, "excluded": excluded}, ensure_ascii=False))
 
 
 class GitHubCommentVersions(fixture.Base):
@@ -53,7 +92,7 @@ class GitHubCommentVersions(fixture.Base):
             {"id": 3, "line": None, "original_line": 2, "commit_id": new},
         ]
         for comment in comments:
-            comment.update(user={"login": "reviewer"}, body="必须校验分页上限", path="src/api.py")
+            comment.update(user={"login": "reviewer"}, body="必须校验分页上限", path="src/api.py", created_at=ago(3))
         data = {
             "repos/example/versions/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1": [
                 {"number": 1, "user": {"login": "author"}, "merged_at": ago(1), "updated_at": ago(1), "head": {"sha": new}}],
@@ -105,11 +144,11 @@ class RulesMining(fixture.Base):
             {"id": "d1", "notes": [
                 note(101, "alice", "分页参数没校验上限,传个 100000 就查全表了", "src/api/orders.ts", 5, self.sha0),
                 note(102, "dev1", "好的,我加上", "src/api/orders.ts", 5, self.sha0)]},
-            {"id": "d2", "notes": [note(103, "gitlab-bot", "Pipeline passed"), note(104, "alice", "changed the description", system=True)]},
+            {"id": "d2", "notes": [note(103, "gitlab-bot", "Pipeline passed", bot=True), note(104, "alice", "changed the description", system=True)]},
         ])
         self.mock_api(disc(15), [
             {"id": "d3", "notes": [note(201, "bob", "limit 要加上限,不然会查全表", "src/api/users.ts", 1, self.sha0, resolved=True)]},
-            {"id": "d4", "notes": [note(202, "project_7_bot_ab12", "自动检查完成")]},
+            {"id": "d4", "notes": [note(202, "project_7_bot_ab12", "自动检查完成", bot=True)]},
         ])
         # MR 16:评论了,但代码没改、讨论也没解决
         self.mock_api(disc(16), [{"id": "d5", "notes": [note(301, "carol", "这里应该用事务包起来", "src/api/users.ts", 1, self.sha0, resolved=False)]}])
@@ -124,8 +163,8 @@ class RulesMining(fixture.Base):
         return r.stdout, self.review_dir(r.stdout)
 
     def check(self, work, cands):
-        Path(work, "result-1.json").write_text(json.dumps(cands, ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "result-1.json")],
+        synthesis(work, cands)
+        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout, self.load(os.path.join(work, "candidates.json")), self.load(os.path.join(work, "dropped.json"))
@@ -188,7 +227,7 @@ class RulesMining(fixture.Base):
                                                        {"mr": 17, "note": 302, "quote": "users 这里也要用事务"}])
         no_must = rule(rule="分页参数的上限最好校验一下")
         no_exc = rule(rule="接口必须记录耗时", exceptions="")
-        subjective = rule(rule="接口必须写得清楚", checks=dict(CHECKS, not_subjective=False))
+        subjective = rule(rule="接口必须写得清楚", coverage={"status": "covered", "reason": "已有规范覆盖,不应新增", "sources": [{"file": "REVIEW.md", "quote": "日志里不能出现邮箱"}]})
         existing = rule(rule="日志里不能出现邮箱")
         bad_scope = rule(rule="别处必须这样", paths=["../x/**"])
         out, cands, dropped = self.check(work, [good, dup, forged, thin, unfixed, unfixed2, no_must, no_exc, subjective, existing, bad_scope])
@@ -201,12 +240,12 @@ class RulesMining(fixture.Base):
         self.assertIn("!12 note 101", reasons["所有查询必须加索引"])
         self.assertIn("证据不足", reasons["写操作必须记审计日志"])
         self.assertIn("证据不足", reasons["接口里必须用事务包起来"])           # 同一 MR 不算两次,编造的 MR 作废
-        self.assertIn("代码没改、讨论也没解决", reasons["users 接口必须用事务"])  # 作者只回「好的」不算改了
+        self.assertIn("明确未采纳", reasons["users 接口必须用事务"])
         self.assertIn("必须 / 禁止", reasons["分页参数的上限最好校验一下"])
         self.assertIn("不要报", reasons["接口必须记录耗时"])
-        self.assertIn("非主观风格", reasons["接口必须写得清楚"])
-        self.assertIn("可能重复或冲突", out)
-        self.assertIn("范围不对", reasons["别处必须这样"])
+        self.assertIn("已有约束覆盖", reasons["接口必须写得清楚"])
+        self.assertNotIn("可能重复或冲突", out)  # 不再用字符串相似度替模型判断
+        self.assertIn("范围须为仓库根目录相对 glob", reasons["别处必须这样"])
         # 每条候选一行:编号、规则句、建议去向;准入全满足时不列;自检不输出也不存
         self.assertIn("1. [api · 重要] 在 src/api/** 的接口里,必须校验分页参数的上限 → .agents/rules/api.md\n", out)
         lines = [x for x in out.split("\n") if x[:1].isdigit() and ". [" in x]
@@ -218,18 +257,17 @@ class RulesMining(fixture.Base):
             self.assertNotIn(key, c)
         self.assertEqual(c["unmet"], [])
 
-    def test_rule_self_checks_must_be_complete(self):
+    def test_review_requires_reason_and_checkable_sources(self):
         self.standard_mrs()
         _, work = self.mine()
-        partial = {k: v for k, v in CHECKS.items() if k != "generalizable"}
-        _, cands, dropped = self.check(work, [rule(rule="接口必须带 trace id", checks=partial),
-                                              rule(rule="接口必须记录请求方", checks=dict(CHECKS, no_conflict="yes")),
-                                              rule(rule="接口必须限流", checks=None)])
+        _, cands, dropped = self.check(work, [rule(rule="接口必须带 trace id", review=""),
+                                              rule(rule="接口必须记录请求方", coverage={"status": "uncovered", "reason": "没查", "sources": []}),
+                                              rule(rule="接口必须限流", coverage=None)])
         self.assertEqual(cands, [])
         reasons = {d["rule"]: d["reason"] for d in dropped}
-        self.assertIn("自检缺项:能泛化", reasons["接口必须带 trace id"])
-        self.assertIn("自检不通过:不冲突", reasons["接口必须记录请求方"])
-        self.assertIn("自检缺项", reasons["接口必须限流"])
+        self.assertIn("缺少语义复核说明", reasons["接口必须带 trace id"])
+        self.assertIn("只能标记 unknown", reasons["接口必须记录请求方"])
+        self.assertIn("缺少已有约束复核状态", reasons["接口必须限流"])
 
     def test_ranked_by_mrs_and_reviewers(self):
         self.standard_mrs()
@@ -252,20 +290,22 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "id": "f2", "verdict": "invalid", "reason": "这是生成的客户端代码,不用管重复", "file": "src/api/gen/b.ts", "author": "h2", "target": "mr-130", "time": "2026-10-02 10:00"}])
         _, work = self.mine()
         self.assertEqual(len(self.load(os.path.join(work, "feedback.json"))), 2)
-        sup = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
+        sup = {"kind": "suppress", "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
                "evidence": [{"feedback": "k1", "quote": "生成的客户端代码不用管"}, {"feedback": "f2", "quote": "不用管重复"}]}
         out, cands, _ = self.check(work, [sup])
         self.assertEqual([c["kind"] for c in cands], ["suppress"])
         self.assertIn("1. [不要报 · api] 生成的客户端代码里的重复不用提 → .agents/rules/api.md\n", out)
         # plan.md 写判断记录的整段原因(不是 miner 摘的片段);准入全满足,不列
         plan = self.plan_text(work)
-        self.assertIn("> 判断记录 2 条\n> - 判断记录 f1「生成的客户端代码不用管」[判为不成立]\n"
-                      "> - 判断记录 f2「这是生成的客户端代码,不用管重复」[判为不成立]\n", plan)
-        self.assertIn("- **候选**:1(审查 mr-128 发现 f1 审查 mr-130 发现 f2;评审人 2 位)", plan)
+        self.assertIn("> 判断记录 2 条\n> - 判断记录 k1「生成的客户端代码不用管」[判为不成立]\n"
+                      "> - 判断记录 k2「这是生成的客户端代码,不用管重复」[判为不成立]\n", plan)
+        self.assertIn("- **候选**:1(审查 mr-128 发现 k1 审查 mr-130 发现 k2;评审人 2 位)", plan)
         # 来源写成「审查 <对象> 发现 <id>」,与审查时当场定规则的写法一致
         self.edit_plan(work, 1, "动作", "写入")
         self.write_rules(work, "--apply")
-        self.assertIn("<!-- 来源:审查 mr-128 发现 f1 审查 mr-130 发现 f2 -->",
+        self.assertEqual([e["feedback"] for e in cands[0]["evidence"]], ["k1", "k2"])
+        # 别名 f2 输入归一到稳定 key k2，计划和写入来源均使用 canonical key。
+        self.assertIn("<!-- 来源:审查 mr-128 发现 k1 审查 mr-130 发现 k2 -->",
                       Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
 
     def test_feedback_verdict_must_match_kind(self):
@@ -274,7 +314,7 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "verdict": "valid", "reason": "测试桩里的重复确实该提", "file": "b", "author": "h2"},
                        {"key": "k3", "verdict": "valid", "reason": "接口必须校验签名", "file": "c", "author": "h3"}])
         _, work = self.mine()
-        sup = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"],
+        sup = {"kind": "suppress", "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"],
                "evidence": [{"feedback": "k1", "quote": "测试桩里的重复"}, {"feedback": "k2", "quote": "测试桩里的重复"}]}
         bad = rule(rule="接口必须校验签名", evidence=[{"feedback": "k1", "quote": "测试桩"}, {"feedback": "k3", "quote": "接口必须校验签名"}])
         _, cands, dropped = self.check(work, [sup, bad])
@@ -314,7 +354,7 @@ class RulesMining(fixture.Base):
     # ---------- plan.md ----------
 
     def sup(self, **kw):
-        c = {"kind": "suppress", "checks": dict(CHECKS), "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
+        c = {"kind": "suppress", "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
              "why": "mock 只在测试里用", "evidence": rule()["evidence"]}
         c.update(kw)
         return c
@@ -360,8 +400,8 @@ class RulesMining(fixture.Base):
         s_gone = self.sup(rule="旧目录里的重复不用提", paths=["src/removed/**"])
         self.standard_mrs()
         _, work = self.mine()
-        Path(work, "result-1.json").write_text(json.dumps([rule(), s_dir, s_glob, s_gone], ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "result-1.json")],
+        synthesis(work, [rule(), s_dir, s_glob, s_gone])
+        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.rstrip("\n").split("\n")[-1], "PLAN: " + os.path.join(work, "plan.md"))
@@ -387,7 +427,7 @@ class RulesMining(fixture.Base):
         self.assertNotIn("准入", plan)
         # 再运行 mine-check 不覆盖 plan.md
         Path(work, "plan.md").write_text(plan + "\n手改的\n", encoding="utf-8")
-        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "result-1.json")],
+        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertIn("plan.md 已存在,没有覆盖", r.stdout)
         self.assertTrue(self.plan_text(work).endswith("手改的\n"))
@@ -408,15 +448,14 @@ class RulesMining(fixture.Base):
         _, work = self.mine()
         self.check(work, [many, lone])
         plan = self.plan_text(work)
-        # 提及与接受情况分开列,确定未接受的也展示;引文不截断
-        self.assertIn("> 提及 4 个 MR:改了代码/已解决 3,未知 0,确定未接受 1\n"
-                      "> - !12 alice「分页参数没校验上限」[已改代码]\n"
-                      "> - !15 bob「limit 要加上限」[已解决]\n"
-                      "> - !17 dave「limit 也要加上限」[未改代码]\n"
-                      "> - !19 erin「limit 必须校验 <!—— 这里不能吞行 ——> 再往下」[已解决]\n\n", plan)
-        # 没满足的准入项带文字标签,满足的不列
-        self.assertIn("> 提及 2 个 MR:改了代码/已解决 2,未知 0,确定未接受 0\n", plan)
-        self.assertIn(">\n> 待确认:评审人仅 1 位;待确认:缺反例或正例\n", plan)
+        # 模型判断、原文与理由均展示;结构校验不声称证明语义。
+        self.assertIn("> 提及 4 个 MR:模型判断已采纳 3,未知/结论不一致 0,未采纳 1", plan)
+        self.assertIn("> - !12 alice「分页参数没校验上限」[模型判断已采纳]", plan)
+        self.assertIn("> - !15 bob「limit 要加上限」[模型判断已采纳]", plan)
+        self.assertIn("> - !17 dave「limit 也要加上限」[模型判断未采纳]", plan)
+        self.assertIn("limit 必须校验 <!—— 这里不能吞行 ——> 再往下", plan)
+        self.assertIn("> 提及 2 个 MR:模型判断已采纳 2,未知/结论不一致 0,未采纳 0", plan)
+        self.assertIn("> 待确认:评审人仅 1 位;待确认:缺反例或正例\n\n- **候选**:", plan)
         self.assertEqual(plan.count("待确认"), 2)
         # 引用块不影响解析:字段、标题、候选编号和去掉引用块后完全一样,也没有吞掉后面的行
         blocks = self.parse_plan(plan)
@@ -425,7 +464,10 @@ class RulesMining(fixture.Base):
         self.assertEqual(len(blocks), 2)
         self.assertEqual(shape(blocks), shape(plain))
         # 用户改了引用块里的字也不影响;改动作后照常 apply,证据不写进规则文件
-        Path(work, "plan.md").write_text(plan.replace("[已解决]", "[随便改]"), encoding="utf-8")
+        changed_plan = plan.replace("[模型判断已采纳]", "[随便改]")
+        self.assertNotEqual(changed_plan, plan)
+        self.assertIn("[随便改]", changed_plan)
+        Path(work, "plan.md").write_text(changed_plan, encoding="utf-8")
         self.edit_plan(work, 1, "动作", "写入")
         self.edit_plan(work, 2, "动作", "跳过")
         out = self.write_rules(work, "--apply")
@@ -437,7 +479,7 @@ class RulesMining(fixture.Base):
         after = self.plan_text(work)
         self.assertEqual(after.count("已写入"), 1)
         self.assertEqual([x for x in after.split("\n") if x.startswith(">")],
-                         [x for x in plan.replace("[已解决]", "[随便改]").split("\n") if x.startswith(">")])
+                         [x for x in changed_plan.split("\n") if x.startswith(">")])
 
     def test_review_md_line_keeps_severity_and_review_reads_it(self):
         minor = rule(rule="在 src/api/** 里,必须给外部调用设置超时", severity="轻微")
@@ -553,7 +595,7 @@ class RulesMining(fixture.Base):
     def prepare_reset(self, work):
         """把 plan.md 还原成 mine-check 刚生成的样子(删掉再生成)。"""
         os.remove(os.path.join(work, "plan.md"))
-        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "result-1.json")],
+        r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -792,16 +834,12 @@ class RulesMining(fixture.Base):
     def test_unknown_acceptance_is_not_counted_as_true_or_false(self):
         self.standard_mrs()
         _, work = self.mine()
-        cache = Path(self.kv(Path(work, "meta.txt"))["cache"], "17.json")
-        record = self.load(cache)
-        for n in record["notes"]:
-            n["changed_after"] = None
-        cache.write_text(json.dumps(record))
-        _, got, _ = self.check(work, [rule(evidence=[rule()["evidence"][0],
-                                                   {"mr": 17, "note": 302, "quote": "limit 也要加上限"}])])
+        evidence = [rule()["evidence"][0], {"mr": 17, "note": 302, "quote": "limit 也要加上限",
+                    "assessment": {"state": "unknown", "reason": "缺少落实对应关系", "basis": []}}]
+        _, got, _ = self.check(work, [rule(evidence=evidence)])
         self.assertEqual((got[0]["support"], got[0]["mentions"], got[0]["unknown"]), (1, 2, 1))
-        self.assertEqual({e["mr"]: e["state"] for e in got[0]["evidence"]}, {12: "已改代码", 17: "未知"})
-        self.assertEqual(got[0]["unmet"], ["待确认:改过代码或已解决的只有 1 个"])      # 未知不当成已接受
+        self.assertEqual({e["mr"]: e["state"] for e in got[0]["evidence"]}, {12: "模型判断已采纳", 17: "未知"})
+        self.assertEqual(got[0]["unmet"], ["待确认:模型判断已采纳的只有 1 个"])
 
     def test_wontfix_and_feedback_context(self):
         self.standard_mrs()
@@ -832,8 +870,8 @@ class RulesMining(fixture.Base):
         original = {name: Path(work, name).read_bytes() for name in ("plan.md", "candidates.json", "dropped.json")}
         self.check(work, [second, first])
         self.assertEqual({name: Path(work, name).read_bytes() for name in original}, original)
-        Path(work, "result-1.json").write_text(json.dumps([second]))
-        r = self.run_py("mine-check.py", work, str(Path(work, "result-1.json")), check=False)
+        synthesis(work, [second])
+        r = self.run_py("mine-check.py", work, str(Path(work, "synthesis.json")), check=False)
         self.assertEqual(r.returncode, 2)
         self.assertEqual({name: Path(work, name).read_bytes() for name in original}, original)
         Path(work, "candidates.json").write_text(json.dumps(list(reversed(self.load(Path(work, "candidates.json"))))))
@@ -922,10 +960,15 @@ class RulesMining(fixture.Base):
         for args in (["--pick", "1"], ["--edit", "1=x"], []):
             self.assertNotEqual(self.run_write(work, *args).returncode, 0)
 
-    def test_needs_login(self):
+    def test_api_failure_does_not_guess_login(self):
         r = self.run_script("mine-mrs.sh", cwd=self.repo, check=False)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("glab 读不到", r.stderr)
+        self.assertIn("kind=api_failed", r.stderr)
+        self.assertNotIn("auth login", r.stderr)
+        work = Path(self.review_dir(r.stdout))
+        self.assertIs(self.load(work / "snapshot.json")["complete"], False)
+        self.assertEqual(self.kv(work / "meta.txt")["complete"], "false")
+        self.assertEqual(list(work.glob("batch-*.json")), [])
 
     def test_improve_is_command_only(self):
         skill = Path(os.path.dirname(fixture.SCRIPTS), "..", "improve")

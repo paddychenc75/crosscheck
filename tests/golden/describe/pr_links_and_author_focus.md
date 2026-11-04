@@ -19,5 +19,8 @@
 2. [`report/daily.ts:2`](http://localhost:8080/eng/shop/-/blob/<SHA>/report/daily.ts#L2) — 调用方要不要一起改
 
 ### 怎么验证
-- 开启配置 `order.cursor.enabled`([`config/app.yml:3`](http://localhost:8080/eng/shop/-/blob/<SHA>/config/app.yml#L3))
 - 执行记录:作者提供:本地跑了 jest
+
+> 引用校验只确认出处,不代表业务已验证;验证建议未经执行确认。
+> 缺少可用分析,仅展示确定事实和未归组代码块。
+> 分析缺项:analyst.json — 缺少分析

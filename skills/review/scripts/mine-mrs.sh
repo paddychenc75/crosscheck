@@ -1,22 +1,23 @@
 #!/bin/sh
-# mine-mrs.sh — 只读地拉取最近合并的 MR 和上面的人工评论,整理成供 improve 归纳规则的素材。
+# mine-mrs.sh — 只读地拉取最近合并的 MR 和讨论,整理成供 improve 归纳规则的素材。
 #
 # 用法: mine-mrs.sh [--days N] [--limit N] [--repo DIR] [--platform gitlab|github]
 #
 #   --days N     最近 N 天合并的 MR(默认 90,约一个季度)
-#   --limit N    最多取多少个 MR(默认 200,取合并时间最近的)
+#   --limit N    显式限制 MR 个数(正整数);默认不限制,按合并时间倒序
 #   --repo DIR   仓库所在的目录(默认:当前目录)
 #   --platform   默认按 origin 的地址判断:含 github.com 用 gh,其余用 glab
 #
 # 只读:只调用 glab api / gh api 的 GET 请求和 git show,不改仓库,也不往平台写任何东西。
 # 缓存在 ~/.crosscheck/mining/<项目名>/mrs/<编号>.json,MR 没有更新过就不再拉评论。
-# 缓存只存 MR 标题、作者和人工评论(不存 MR 描述原文)。
+# 只复用同版本、同 origin、complete=true 且更新时间一致的评论缓存。
 #
 # 每次运行新建工作目录 mining/<项目名>/run-<时间>/,写入:
-#   batch-<n>.json   按目录分好的评论:mr、note、author、file、line、code(评论处上下几行代码)、body,
-#                    resolved(讨论是否已解决,不知道为 null)、changed_after(评论处的代码在 MR 最终版本里是否改了)
+#   snapshot.json    本次固定输入(version/complete/records/feedback/errors),失败同样保存,并非零退出
+#   batch-<n>.json   完整线程的 flat note 数组,新增 thread=<mr>:<discussion>;
+#                    按 JSON 序列化字符预算分配,超大线程独占,不截正文
 #   feedback.json    crosscheck 自己记下的判断(成立 / 不成立 / 不修)及原因,也是候选的素材
-#   existing-rules.txt  仓库里已有的规则,归纳时不重复
+#   existing-rules.txt / rules-sources.json  已有规则的全文、范围、来源与读取问题
 #   meta.txt         repo_root、days、mrs、notes、reviewers、batches 等
 # 输出统计;最后一行是工作目录。
 # 需要 python3,以及已登录的 glab(GitHub 用 gh)。
@@ -24,11 +25,15 @@
 set -eu
 
 die() { printf 'mine-mrs: %s\n' "$*" >&2; exit 1; }
-days=90; limit=200; repo_arg=""; platform=""
+days=90; limit=0; repo_arg=""; platform=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --days) [ $# -ge 2 ] || die "--days 需要一个值"; days=$2; shift 2 ;;
-    --limit) [ $# -ge 2 ] || die "--limit 需要一个值"; limit=$2; shift 2 ;;
+    --limit)
+      [ $# -ge 2 ] || die "--limit 需要一个值"
+      case "$2" in ''|*[!0-9]*) die "--limit 应为正整数" ;; esac
+      [ "$2" -gt 0 ] 2>/dev/null || die "--limit 应为正整数"
+      limit=$2; shift 2 ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
     -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

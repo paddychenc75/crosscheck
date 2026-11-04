@@ -49,27 +49,39 @@ def suggest_dest(c, root):
 
 
 def evidence_lines(c):
-    """块末尾的证据说明,写成引用块(> 开头):提及与接受情况、逐条原文、没满足的准入项。parse 不读这些行,只给人看。"""
+    """块末尾的证据说明,写成引用块(> 开头):提及与模型采纳判断、逐条原文、复核来源。parse 不读这些行,只给人看。"""
     mrs = len(c["mrs"])
     fb = c["mentions"] - mrs                      # 判断记录一律算接受
     accepted = c["support"] - fb
     head = []
     if mrs:
-        head.append("提及 %d 个 MR:改了代码/已解决 %d,未知 %d,确定未接受 %d" % (mrs, accepted, c["unknown"], mrs - accepted - c["unknown"]))
+        head.append("提及 %d 个 MR:模型判断已采纳 %d,未知/结论不一致 %d,未采纳 %d" % (mrs, accepted, c["unknown"], mrs - accepted - c["unknown"]))
     if fb:
         head.append("判断记录 %d 条" % fb)
     out = ["", "> " + ";".join(head)]
     for e in c["evidence"]:
         who = " ".join(x for x in ("!%s" % e["mr"], one(e.get("author"))) if x) if e.get("mr") else "判断记录 " + one(e["feedback"])
         out.append("> - %s「%s」[%s]" % (who, one(e["quote"]), e["state"]))
-    if c["unmet"]:
-        out += [">", "> " + ";".join(c["unmet"])]
+        assessment = e.get("assessment", {})
+        if assessment:
+            out.append(">   判断依据:" + one(assessment["reason"]))
+            for b in assessment.get("basis", []):
+                out.append(">   !%s 评论 %s「%s」" % (b["mr"], b["note"], one(b["quote"])))
+    if c.get("review"):
+        out.append("> 语义复核(模型判断):" + one(c["review"]))
+    coverage = c.get("coverage", {})
+    if coverage:
+        out.append("> 已有约束(%s):%s" % (coverage["status"], one(coverage["reason"])))
+        for source in coverage.get("sources", []):
+            out.append("> - %s「%s」" % (one(source["file"]), one(source["quote"])))
     return out
 
 
 def render_block(c, dest):
-    lines = ["## %d. %s" % (c["no"], one(c.get("title")) or one(c["rule"])[:24]), "",
-             "- **候选**:%d(%s;评审人 %d 位)" % (c["no"], " ".join(refs(c)) or "-", c.get("people", 0)),
+    lines = ["## %d. %s" % (c["no"], one(c.get("title")) or one(c["rule"])[:24]), ""]
+    if c["unmet"]:
+        lines += ["> " + ";".join(c["unmet"]), ""]
+    lines += ["- **候选**:%d(%s;评审人 %d 位)" % (c["no"], " ".join(refs(c)) or "-", c.get("people", 0)),
              "- **去向**:" + dest,
              "- **动作**:待定",
              "- **规则**:" + one(c["rule"])]

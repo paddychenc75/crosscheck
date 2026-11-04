@@ -6,7 +6,7 @@
             JSON 数组(最多 3 条),如 [{"where": "api/orders.ts:42", "ask": "兼容期够不够"}]。
             两者记在这个目标的描述目录里,之后重新生成时沿用;传空字符串清除
 
-DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_check.py 校验(输出 STATUS: / DROPPED:),再写出
+先用 analysis_check.py 校验 analyst.json 或分批回复(缺失也记录状态,输出 STATUS: / DROPPED:),再写出
 <描述目录>/describe.md(贴进 PR/MR 描述)和 describe.html(完整版)。
 描述目录是 ~/.crosscheck/describe/<项目名>/<目标>/,和审查记录(reviews/)分开存放。输出:
   describe=<describe.md 的路径>  md_link=<file:// 链接>  html=<describe.html 的路径>  link=<file:// 链接>
@@ -15,8 +15,8 @@ DIR 里有 analyst.json(或分批的 analyst-<批次>.json)时先用 analysis_ch
 只读:不调用托管平台,不发布、不修改 PR/MR 的描述、评论或状态。
 内容只有事实和链接:一句话和基本信息(每项一行);改了什么(analyst 按功能分的组,经校验,没被任何组引用的非测试代码块
 由脚本补一条「其他」);主要影响(业务影响在前,必要的技术事实在后,每条事实一行;完整技术明细与识别范围只在网页版);
-作者点名的请重点看;怎么验证(以 analyst 校验过的「入口 → 能看到什么」为主,它一条都没有时才用脚本认出的入口补位,
-作者给了 --tested 才有执行记录);需求对照和规模只在网页版。各段都不按条数或篇幅裁剪。
+作者点名的请重点看;怎么验证(只渲染已校验的模型建议,作者给了 --tested 才有执行记录);
+脚本入口仅作为网页版的线索,不推导预期效果;需求对照和规模只在网页版。材料和分析缺项明确披露。
 来源:sources.json、describe-facts.json(脚本)、analysis.json(analyst 的回复,经校验)。
 结构和措辞在 ../templates/describe.md、describe.html(团队可以改它们适配自己的格式),本脚本只算事实、填进去;模板写法见 render()。
 """
@@ -44,9 +44,7 @@ VERB = {"added": "新增", "removed": "删除", "modified": "修改", "signature
 RANK = {"removed": 0, "signature_changed": 2, "modified": 2, "added": 3}   # 签名变化且 diff 外有调用方是 1
 CHECKED = "接口、迁移、配置、签名"
 AI_VERIFY = "验证步骤由 AI 依据代码起草,贴之前请核对"
-# 脚本认出的入口写成一行:(前, 后),中间是入口本身
-TRIGGER = {"route": ("请求 ", ""), "cli_command": ("运行子命令 ", ""), "cli_flag": ("命令行带上 ", ""),
-           "event": ("事件/队列 ", " 收到消息"), "cron": ("定时任务 ", " 到点触发")}
+# 入口线索的确定性展示顺序
 TRIGGER_ORDER = ["route", "cli_command", "cli_flag", "event", "cron", "config"]
 MAX_OTHER_FILES = 3
 MAX_OTHER_DIRS = 3
@@ -118,14 +116,23 @@ class Note:
         self.root = self.meta.get("repo_root", "")
         self.facts = crlib.load_json(os.path.join(d, "describe-facts.json"), {}) or {}
         self.analysis = crlib.load_json(os.path.join(d, "analysis.json"), {}) or {}
-        if self.analysis.get("status") == "failed":
-            self.analysis = {}
         self.src = crlib.load_json(os.path.join(d, "sources.json"), {}) or {}
         self.intent = (crlib.read_text(os.path.join(d, "intent-arg.txt")) or "").strip()
         self.author = crlib.load_json(os.path.join(out, "author.json"), {}) or {}
         self.conf = srcmod.settings(skill="describe")
-        self.asked = self.conf["required"]
         self.notes = []
+        self.disclosures = ["引用校验只确认出处,不代表业务已验证;验证建议未经执行确认。"]
+        if not os.path.isfile(os.path.join(d, "intent.md")):
+            self.disclosures.append("需求材料缺失,业务背景没有核对。")
+        if not os.path.isfile(os.path.join(d, "describe-facts.json")):
+            self.disclosures.append("技术事实材料缺失。")
+        if self.analysis.get("status") == "failed":
+            self.disclosures.append("缺少可用分析,仅展示确定事实和未归组代码块。")
+        self.disclosures += ["分析缺项:%s — %s" % (x["what"], x["why"]) for x in self.analysis.get("dropped", [])]
+        for item in self.src.get("items", []):
+            if item.get("status") != "given" or item.get("read_error"):
+                self.disclosures.append("%s资料未读取或未提供%s。" % (item.get("kind", "需求"),
+                                        ":" + item["read_error"] if item.get("read_error") else ""))
         self.hunks = {h["id"]: h for h in self.facts.get("hunks", []) if isinstance(h, dict) and h.get("id")}
         self.entry = self.facts.get("entrypoints") or {}
         self.sha = self.meta.get("head_sha", "")
@@ -192,8 +199,8 @@ class Note:
 
     # ---------- 基本信息 ----------
     def found_links(self, kind):
-        """analyst 从需求材料里找到的链接(已校验在原文里),最多 2 个。"""
-        return [x for x in self.analysis.get("links") or [] if x.get("kind") == kind][:2]
+        """analyst 从需求材料里找到的链接(已校验在原文里)。"""
+        return [x for x in self.analysis.get("links") or [] if x.get("kind") == kind]
 
     def source_items(self):
         """需求单、需求文档、设计稿三行始终有,没有链接(或只给了本地文件)时值留空,结构不变。返回 [(标签, Markdown, HTML)]。
@@ -257,9 +264,8 @@ class Note:
 
     # ---------- 改了什么 ----------
     def changes(self):
-        """analyst 按功能分的组(已校验),只留引用了存在的代码块的。"""
-        return [c for c in self.analysis.get("changes") or []
-                if isinstance(c, dict) and c.get("text") and [h for h in c.get("hunks") or [] if h in self.hunks]]
+        """只渲染 analysis_check 已校验的组。"""
+        return self.analysis.get("changes") or []
 
     def unused(self, changes):
         """没被任何组引用的非测试代码块:改动不会因为 analyst 漏写而从描述里消失。"""
@@ -439,28 +445,8 @@ class Note:
                 out.append(t)
         return out
 
-    @staticmethod
-    def trigger_words(t):
-        if t["kind"] == "config":
-            return ("开启配置 ", "") if t.get("on") else ("配置开关 ", " 改动后为 %s" % t.get("value"))
-        return TRIGGER.get(t["kind"], ("", ""))
-
-    def trigger_md(self, t):
-        pre, post = self.trigger_words(t)
-        head = "%s%s%s" % (pre, code(t["label"]), post)
-        if t.get("handler"):
-            head += " → 进入 %s" % code(t["handler"])
-        return "%s(%s)" % (head, self.loc(t["file"], t.get("line")))
-
-    def model_verify(self, n_changes):
-        return [v for v in self.analysis.get("verify") or []
-                if isinstance(v, dict) and v.get("text") and isinstance(v.get("change"), int) and 1 <= v["change"] <= n_changes]
-
     def verify_lines(self, f):
-        """以 analyst 校验过的「入口 → 能看到什么」为主;它一条都没有时,脚本认出的入口才补位(脚本的入口不一定对得上某一组,不按组补)。"""
-        if f["verify"]:
-            return ["- " + v["text"] for v in f["verify"]]
-        return ["- " + self.trigger_md(t) for t in f["triggers"]]
+        return ["- " + v["text"] for v in f["verify"]]
 
     def tested(self):
         return str(self.author.get("tested") or "").strip()
@@ -478,7 +464,7 @@ class Note:
     def requirements(self):
         """[(验收标准, [代码块编号])];没有验收标准时是空列表,整段不出现。"""
         criteria = analysis_check.acceptance(self.d)
-        mapped = {r["criterion"]: [h for h in r.get("hunks", []) if h in self.hunks] for r in self.analysis.get("requirements") or []}
+        mapped = {r["criterion"]: r["hunks"] for r in self.analysis.get("requirements") or []}
         return [(c, mapped.get(c, [])) for c in criteria]
 
     def focus(self):
@@ -487,14 +473,14 @@ class Note:
     # ---------- 渲染 ----------
     def facts_once(self):
         changes = self.changes()
-        verify = self.model_verify(len(changes))
+        verify = self.analysis.get("verify") or []
         if verify:
             self.notes.append(AI_VERIFY)
         return {"layers": self.layers(), "triggers": self.triggers(), "reqs": self.requirements(), "changes": changes,
                 "other": self.other(changes), "res_hunks": self.resource_hunks(changes), "verify": verify, "summary": self.summary(), "focus": self.focus()}
 
     def md_ctx(self, f):
-        ctx = {"info": self.md_info()}
+        ctx = {"info": self.md_info(), "disclosure": "\n".join("> " + x for x in self.disclosures)}
         changes, other, res = f["changes"], f["other"], f["res_hunks"]
         lines = ["%d. %s" % (i, c["text"]) for i, c in enumerate(changes, 1)]   # 只写文字;代码块出处和链接在网页版
         if res:
@@ -532,11 +518,18 @@ class Note:
         def anchors(xs):
             return "、".join("<code>%s</code>" % e(a) for a in xs)
 
-        ctx = {"info_rows": rows([[e(k), v] for k, _, v in self.basic()])}
+        def evidence(item):
+            refs = [self.hunk_ref(h, md=False) for h in item["hunks"]]
+            refs += [where(r["path"], r["line"]) + "<br><code>" + e(r["quote"]) + "</code>"
+                     for r in item.get("context", [])]
+            return "<br>".join(refs)
+
+        ctx = {"info_rows": rows([[e(k), v] for k, _, v in self.basic()]),
+               "disclosure": "<br>".join(e(x) for x in self.disclosures)}
 
         changes, other = f["changes"], f["other"]
         data = [[str(i), ("<b>%s</b><br>" % e(c["title"]) if c.get("title") else "") + ticks_html(c["text"]),
-                 anchors(c.get("anchors") or []), "<br>".join(self.hunk_ref(h, md=False) for h in c["hunks"] if h in self.hunks)]
+                 anchors(c.get("anchors") or []), evidence(c)]
                 for i, c in enumerate(changes, 1)]
         if f["res_hunks"]:
             data.append([str(len(data) + 1), e(self.res_hunk_text(f["res_hunks"])) + "<br><small>多语言文案、图片等资源文件,由脚本汇总</small>",
@@ -545,10 +538,10 @@ class Note:
             data.append([str(len(data) + 1), e(self.other_text(other, bool(changes))) + "<br><small>没有被上面任何一组引用的代码块,由脚本补上</small>",
                          "", "<br>".join(self.hunk_ref(h["id"], md=False) for h in other)])
         ctx["change_rows"] = rows(data)
-        ctx["change_note"] = e("按功能分组由 AI 依据 diff 起草,锚点都已核对在所引代码块的改动行里") if changes else ""
+        ctx["change_note"] = e("按功能分组由 AI 依据 diff 起草,引用已核对出处,不证明业务语义") if changes else ""
 
         ctx["business_rows"] = rows([[ticks_html(x["text"]), anchors(x["anchors"]),
-                                      "<br>".join(self.hunk_ref(h, md=False) for h in x["hunks"])] for x in self.impact()])
+                                      evidence(x)] for x in self.impact()])
         layers = f["layers"]
         ctx["overview"] = e(self.overview(layers))
         data = []
@@ -578,12 +571,13 @@ class Note:
 
         data = []
         for t in f["triggers"]:
-            pre, post = self.trigger_words(t)
-            step = "%s<code>%s</code>%s" % (e(pre), e(t["label"]), e(post)) + (" → 进入 <code>%s</code>" % e(t["handler"]) if t.get("handler") else "")
-            data.append([step, "", "", where(t["file"], t.get("line")), e("脚本认出的入口")])
+            step = "<code>%s</code>" % e(t["label"])
+            if t.get("handler"):
+                step += " / <code>%s</code>" % e(t["handler"])
+            data.append([step, "", "", where(t["file"], t.get("line")), e("脚本入口线索,未核对调用链")])
         for v in f["verify"]:
             data.append([ticks_html(v["text"]), e("第 %d 组" % v["change"]), anchors(v.get("anchors") or []),
-                         "<br>".join(self.hunk_ref(h, md=False) for h in v.get("hunks") or [] if h in self.hunks), e("AI 起草,请核对")])
+                         evidence(v), e("AI 起草,请核对")])
         ctx["verify_rows"] = rows(data)
         cases, asserts = self.entry.get("cases") or [], self.entry.get("assertions") or []
         ctx["case_rows"] = rows([[e(c["name"]), where(c["file"], c.get("line"))] for c in cases])
@@ -711,11 +705,10 @@ def main(argv):
         if "focus" in opts:
             author["focus"] = parse_focus(opts["focus"]) if opts["focus"].strip() else []
         crlib.save_json(os.path.join(out, "author.json"), author)
-    if analysis_check.replies(d):
-        r = analysis_check.check(d)
-        print("STATUS: %s" % r["status"])
-        for x in r["dropped"]:
-            print("DROPPED: %s — %s" % (x["what"], x["why"]))
+    r = analysis_check.check(d)
+    print("STATUS: %s" % r["status"])
+    for x in r["dropped"]:
+        print("DROPPED: %s — %s" % (x["what"], x["why"]))
     note = Note(d, out)
     try:
         text, page = note.markdown(), note.html_page()
