@@ -24,7 +24,7 @@ rules-auditor 以 JSON 数组返回候选;reviewer 返回 `{"candidates": [...],
 | `line` | diff **新**侧的行号,且落在 `ranges.txt` 中该文件的某个范围内。指向出错的那一行,而不是函数的起始行。 |
 | `category` | `bug`、`security`、`intent`(没有满足明确的验收标准)或 `rules`。 |
 | `pass` | 只有 reviewer:在哪一遍查到的,`correctness`、`security`、`intent` 或 `impact`。不传给 verifier。 |
-| `severity` | 按后果的类型定,见下面「严重程度」一节。`rules` 按规则或 `REVIEW.md` 里对严重程度的定义写,没有定义就写 `minor`。规则里写的「严重级别」(`.agents/rules` 块里的 `- **严重级别**:重要` 字段,或 `REVIEW.md` 必查项一行里的 `严重级别:重要`)按 `重要` → `major`、`轻微` → `minor` 对应(规则模板和沉淀的规则只用这两级)。 |
+| `severity` | 按后果的类型定,见下面「严重程度」一节。`rules` 按规则或 `REVIEW.md` 里对严重程度的定义写,没有定义就写 `minor`。规则里写的「严重级别」(`.agents/rules` 块里的 `- **严重级别**:重要` 字段)按 `重要` → `major`、`轻微` → `minor` 对应(规则模板和沉淀的规则只用这两级)。 |
 | `summary` | 用一句话陈述缺陷。不要用含糊的措辞("可能"、"或许会"、"建议考虑")。 |
 | `failure_scenario` | 具体的输入或状态 → 错误的结果。`security` 写出攻击者可控的值从哪里进入、经过哪几步、得到什么。`intent` 写出是哪一条验收标准、代码哪里没有做到。 |
 | `suggestion` | 可选。能修复问题的最小改动,优先选不改变接口和既有行为的修法。能确定时直接给出替换后的代码,并说明替换的是哪几行;只能确定方向时用一句话描述;不确定怎么修就省略。 |
@@ -79,7 +79,7 @@ verifier 保留候选的全部字段(包括 `cid`),修正有偏差的 `line`、`
 | `compat` | 可选。修复会改变函数签名、公共行为、默认值、数据或序列化格式时才写:哪些行为保持不变、哪些调用方受影响、有没有更兼容的改法。 |
 | `history_match` / `history_context` / `previously` | `history_match` 引用仍适用的历史处理记录 id(无 id 用时间),`history_context` 简述对当前场景、调用环境与历史前提的重新核对;仅代码没变不够。`previously` 说明历史前提变化及重新提出的原因。「不修」保留事实分数,脚本在 `ignored_by_history` 另存 `history_decision`、`suppression_reason`,不覆盖事实 `verdict`。 |
 | `pre_existing` | 改动行上的缺陷在 base 里已以同样结果存在时填 `true`,判断规则见 `scoring-rubric.md` 封顶第 2 项;否则省略。`true` 的发现不计入本次发现,展示方式见 `report-format.md`。 |
-| `suppressed_by` | 因为命中 `rules.txt` 里覆盖这个文件的「不要报」一节(写 `review`,`REVIEW.md` 和 `.agents/rules/` 下规则文件里的「不要报」都写这个值)、误报清单(`false-positives`)或历史判断(`history`)而打低分时填写,报告和被否决的记录里能看出是被什么挡掉的。 |
+| `suppressed_by` | 因为命中 `rules.txt` 里覆盖这个文件的 `REVIEW.md`「不要报」一节(写 `review`;规则类发现命中那条规则块自己的「不要报」字段也写这个值)、误报清单(`false-positives`)或历史判断(`history`)而打低分时填写,报告和被否决的记录里能看出是被什么挡掉的。 |
 
 证据链复用三个字段:`failure_scenario` 表达触发输入/前提到后果,`evidence.note` 连接关键路径和支持该环的代码,`ruled_out` 记录守卫等反证与 base 路径/结果对照。按发现类别写相关环节,不机械要求规则违反也提供攻击入口,不重复创建大字段。脚本核对位置存在,并不证明整条语义链成立。
 

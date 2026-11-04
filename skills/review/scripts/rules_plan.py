@@ -17,7 +17,6 @@ REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重�
 SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
 EXAMPLES = ("反例", "正例")
 ACTIONS = ("待定", "写入", "跳过", "已写入")
-SECTIONS = ("每次都要检查", "不要报")
 RULES_DIR = ".agents/rules"
 
 HEADING = re.compile(r"^##\s+(.*)$")
@@ -53,13 +52,19 @@ def refs(c):
 
 
 def suggest_dest(c, root):
-    """rule 类去 .agents/rules;suppress 类范围恰好是仓库里一个目录(dir/**)时去该目录的 REVIEW.md,其余去 .agents/rules。"""
+    """rule 类去 .agents/rules/<主题>.md。suppress 类:是已有规则的例外(exception_of)时去那条规则的「不要报」字段;
+    其余去 REVIEW.md 的「不要报」,范围恰好是仓库里一个目录(dir/**)时用该目录的 REVIEW.md,否则用根目录的。"""
+    if c.get("kind") != "suppress":
+        return "%s/%s.md" % (RULES_DIR, c.get("topic") or "general")
+    of = c.get("exception_of")
+    if of:
+        return "%s#%s" % (of["file"], one(of["title"]))
     paths = c.get("paths") or []
-    if c.get("kind") == "suppress" and len(paths) == 1:
+    if len(paths) == 1:
         m = re.fullmatch(r"([^*?\[\]{}]+?)/+\*\*", paths[0])
         if m and root and os.path.isdir(os.path.join(root, m.group(1))):
             return "%s/REVIEW.md#不要报" % m.group(1)
-    return "%s/%s.md" % (RULES_DIR, c.get("topic") or "general")
+    return "REVIEW.md#不要报"
 
 
 def evidence_lines(c):
@@ -85,6 +90,9 @@ def evidence_lines(c):
         out.append("> 语义复核(模型判断):" + one(c["review"]))
     if c.get("severity_reason"):
         out.append("> 严重级别依据(模型判断):" + one(c["severity_reason"]))
+    if c["kind"] == "suppress":
+        of = c.get("exception_of")
+        out.append("> 不要报的类别(模型判断):" + ("已有规则的例外,%s「%s」" % (one(of["file"]), one(of["title"])) if of else "通用直觉"))
     coverage = c.get("coverage", {})
     if coverage:
         out.append("> 已有约束(%s):%s" % (coverage["status"], one(coverage["reason"])))
@@ -256,7 +264,8 @@ def parse(text):
 
 
 def parse_dest(value):
-    """去向 -> (文件, 章节或 None);写法不对时抛 ValueError。只看写法,目录在不在、能不能写由调用方查。"""
+    """去向 -> (文件, # 后面的部分或 None);写法不对时抛 ValueError。只看写法,目录在不在、能不能写由调用方查。
+    REVIEW.md 后面是章节,只能是「不要报」;.agents/rules/<主题>.md 后面是规则标题(这条不要报是那条规则的例外)。"""
     v = value.strip().strip("`").strip()
     path, _, section = v.partition("#")
     path, section = path.strip(), section.strip()
@@ -266,16 +275,14 @@ def parse_dest(value):
         raise ValueError("应为仓库内的相对路径,不含 .. 和绝对路径")
     path = os.path.normpath(path).replace(os.sep, "/")
     if "#" in v and not section:
-        raise ValueError("章节名为空")
+        raise ValueError("# 后面为空")
     if os.path.basename(path) == "REVIEW.md":
-        if section not in SECTIONS:
-            raise ValueError("REVIEW.md 后要带章节:#每次都要检查 或 #不要报")
+        if section != "不要报":
+            raise ValueError("REVIEW.md 后要带章节 #不要报(REVIEW.md 只收不要报类)")
         return path, section
     if path.startswith(RULES_DIR + "/") and path.endswith(".md") and len(path) > len(RULES_DIR) + 4:
-        if section and section != "不要报":
-            raise ValueError(".agents/rules 的文件只能带 #不要报(不要报类候选)或不带章节")
         return path, section or None
-    raise ValueError("应为 .agents/rules/<主题>.md,或 <目录>/REVIEW.md#每次都要检查 / #不要报")
+    raise ValueError("应为 .agents/rules/<主题>.md、.agents/rules/<主题>.md#<规则标题>,或 <目录>/REVIEW.md#不要报")
 
 
 def set_action(text, block, action):

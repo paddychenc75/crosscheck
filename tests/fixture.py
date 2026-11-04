@@ -212,14 +212,19 @@ limits: { minor: 2 }
 ---
 # Review 约定
 
-## 每次都要检查
+## 审查重点
 
-- 日期格式化统一用 `src/utils/date.ts`,不要直接调用 dayjs。原因:时区统一处理。
-- 日志里不能出现邮箱。原因:合规。
+- 分页出错表现为漏掉或重复最后一页的数据。
 
 ## 不要报
 
 - order_client 统一重试,调用方不用处理
+"""
+
+# 代码约束放 .agents/rules,审查和写代码共用;REVIEW.md 只调整审查器自己的行为
+GENERAL_RULES = """\
+- 日期格式化统一用 `src/utils/date.ts`,不要直接调用 dayjs。原因:时区统一处理。
+- 日志里不能出现邮箱。原因:合规。
 """
 
 
@@ -230,6 +235,7 @@ class ProjectFixture(Base):
         super().setUp()
         self.repo = self.make_repo("shop", {
             "REVIEW.md": REVIEW_MD,
+            ".agents/rules/general.md": GENERAL_RULES,
             "src/orders/REVIEW.md": "- 订单金额用 decimal。原因:精度。\n",
             "CLAUDE.md": "# Project\nUse pnpm.\n",
             "src/orders/paginate.ts": "export function page(t: number, s: number) {\n  return Math.ceil(t / s)\n}\n",

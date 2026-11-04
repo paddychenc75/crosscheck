@@ -8,12 +8,13 @@
 #     REVIEW.md 里标题为「不要报」(或 Do not report,可带括号说明)的一节是团队不想再被提醒的情况,只用来压掉发现,不作为要检查的规则
 #   → 给 coding agent 的约定:CLAUDE.md、AGENTS.md、.claude/rules/、.cursor/rules/、.github/instructions/ 等
 #     (按各自的路径或 frontmatter 范围生效;Copilot 的 excludeAgent: code-review 会被排除)
-#   → .agents/rules/**/*.md:从 MR 评论沉淀的规则(improve),范围取 frontmatter 的 paths(或 globs),没有就是整个仓库;
-#     其中的「不要报」一节和 REVIEW.md 一样只用来压掉发现
+#   → .agents/rules/**/*.md:代码约束,审查和写代码共用,范围取 frontmatter 的 paths(或 globs),没有就是整个仓库;
+#     规则自己的例外写在规则块的「不要报」字段里,随规则一起交给角色,文件里不再单独拆「不要报」一节
+#   同一份规则经符号链接出现多次(如 .claude/rules/x.md 指向 .agents/rules/x.md)只读一条,.agents/rules 优先
 # 写入 DIR:
 #   rules.txt         规则正文,每块以一行头部开始:
 #                     === RULES layer=<L3|L2|external> source=<来源> file=<路径> scope=<glob> ===
-#   rules-index.json  每块的文件、来源、正文(text,不含「不要报」一节)、「不要报」(suppress)和覆盖的改动文件;
+#   rules-index.json  每块的文件、来源、正文(text,REVIEW.md 的不含「不要报」一节)、REVIEW.md 的「不要报」(suppress)和覆盖的改动文件;
 #                     aggregate.sh 用它核对规则发现的出处和引文
 #   rules-meta.txt    blocks=<块数> source=<读自哪一版> errors=<格式错误> excluded=<被排除的文件数>
 #
@@ -24,6 +25,6 @@ set -eu
 
 command -v python3 >/dev/null 2>&1 || { echo "collect-rules: 需要 python3" >&2; exit 1; }
 dir=${1:-}
-case "$dir" in -h|--help|"") sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+case "$dir" in -h|--help|"") sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 [ -f "$dir/meta.txt" ] || { echo "collect-rules: $dir 不是 collect-diff.sh 的输出目录" >&2; exit 1; }
 exec python3 "$(cd "$(dirname "$0")" && pwd)/collect_rules.py" "$dir"

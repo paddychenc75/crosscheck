@@ -290,11 +290,11 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "id": "f2", "verdict": "invalid", "reason": "这是生成的客户端代码,不用管重复", "file": "src/api/gen/b.ts", "author": "h2", "target": "mr-130", "time": "2026-10-02 10:00"}])
         _, work = self.mine()
         self.assertEqual(len(self.load(os.path.join(work, "feedback.json"))), 2)
-        sup = {"kind": "suppress", "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"],
+        sup = {"kind": "suppress", "topic": "api", "rule": "生成的客户端代码里的重复不用提", "paths": ["src/api/gen/**"], "exception_of": None,
                "evidence": [{"feedback": "k1", "quote": "生成的客户端代码不用管"}, {"feedback": "f2", "quote": "不用管重复"}]}
         out, cands, _ = self.check(work, [sup])
         self.assertEqual([c["kind"] for c in cands], ["suppress"])
-        self.assertIn("1. [不要报 · api] 生成的客户端代码里的重复不用提 → .agents/rules/api.md\n", out)
+        self.assertIn("1. [不要报 · api] 生成的客户端代码里的重复不用提 → REVIEW.md#不要报\n", out)     # 目录不在仓库里,去根目录
         # plan.md 写判断记录的整段原因(不是 miner 摘的片段);准入全满足,不列
         plan = self.plan_text(work)
         self.assertIn("> 判断记录 2 条\n> - 判断记录 k1「生成的客户端代码不用管」[判为不成立]\n"
@@ -305,8 +305,8 @@ class RulesMining(fixture.Base):
         self.write_rules(work, "--apply")
         self.assertEqual([e["feedback"] for e in cands[0]["evidence"]], ["k1", "k2"])
         # 别名 f2 输入归一到稳定 key k2，计划和写入来源均使用 canonical key。
-        self.assertIn("<!-- 来源:审查 mr-128 发现 k1 审查 mr-130 发现 k2 -->",
-                      Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
+        self.assertIn("- 在 src/api/gen/** 范围内,生成的客户端代码里的重复不用提 <!-- 来源:审查 mr-128 发现 k1 审查 mr-130 发现 k2 -->",
+                      Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"))           # 范围写进句子
 
     def test_feedback_verdict_must_match_kind(self):
         self.standard_mrs()
@@ -314,7 +314,7 @@ class RulesMining(fixture.Base):
                        {"key": "k2", "verdict": "valid", "reason": "测试桩里的重复确实该提", "file": "b", "author": "h2"},
                        {"key": "k3", "verdict": "valid", "reason": "接口必须校验签名", "file": "c", "author": "h3"}])
         _, work = self.mine()
-        sup = {"kind": "suppress", "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"],
+        sup = {"kind": "suppress", "topic": "api", "rule": "测试桩里的重复不用提", "paths": ["src/api/**"], "exception_of": None,
                "evidence": [{"feedback": "k1", "quote": "测试桩里的重复"}, {"feedback": "k2", "quote": "测试桩里的重复"}]}
         bad = rule(rule="接口必须校验签名", evidence=[{"feedback": "k1", "quote": "测试桩"}, {"feedback": "k3", "quote": "接口必须校验签名"}])
         _, cands, dropped = self.check(work, [sup, bad])
@@ -355,7 +355,7 @@ class RulesMining(fixture.Base):
 
     def sup(self, **kw):
         c = {"kind": "suppress", "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
-             "why": "mock 只在测试里用", "evidence": rule()["evidence"]}
+             "why": "mock 只在测试里用", "exception_of": None, "evidence": rule()["evidence"]}
         c.update(kw)
         return c
 
@@ -398,9 +398,10 @@ class RulesMining(fixture.Base):
         s_dir = self.sup()
         s_glob = self.sup(rule="mock 数据里的随机数不用提", paths=["src/api/**/*.ts"])
         s_gone = self.sup(rule="旧目录里的重复不用提", paths=["src/removed/**"])
+        s_rule = self.sup(rule="离线导出脚本里的分页上限不用提", exception_of={"file": ".agents/rules/api.md", "title": "分页参数要有上限"})
         self.standard_mrs()
         _, work = self.mine()
-        synthesis(work, [rule(), s_dir, s_glob, s_gone])
+        synthesis(work, [rule(), s_dir, s_glob, s_gone, s_rule])
         r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -410,13 +411,17 @@ class RulesMining(fixture.Base):
         plan = self.plan_text(work)
         self.assertTrue(plan.startswith("# 规则沉淀计划\n\n- 项目:shop\n- 扫描:最近 90 天,5 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)\n- 生成:"))
         blocks = {b["cand"]: b for b in self.parse_plan(plan)}
-        self.assertEqual(len(blocks), 4)
+        self.assertEqual(len(blocks), 5)
         self.assertEqual({b["fields"]["动作"] for b in blocks.values()}, {"待定"})
         dest = lambda c: blocks[cands[c["rule"]]["no"]]["fields"]["去向"]
         self.assertEqual(dest(rule()), ".agents/rules/api.md")
-        self.assertEqual(dest(s_dir), "src/api/REVIEW.md#不要报")          # 范围恰好是一个目录
-        self.assertEqual(dest(s_glob), ".agents/rules/api.md")             # 带别的通配片段
-        self.assertEqual(dest(s_gone), ".agents/rules/api.md")             # 目录不在仓库里
+        self.assertEqual(dest(s_dir), "src/api/REVIEW.md#不要报")          # 通用直觉,范围恰好是一个目录
+        self.assertEqual(dest(s_glob), "REVIEW.md#不要报")                 # 带别的通配片段:根目录
+        self.assertEqual(dest(s_gone), "REVIEW.md#不要报")                 # 目录不在仓库里:根目录
+        self.assertEqual(dest(s_rule), ".agents/rules/api.md#分页参数要有上限")    # 已有规则的例外
+        self.assertEqual(cands[s_rule["rule"]]["exception_of"], {"file": ".agents/rules/api.md", "title": "分页参数要有上限"})
+        self.assertIn("> 不要报的类别(模型判断):已有规则的例外,.agents/rules/api.md「分页参数要有上限」", plan)
+        self.assertIn("> 不要报的类别(模型判断):通用直觉", plan)
         f = blocks[cands[rule()["rule"]]["no"]]["fields"]
         self.assertEqual((f["规则"], f["严重级别"], f["范围"], f["不要报"]), (rule()["rule"], "重要", "src/api/**", "内部管理后台接口不限"))
         self.assertEqual((f["反例"], f["正例"]), ("list(limit)", "list(Math.min(limit, 100))"))
@@ -431,6 +436,22 @@ class RulesMining(fixture.Base):
                            capture_output=True, text=True, env=self.env)
         self.assertIn("plan.md 已存在,没有覆盖", r.stdout)
         self.assertTrue(self.plan_text(work).endswith("手改的\n"))
+
+    def test_suppress_must_say_whether_it_is_a_rule_exception(self):
+        self.standard_mrs()
+        _, work = self.mine()
+        missing = self.sup(rule="缺类别的不用提")
+        del missing["exception_of"]
+        cases = [(missing, "suppress 须写 exception_of"),
+                 (self.sup(rule="类别写错的不用提", exception_of="api"), "exception_of 应为 {file, title} 或 null"),
+                 (self.sup(rule="没有标题的不用提", exception_of={"file": ".agents/rules/api.md", "title": " "}), "exception_of 应为 {file, title} 或 null"),
+                 (self.sup(rule="指向 REVIEW 的不用提", exception_of={"file": "REVIEW.md", "title": "x"}), "REVIEW.md 后要带章节"),
+                 (self.sup(rule="指向别处的不用提", exception_of={"file": "docs/a.md", "title": "x"}), "应为 .agents/rules/<主题>.md")]
+        _, got, dropped = self.check(work, [c for c, _ in cases])
+        self.assertEqual(got, [])
+        reasons = {d["rule"]: d["reason"] for d in dropped}
+        for c, expect in cases:
+            self.assertIn(expect, reasons[c["rule"]])
 
     def test_plan_shows_evidence_and_parse_ignores_it(self):
         self.standard_mrs()
@@ -481,18 +502,16 @@ class RulesMining(fixture.Base):
         self.assertEqual([x for x in after.split("\n") if x.startswith(">")],
                          [x for x in changed_plan.split("\n") if x.startswith(">")])
 
-    def test_review_md_line_keeps_severity_and_review_reads_it(self):
-        minor = rule(rule="在 src/api/** 里,必须给外部调用设置超时", severity="轻微")
-        work, no = self.prepare(rule(), minor)
+    def test_review_md_suppress_is_read_in_review(self):
+        other = self.sup(rule="测试桩里的重复不用提", why="")
+        work, no = self.prepare(self.sup(), other)
         for n in no.values():
             self.edit_plan(work, n, "动作", "写入")
-            self.edit_plan(work, n, "去向", "src/api/REVIEW.md#每次都要检查")
-        # --check 的 diff 里就能看到级别
         preview = self.write_rules(work, "--check")
-        self.assertIn("+- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->", preview)
-        self.assertIn("+- 在 src/api/** 里,必须给外部调用设置超时。严重级别:轻微。不要报:", preview)
+        self.assertIn("+- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->", preview)
+        self.assertIn("+- 测试桩里的重复不用提 <!-- 来源:!12 !15 -->", preview)
         self.write_rules(work, "--apply")
-        # 审查时 collect-rules 把这些行原样交给 rules auditor,级别随规则一起过去
+        # 审查时 collect-rules 把这一节单独放进 suppress,不当成要检查的规则
         self.git(self.repo, "add", "-A")
         self.git(self.repo, "commit", "-qm", "rules")
         self.git(self.repo, "switch", "-qc", "feature")
@@ -500,8 +519,9 @@ class RulesMining(fixture.Base):
         rd = self.review_dir(self.run_script("collect-diff.sh", cwd=self.repo).stdout)
         self.run_script("collect-rules.sh", rd)
         block = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}["src/api/REVIEW.md"]
-        self.assertIn("必须校验分页参数的上限。严重级别:重要。", block["text"])
-        self.assertIn("必须给外部调用设置超时。严重级别:轻微。", block["text"])
+        self.assertIn("mock 数据里的硬编码金额不用提", block["suppress"])
+        self.assertIn("测试桩里的重复不用提", block["suppress"])
+        self.assertNotIn("测试桩", block["text"])
 
     def parse_plan(self, text):
         import sys
@@ -573,8 +593,11 @@ class RulesMining(fixture.Base):
             ("去向:目录不存在", "去向", "docs/REVIEW.md#不要报", "块 %d 去向: 目录 docs 不在仓库里" % bad),
             ("去向:没写章节", "去向", "src/api/REVIEW.md", "块 %d 去向: REVIEW.md 后要带章节" % bad),
             ("去向:章节不认识", "去向", "src/api/REVIEW.md#随便", "块 %d 去向: REVIEW.md 后要带章节" % bad),
-            ("去向:不要报类去必查", "去向", "src/api/REVIEW.md#每次都要检查", "块 %d 去向: 不要报类只能写进「不要报」" % bad),
+            ("去向:旧的必查章节", "去向", "src/api/REVIEW.md#每次都要检查", "块 %d 去向: REVIEW.md 后要带章节 #不要报" % bad),
+            ("去向:规则文件不指明规则", "去向", ".agents/rules/api.md", "块 %d 去向: 不要报类写进 .agents/rules 时要指明是哪条规则的例外" % bad),
+            ("去向:规则文件不存在", "去向", ".agents/rules/api.md#分页参数要有上限", "块 %d 去向: .agents/rules/api.md 不存在" % bad),
             ("范围不合法", "范围", "../x/**", "块 %d 范围:" % bad),
+            ("范围不在目录里", "范围", "lib/**", "块 %d 范围: lib/** 不在 src/api 里" % bad),
         ]
         for name, field, value, expect in cases:
             with self.subTest(name):
@@ -607,8 +630,9 @@ class RulesMining(fixture.Base):
             ("严重级别", "很严重", "块 %d 严重级别: 严重级别应为重要或轻微" % n),
             ("不要报", "", "块 %d 不要报: 不能为空" % n),
             ("不要报", None, "块 %d 不要报: 缺少这个字段" % n),
-            ("去向", "src/api/REVIEW.md#不要报", "块 %d 去向: 规则类只能写进「每次都要检查」" % n),
-            ("去向", ".agents/rules/api.md#不要报", "块 %d 去向: 规则类不能写进「不要报」" % n),
+            ("去向", "src/api/REVIEW.md#不要报", "块 %d 去向: 规则类是代码约束,写进 .agents/rules/<主题>.md" % n),
+            ("去向", "src/api/REVIEW.md#每次都要检查", "块 %d 去向: REVIEW.md 后要带章节 #不要报" % n),
+            ("去向", ".agents/rules/api.md#不要报", "块 %d 去向: 规则类写成新的规则块,去向不带 #" % n),
         ]
         for field, value, expect in cases:
             with self.subTest(field=field, value=value):
@@ -637,10 +661,10 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md +", out)
         self.assertIn("PENDING: 1 块还是待定", out)
-        self.assertIn("@.agents/rules/", out)
+        self.assertNotIn("SUGGEST:", out)                                   # 仓库里没有 .claude/、.cursor/、AGENTS.md
         self.assertEqual(sorted(os.listdir(os.path.join(self.repo, ".agents/rules"))), ["api.md"])        # 跳过的、待定的都没写
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
-        self.assertTrue(text.startswith('---\npaths: ["src/api/**"]\n---\n# api\n'))
+        self.assertTrue(text.startswith('---\npaths: "src/api/**"\nglobs: "src/api/**"\n---\n# api\n'))   # Claude 读 paths,Cursor 读 globs
         self.assertIn("## 分页参数要有上限\n\n- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限(最多 100)\n"
                       "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:\n  ```ts\n  list(limit)\n  ```\n"
                       "- **正例**:\n  ```ts\n  list(Math.min(limit, 100))\n  ```\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
@@ -659,12 +683,15 @@ class RulesMining(fixture.Base):
     def test_same_rule_already_in_file_is_skipped(self):
         work, no = self.prepare(rule(), self.sup())
         n1, n2 = no[rule()["rule"]], no[self.sup()["rule"]]
-        self.edit_plan(work, n2, "去向", ".agents/rules/api.md")
-        self.write_all(work, [n1, n2])
+        self.write_all(work, [n1])
+        self.write_rules(work, "--apply")
+        self.edit_plan(work, n2, "去向", ".agents/rules/api.md#分页参数要有上限")
+        self.write_all(work, [n2])
         self.write_rules(work, "--apply")
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
-        self.assertEqual(text.count("\n## 不要报\n"), 1)
-        # 把它们重新标成写入:同一句规则已在文件里,跳过;同一批里重复的块也只写一次
+        self.assertNotIn("\n## 不要报\n", text)
+        self.assertIn("- **不要报**:内部管理后台接口不限；mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->\n", text)
+        # 把它们重新标成写入:规则块并进过例外也算已在文件里,跳过;例外已在字段里,也跳过
         self.write_all(work, [n1, n2])
         for n in (n1, n2):
             self.edit_plan(work, n, "动作", "写入")
@@ -688,7 +715,7 @@ class RulesMining(fixture.Base):
         self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), hand)
         self.assertIn("WRITE: .agents/rules/api-2.md", out)
         text = Path(self.repo, ".agents/rules/api-2.md").read_text(encoding="utf-8")
-        self.assertIn("## 在 src/api/** 里,禁止吞掉数据库异常\n", text)       # 标题会被当成「不要报」时改用规则句
+        self.assertIn("## 不要报\n\n- **规则**:在 src/api/** 里,禁止吞掉数据库异常\n", text)   # 规则文件没有「不要报」一节,标题原样写
         # 之后沉淀的同范围规则追加到带标记的 api-2.md,不是再起一个文件
         self.write_all(work, [n3])
         self.write_rules(work, "--apply")
@@ -697,70 +724,86 @@ class RulesMining(fixture.Base):
         self.assertIn("在 src/api/** 里,必须给外部调用设置超时", text2)
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".agents/rules/api-3.md")))
 
-    def review_work(self, review, dest, kind="rule"):
-        """repo 根目录放 review(None 表示删掉),候选 dest 指向 REVIEW.md 的某一节;返回 work_dir 和块号。"""
+    def review_work(self, review, dest, scope="**"):
+        """repo 根目录放 review(None 表示删掉),不要报类候选 dest 指向某个 REVIEW.md#不要报;返回 work_dir 和块号。"""
         if review is None:
             os.remove(os.path.join(self.repo, "REVIEW.md"))
         else:
             self.write(self.repo, {"REVIEW.md": review})
-        c = rule() if kind == "rule" else self.sup()
-        work, no = self.prepare(c)
-        n = no[c["rule"]]
+        work, no = self.prepare(self.sup())
+        n = no[self.sup()["rule"]]
         self.edit_plan(work, n, "动作", "写入")
         self.edit_plan(work, n, "去向", dest)
-        if dest.startswith("REVIEW.md#"):
-            self.edit_plan(work, n, "范围", "**")
+        self.edit_plan(work, n, "范围", scope)
         return work, n
 
     def test_review_md_appends_to_existing_section(self):
-        review = ("---\nskip: [\"gen/**\"]\n---\n# Review 约定\n\n## 严重程度\n\n只有出错才算重要。\n\n## 每次都要检查\n\n"
-                  "<!-- 说明 -->\n- 日期统一用 date.ts。原因:时区。\n- 金额用分。\n    补充一句\n\n## 不要报\n\n- 生成代码\n")
-        work, n = self.review_work(review, "REVIEW.md#每次都要检查")
+        review = ("---\nskip: [\"gen/**\"]\n---\n# Review 约定\n\n## 严重程度\n\n只有出错才算重要。\n\n## 审查重点\n\n"
+                  "- 分页出错表现为漏掉最后一页。\n\n## 不要报\n\n<!-- 说明 -->\n- 生成代码\n- 测试桩。\n    补充一句\n\n## 别的\n\n- x\n")
+        work, n = self.review_work(review, "REVIEW.md#不要报")
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +1行", out)
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
-        line = "- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->"
+        line = "- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->"
         self.assertEqual(text, review.replace("    补充一句\n", "    补充一句\n" + line + "\n"))      # 只多一行,头部和其他内容不变
         self.assertTrue(text.startswith("---\nskip: [\"gen/**\"]\n---\n"))
         self.assertNotIn("WARN:", out)
+        self.assertNotIn("SUGGEST:", out)                                    # 只写 REVIEW.md 不给接入建议
         self.assertEqual(self.git(self.repo, "diff", "--cached", "--name-only"), "")
 
     def test_review_md_suppress_goes_after_last_item_of_suppress_section(self):
         review = "# 规则\n\n## 不要报(生成代码)\n\n- 旧的一条\n- 另一条\n\n## 别的\n\n- x\n"
-        work, n = self.review_work(review, "REVIEW.md#不要报", kind="suppress")
+        work, n = self.review_work(review, "REVIEW.md#不要报")
         self.write_rules(work, "--apply")
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"),
                          "# 规则\n\n## 不要报(生成代码)\n\n- 旧的一条\n- 另一条\n"
                          "- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->\n\n## 别的\n\n- x\n")
 
-    def test_review_md_creates_missing_section_at_end(self):
-        review = "---\nskip: []\n---\n# 规则\n\n## 不要报\n\n- 生成代码\n"
-        work, n = self.review_work(review, "REVIEW.md#每次都要检查")
+    def test_review_md_creates_missing_section_at_end_with_scope_in_sentence(self):
+        review = "---\nskip: []\n---\n# 规则\n\n## 审查重点\n\n- 金额\n"
+        work, n = self.review_work(review, "REVIEW.md#不要报", scope="src/api/**")
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: REVIEW.md +4行", out)
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), review +
-                         "\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->\n")
+                         "\n## 不要报\n\n- 在 src/api/** 范围内,mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->\n")
 
     def test_review_md_empty_section_gets_item_under_heading(self):
-        review = "# 规则\n\n## 每次都要检查\n## 不要报\n\n- x\n"
-        work, n = self.review_work(review, "REVIEW.md#每次都要检查")
+        review = "# 规则\n\n## 不要报\n## 别的\n\n- x\n"
+        work, n = self.review_work(review, "REVIEW.md#不要报")
         self.write_rules(work, "--apply")
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
-        self.assertTrue(text.startswith("# 规则\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。"))
-        self.assertIn("<!-- 来源:!12 !15 -->\n\n## 不要报\n\n- x\n", text)
+        self.assertTrue(text.startswith("# 规则\n\n## 不要报\n\n- mock 数据里的硬编码金额不用提"))
+        self.assertIn("<!-- 来源:!12 !15 -->\n\n## 别的\n\n- x\n", text)
 
     def test_review_md_created_in_subdirectory(self):
-        work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#每次都要检查")
+        work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#不要报", scope="src/api/**")
         self.write_rules(work, "--apply")
         self.assertEqual(Path(self.repo, "src/api/REVIEW.md").read_text(encoding="utf-8"),
-                         "# Review 约定\n\n## 每次都要检查\n\n- 在 src/api/** 的接口里,必须校验分页参数的上限。严重级别:重要。不要报:内部管理后台接口不限。原因:不校验会查全表 <!-- 来源:!12 !15 -->\n")
+                         "# Review 约定\n\n## 不要报\n\n- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->\n")   # 范围就是这个目录,不写进句子
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), "# 规则\n")           # 根目录的没动
-        # 范围在该目录里,不提醒
         self.assertNotIn("WARN", self.write_rules(work, "--check"))
 
+    def test_review_md_subdirectory_narrower_scope_goes_into_sentence(self):
+        work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#不要报", scope="src/api/mock/**")
+        self.write_rules(work, "--apply")
+        self.assertIn("- 在 src/api/mock/** 范围内,mock 数据里的硬编码金额不用提",
+                      Path(self.repo, "src/api/REVIEW.md").read_text(encoding="utf-8"))
+
+    def test_review_md_subdirectory_wider_scope_refused(self):
+        # 范围超出所在目录(包括只是前缀相同的兄弟目录)时整批不写,要改去根目录
+        for scope in ("src/web/**", "src/api-old/**", "src/api/**, src/web/**"):
+            work, n = self.review_work("# 规则\n", "src/api/REVIEW.md#不要报", scope=scope)
+            for mode in ("--check", "--apply"):
+                r = self.run_write(work, mode)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("ERROR: 块 %d 范围:" % n, r.stdout)
+                self.assertIn("不在 src/api 里", r.stdout)
+            self.assertFalse(Path(self.repo, "src/api/REVIEW.md").exists())
+            self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), "# 规则\n")
+
     def test_review_md_unclosed_frontmatter_refused(self):
-        review = "---\nskip: [\"gen/**\"]\n\n## 每次都要检查\n\n- 旧\n"
-        work, n = self.review_work(review, "REVIEW.md#每次都要检查")
+        review = "---\nskip: [\"gen/**\"]\n\n## 不要报\n\n- 旧\n"
+        work, n = self.review_work(review, "REVIEW.md#不要报")
         for mode in ("--check", "--apply"):
             r = self.run_write(work, mode)
             self.assertEqual(r.returncode, 2, r.stdout)
@@ -768,18 +811,122 @@ class RulesMining(fixture.Base):
         self.assertEqual(Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"), review)
 
     def test_source_note_comes_from_candidates_not_plan(self):
-        work, no = self.prepare(rule())
-        n = no[rule()["rule"]]
-        self.edit_plan(work, n, "动作", "写入")
+        work, n = self.review_work("# 规则\n", "REVIEW.md#不要报")
         self.edit_plan(work, n, "候选", "%d(!999 !888;评审人 9 位;准入 ✓)" % n)
         self.edit_plan(work, n, "原因", "改过的原因 <!-- 来源:!777 -->")
-        self.edit_plan(work, n, "去向", "REVIEW.md#每次都要检查")
-        self.edit_plan(work, n, "范围", "**")
         self.write_rules(work, "--apply")
         text = Path(self.repo, "REVIEW.md").read_text(encoding="utf-8")
-        self.assertIn("原因:改过的原因 <!-- 来源:!12 !15 -->", text)
+        self.assertIn("(改过的原因) <!-- 来源:!12 !15 -->", text)
         self.assertNotIn("999", text)
         self.assertNotIn("777", text)
+
+    def rule_with_exceptions(self, rules_text):
+        """先放好一个规则文件,再准备一条指向其中「分页参数要有上限」的例外候选;返回 work_dir 和块号。"""
+        self.write(self.repo, {".agents/rules/api.md": rules_text})
+        work, no = self.prepare(self.sup())
+        n = no[self.sup()["rule"]]
+        self.edit_plan(work, n, "动作", "写入")
+        self.edit_plan(work, n, "去向", ".agents/rules/api.md#分页参数要有上限")
+        return work, n
+
+    def test_rule_exception_merges_into_its_field(self):
+        head = '---\npaths: "src/api/**"\nglobs: "src/api/**"\n---\n# api\n\n'
+        block = "## 分页参数要有上限\n\n- **规则**:必须校验分页上限\n- **不要报**:内部管理后台接口不限。\n<!-- 来源:!1 -->\n"
+        other = "\n## 别的规则\n\n- **规则**:必须记日志\n- **不要报**:无\n"
+        work, n = self.rule_with_exceptions(head + block + other)
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WRITE: .agents/rules/api.md +0行", out)
+        text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
+        merged = block.replace("内部管理后台接口不限。", "内部管理后台接口不限；mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->")
+        self.assertEqual(text, head + merged + other)                       # 范围等于文件的 paths,不写进句子;别的块不动
+        # 字段缺失时在块的最后一个字段后补一行
+        work, n = self.rule_with_exceptions(head + "## 分页参数要有上限\n\n- **规则**:必须校验分页上限\n<!-- 来源:!1 -->\n")
+        self.edit_plan(work, n, "范围", "src/api/mock/**")
+        self.write_rules(work, "--apply")
+        self.assertIn("- **规则**:必须校验分页上限\n- **不要报**:在 src/api/mock/** 范围内,mock 数据里的硬编码金额不用提",
+                      Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
+
+    def test_rule_exception_title_missing_or_duplicated_writes_nothing(self):
+        cases = [
+            ("## 别的规则\n\n- **不要报**:无\n", "去向: .agents/rules/api.md 里没有标题为「分页参数要有上限」的规则"),
+            ("## 分页参数要有上限\n\n- **不要报**:无\n\n## 分页参数要有上限\n\n- **不要报**:无\n",
+             "去向: .agents/rules/api.md 里标题为「分页参数要有上限」的规则有 2 条,无法确定是哪条的例外"),
+            ("```\n## 分页参数要有上限\n```\n", "里没有标题为「分页参数要有上限」的规则"),        # 代码块里的不算标题
+        ]
+        for text, expect in cases:
+            with self.subTest(expect):
+                work, n = self.rule_with_exceptions("# api\n\n" + text)
+                for mode in ("--check", "--apply"):
+                    r = self.run_write(work, mode)
+                    self.assertEqual(r.returncode, 2, r.stdout)
+                    self.assertIn("ERROR: 块 %d " % n, r.stdout)
+                    self.assertIn(expect, r.stdout)
+                    self.assertNotIn("WRITE:", r.stdout)
+                self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), "# api\n\n" + text)
+                self.assertNotIn("已写入", self.plan_text(work))
+
+    def test_apply_prints_hookup_suggestions_without_running_them(self):
+        self.write(self.repo, {".claude/settings.json": "{}\n", ".cursor/x": "\n", "AGENTS.md": "# Agents\n"})
+        work, no = self.prepare(rule())
+        self.write_all(work, no.values())
+        self.assertNotIn("SUGGEST:", self.write_rules(work, "--check"))     # 预演不给建议
+        out = self.write_rules(work, "--apply")
+        tips = [x for x in out.split("\n") if x.startswith("SUGGEST: ")]
+        self.assertEqual(tips, [
+            "SUGGEST: mkdir -p .claude/rules && ln -s ../../.agents/rules/api.md .claude/rules/api.md",
+            "SUGGEST: mkdir -p .cursor/rules && ln -s ../../.agents/rules/api.md .cursor/rules/api.mdc  # Cursor 官方未写明软链接和多余字段的处理,请自行确认",
+            "SUGGEST: 在 AGENTS.md 里加一行:- [api](.agents/rules/api.md):改 src/api/** 时遵守",
+        ])
+        self.assertIn("只打印、没有执行", out)
+        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".claude/rules")))      # 没执行
+        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".cursor/rules")))
+        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")
+        # 已经接上的不再提示:按建议建好软链接、加上那一行,再写一条同文件的规则
+        for link in (".claude/rules/api.md", ".cursor/rules/api.mdc"):
+            os.makedirs(os.path.dirname(os.path.join(self.repo, link)), exist_ok=True)
+            os.symlink("../../.agents/rules/api.md", os.path.join(self.repo, link))
+        Path(self.repo, "AGENTS.md").write_text("# Agents\n\n- [api](.agents/rules/api.md):改 src/api/** 时遵守\n", encoding="utf-8")
+        work, no = self.prepare(rule(rule="在 src/api/** 里,必须给外部调用设置超时"))
+        self.write_all(work, no.values())
+        out = self.write_rules(work, "--apply")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        self.assertNotIn("SUGGEST:", out)
+
+    def test_written_rules_reach_review_once_after_hookup(self):
+        # 整条链路:沉淀规则 → 按建议接上 → 沉淀例外和通用不要报 → 提交后 review 采集
+        self.write(self.repo, {".claude/settings.json": "{}\n", ".cursor/x": "\n",
+                               "REVIEW.md": "# Review 约定\n\n## 严重程度\n\n只有出错才算重要。\n"})
+        work, no = self.prepare(rule())
+        self.write_all(work, no.values())
+        out = self.write_rules(work, "--apply")
+        for tip in [x[len("SUGGEST: "):] for x in out.split("\n") if x.startswith("SUGGEST: ")]:
+            subprocess.run(["sh", "-c", tip], cwd=self.repo, check=True)
+        exception = self.sup(rule="测试夹具里的分页参数不用校验上限",
+                             exception_of={"file": ".agents/rules/api.md", "title": "分页参数要有上限"})
+        generic = self.sup()
+        work, no = self.prepare(exception, generic)
+        plan = self.plan_text(work)
+        self.assertIn("- **去向**:.agents/rules/api.md#分页参数要有上限", plan)       # 默认去向按 exception_of 给
+        self.assertIn("- **去向**:src/api/REVIEW.md#不要报", plan)                 # 通用直觉,范围正好是一个目录
+        self.write_all(work, no.values())
+        self.write_rules(work, "--apply")
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-qm", "rules")
+        tracked = self.git(self.repo, "ls-files", "-s", ".claude/rules", ".cursor/rules").split("\n")
+        self.assertEqual(sorted(x.split()[0] + " " + x.split("\t")[1] for x in tracked),
+                         ["120000 .claude/rules/api.md", "120000 .cursor/rules/api.mdc"])          # 两个软链接已提交
+        self.commit(self.repo, {"src/api/orders.ts": "changed\n"}, "change")
+        rd = self.review_dir(self.run_script("collect-diff.sh", "HEAD~1..HEAD", cwd=self.repo).stdout)
+        self.run_script("collect-rules.sh", rd)
+        units = self.load(os.path.join(rd, "rules-index.json"))
+        files = [u["file"] for u in units]
+        self.assertIn(".agents/rules/api.md", files)
+        self.assertFalse([f for f in files if f.startswith((".claude/rules/", ".cursor/rules/"))], files)   # 软链接那两份不重复读
+        api = next(u for u in units if u["file"] == ".agents/rules/api.md")
+        self.assertIn("内部管理后台接口不限；测试夹具里的分页参数不用校验上限", api["text"])   # 例外随规则一起交给角色
+        sub = next(u for u in units if u["file"] == "src/api/REVIEW.md")
+        self.assertIn("mock 数据里的硬编码金额不用提", "\n".join(sub["suppress"]) if isinstance(sub["suppress"], list) else sub["suppress"])
+        self.assertNotIn("mock 数据里的硬编码金额不用提", sub["text"])            # 不要报不当作要检查的规则
 
     def test_long_rule_file_warns(self):
         import hashlib
@@ -805,24 +952,25 @@ class RulesMining(fixture.Base):
         self.assertEqual((block["fields"]["反例"], block["fields"]["正例"]), (bad, good))
         self.assertEqual(block["lang"], {"反例": "ts", "正例": "ts"})
         self.assertEqual(block["fields"]["不要报"], "内部管理后台接口不限")          # 代码块后面的字段照常解析
-        # 用户把语言标记改成别的,写入时跟着变;代码里的 ## 不要报 不是章节,不要报类追加到真正的那一节
+        # 用户把语言标记改成别的,写入时跟着变;例外并进规则块的「不要报」字段,不碰代码里的 ## 不要报
         Path(work, "plan.md").write_text(plan.replace("  ````ts\n", "  ````js\n"), encoding="utf-8")
-        self.edit_plan(work, ns, "去向", ".agents/rules/api.md")
-        self.write_all(work, [n, ns])
+        self.write_all(work, [n])
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md", out)
+        self.edit_plan(work, ns, "去向", ".agents/rules/api.md#分页参数要有上限")
+        self.write_all(work, [ns])
+        self.write_rules(work, "--apply")
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
         self.assertIn("- **反例**:\n  ```ts\n  const s = `tpl`\n  ## 不要报\n  <!-- 代码里的注释 -->\n\n    indented()\n  ```\n"
-                      "- **正例**:\n  ````js\n  ```\n  fenced inside\n  ```\n  ````\n- **不要报**:内部管理后台接口不限\n<!-- 来源:!12 !15 -->", text)
-        self.assertEqual((text.count("\n  ## 不要报\n"), text.count("\n## 不要报\n")), (1, 1))   # 一个在代码里,一个是真正的章节
-        self.assertTrue(text.rstrip("\n").endswith("- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->"))
-        self.assertLess(text.index("<!-- 来源:!12 !15 -->"), text.rindex("## 不要报"))
-        # 再写一次:完整块一致,跳过
+                      "- **正例**:\n  ````js\n  ```\n  fenced inside\n  ```\n  ````\n"
+                      "- **不要报**:内部管理后台接口不限；mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->\n<!-- 来源:!12 !15 -->", text)
+        self.assertEqual((text.count("\n  ## 不要报\n"), text.count("\n## 不要报\n")), (1, 0))   # 只有代码里那一个,没有单独的章节
+        # 再写一次:规则块和例外都已在文件里,跳过
         self.write_all(work, [n, ns])
         out = self.write_rules(work, "--apply")
         self.assertNotIn("WRITE:", out)
         self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), text)
-        # 审查时 collect-rules 读这个文件:代码里的 ## 不要报 留在规则正文,真正的「不要报」一节单独放
+        # 审查时 collect-rules 读这个文件:规则文件没有「不要报」一节,整份都是规则正文,例外留在规则自己的字段里
         self.git(self.repo, "add", "-A")
         self.git(self.repo, "commit", "-qm", "rules")
         self.git(self.repo, "switch", "-qc", "feature")
@@ -832,9 +980,8 @@ class RulesMining(fixture.Base):
         api = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}[".agents/rules/api.md"]
         self.assertIn("  ## 不要报\n", api["text"])
         self.assertIn("fenced inside", api["text"])
-        self.assertTrue(api["suppress"].startswith("## 不要报"))
-        self.assertIn("mock 数据里的硬编码金额", api["suppress"])
-        self.assertNotIn("tpl", api["suppress"])
+        self.assertIn("**不要报**:内部管理后台接口不限；mock 数据里的硬编码金额", api["text"])
+        self.assertEqual(api["suppress"], "")
 
     def test_single_line_example_and_broken_fence(self):
         r = rule(bad_example="", good_example="")
@@ -909,19 +1056,20 @@ class RulesMining(fixture.Base):
         r2 = rule(title="金额用分", rule="在订单接口里,返回的金额必须统一用分", paths=["src/api/orders.ts"], bad_example="", good_example="")
         work, no = self.prepare(rule(), r2, self.sup())
         n1, n2, n3 = no[rule()["rule"]], no[r2["rule"]], no[self.sup()["rule"]]
-        self.edit_plan(work, n3, "去向", ".agents/rules/api.md")
-        self.write_all(work, [n1, n3])
+        self.write_all(work, [n1])
+        self.write_rules(work, "--apply")
+        self.edit_plan(work, n3, "去向", ".agents/rules/api.md#分页参数要有上限")
+        self.write_all(work, [n3])
         self.write_rules(work, "--apply")
         # 同主题、范围不同的另起文件;没给正反例的不写那两行
         self.write_all(work, [n2])
         self.write_rules(work, "--apply")
         t = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
-        self.assertLess(t.index("分页参数要有上限"), t.index("## 不要报"))
-        self.assertIn("## 不要报\n\n- mock 数据里的硬编码金额不用提(mock 只在测试里用) <!-- 来源:!12 !15 -->", t)
+        self.assertNotIn("## 不要报", t)
         t2 = Path(self.repo, ".agents/rules/api-2.md").read_text(encoding="utf-8")
-        self.assertIn('paths: ["src/api/orders.ts"]', t2)
+        self.assertIn('paths: "src/api/orders.ts"\nglobs: "src/api/orders.ts"\n', t2)
         self.assertNotIn("反例", t2)
-        # 审查时 collect-rules 按 paths 读到它,「不要报」单独放
+        # 审查时 collect-rules 按 paths 读到它,例外留在规则自己的「不要报」字段
         self.write(self.repo, {".agents/rules/all.md": "- 全仓库规则\n", ".agents/rules/web.md": "---\nglobs: web/**\n---\n- 前端规则\n"})
         self.git(self.repo, "add", "-A")
         self.git(self.repo, "commit", "-qm", "rules")
@@ -932,9 +1080,8 @@ class RulesMining(fixture.Base):
         blocks = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}
         api = blocks[".agents/rules/api.md"]
         self.assertEqual((api["source"], api["applies_files"]), ("agents-rules", ["src/api/orders.ts"]))
-        self.assertIn("mock 数据", api["suppress"])
-        self.assertNotIn("mock 数据", api["text"])
-        self.assertIn("**不要报**:内部管理后台接口不限", api["text"])        # 每条规则自己的边界留在规则里
+        self.assertEqual(api["suppress"], "")
+        self.assertIn("**不要报**:内部管理后台接口不限；mock 数据", api["text"])        # 每条规则自己的边界留在规则里
         self.assertEqual(sorted(blocks[".agents/rules/all.md"]["applies_files"]), ["lib/x.ts", "src/api/orders.ts"])
         self.assertNotIn(".agents/rules/web.md", blocks)
 
@@ -992,18 +1139,16 @@ class RulesMining(fixture.Base):
         Path(work, "candidates.json").write_text(json.dumps(list(reversed(self.load(Path(work, "candidates.json"))))))
         self.assertEqual(self.run_write(work, "--apply").returncode, 2)
 
-    def test_review_scope_rejected_and_exception_preview_preserved(self):
+    def test_rule_kind_never_goes_into_review_md(self):
         work, no = self.prepare(rule())
         n = no[rule()["rule"]]
         self.write_all(work, [n])
-        self.edit_plan(work, n, "去向", "REVIEW.md#每次都要检查")
-        self.assertEqual(self.run_write(work, "--check").returncode, 2)
-        self.edit_plan(work, n, "去向", "src/api/REVIEW.md#每次都要检查")
-        preview = self.write_rules(work, "--check")
-        self.assertIn("+", preview)
-        self.assertIn("不要报:内部管理后台接口不限", preview)
-        self.write_rules(work, "--apply")
-        self.assertIn("不要报:内部管理后台接口不限", Path(self.repo, "src/api/REVIEW.md").read_text())
+        for dest in ("REVIEW.md#不要报", "src/api/REVIEW.md#不要报"):
+            self.edit_plan(work, n, "去向", dest)
+            r = self.run_write(work, "--check")
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn("REVIEW.md 只收不要报类", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "src/api/REVIEW.md")))
 
     def test_symlink_targets_outside_and_git_metadata_are_refused(self):
         work, no = self.prepare(rule())
@@ -1018,7 +1163,8 @@ class RulesMining(fixture.Base):
                 r = self.run_write(work, mode)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
             dest.unlink()
-        self.edit_plan(work, next(iter(no.values())), "去向", "src/api/REVIEW.md#每次都要检查")
+        work, no = self.prepare(self.sup())
+        self.write_all(work, no.values())
         target = outside / "review"
         target.write_text("unchanged")
         Path(self.repo, "src/api/REVIEW.md").symlink_to(target)

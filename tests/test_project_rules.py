@@ -76,6 +76,48 @@ class ProjectRulesTests(fixture.Base):
         rd = self.collect(repo)
         self.assertIn('REVIEW.md: frontmatter 缺少结束分隔符', self.kv(Path(rd, 'rules-meta.txt'))['errors'])
 
+    def test_agents_rules_paths_and_globs_must_match(self):
+        repo = self.repo_with_changes({
+            '.agents/rules/bad.md': '---\npaths: "src/**"\nglobs: "ios/**"\n---\n- 不一致\n',
+            '.agents/rules/good.md': '---\npaths: "src/**, ios/**"\nglobs: "ios/**,src/**"\n---\n- 一致\n',
+        })
+        rd = self.collect(repo)
+        errors = self.kv(Path(rd, 'rules-meta.txt'))['errors']
+        self.assertIn('.agents/rules/bad.md', errors)
+        self.assertIn('paths 与 globs 不一致', errors)
+        self.assertNotIn('good.md', errors)
+        units = {r['file']: r for r in self.load(Path(rd, 'rules-index.json'))}
+        self.assertEqual(set(units['.agents/rules/good.md']['applies_files']), {'src/a.py', 'src/a.ts', 'ios/A.swift'})
+
+    def linked_repo(self):
+        """.claude/rules、.cursor/rules 链接到 .agents/rules 的同一份规则;CLAUDE.md 链接到 AGENTS.md;.cursor 链接到 .claude 里的手写规则。"""
+        repo = self.repo_with_changes({
+            '.agents/rules/api.md': '---\npaths: "src/**"\nglobs: "src/**"\n---\n- 接口必须校验参数\n',
+            '.claude/rules/own.md': '- 自己写的规则\n',
+            'AGENTS.md': '- 约定\n',
+        })
+        links = {'.claude/rules/api.md': '../../.agents/rules/api.md', '.cursor/rules/api.mdc': '../../.agents/rules/api.md',
+                 '.cursor/rules/own.mdc': '../../.claude/rules/own.md', 'CLAUDE.md': 'AGENTS.md'}
+        for link, target in links.items():
+            os.makedirs(os.path.dirname(os.path.join(repo, link)) or repo, exist_ok=True)
+            os.symlink(target, os.path.join(repo, link))
+        self.git(repo, 'add', '-A')
+        self.git(repo, 'commit', '-qm', 'links')
+        return repo
+
+    def test_symlinked_rules_are_read_once(self):
+        import crlib
+        repo = self.linked_repo()
+        want = ['.agents/rules/api.md', '.claude/rules/own.md', 'AGENTS.md']
+        for ref in (None, 'HEAD'):                          # 工作区读文件系统,commit 里按链接内容解析
+            with self.subTest(ref=ref):
+                got = sorted(r['file'] for r in project_rules.discover(crlib.Source(repo, ref)))
+                self.assertEqual(got, want)
+        units = [r['file'] for r in self.load(Path(self.collect(repo), 'rules-index.json'))]
+        self.assertEqual(sorted(units), want)
+        records = [r['file'] for r in project_rules.mining_sources(repo) if not r.get('referenced_by')]
+        self.assertEqual(sorted(records), want)
+
     def test_review_body_severity_survives_aggregation_with_fixed_threshold(self):
         repo = self.repo_with_changes({'REVIEW.md': '## 严重程度\n- 订单审计记录缺失按重要问题报告。\n',
                                        '.claude/rules/audit.md': '- 订单操作必须记录审计事件。\n'})

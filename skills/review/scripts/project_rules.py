@@ -67,6 +67,9 @@ def describe(path, text):
             scope = patterns(fm.get(key))
             if key in fm and not scope:
                 issues.append(key + ' 为空，不能隐式扩大到全局')
+            # Claude 只读 paths，Cursor 只读 globs：两者都写时必须是同一组范围
+            if source == 'agents-rules' and 'paths' in fm and 'globs' in fm and sorted(scope) != sorted(patterns(fm['globs'])):
+                issues.append('paths 与 globs 不一致，应写同一串 glob（Claude 只读 paths，Cursor 只读 globs）')
         except ValueError as e:
             issues.append(str(e)); scope = []
         if source == 'cursor' and str(fm.get('alwaysApply', '')).lower() == 'true':
@@ -86,9 +89,23 @@ def matches(record, path):
     return not record['issues'] and any(fn(p, path) for p in record['patterns'])
 
 
+def unique(files, real_of, is_link):
+    """同一份规则经符号链接出现多次时只留一条：.agents/rules 优先，其次是文件本身（不是链接），再按路径。
+    规则目录里的文件范围写在头部，真实路径相同就是同一条；其余文件按所在目录定范围，范围也相同才算重复。"""
+    best = {}
+    for f in files:
+        d = describe(f, '')
+        key = real_of(f) if d['native'] else (real_of(f), tuple(d['patterns']))
+        rank = (kind(f) != 'agents-rules', is_link(f), f)
+        if key not in best or rank < best[key][0]:
+            best[key] = (rank, f)
+    keep = {f for _, f in best.values()}
+    return [f for f in files if f in keep]
+
+
 def discover(src):
-    return [describe(p, text) for p in sorted(set(src.files())) if kind(p)
-            for text in [src.read(p)] if text is not None]
+    files = unique([p for p in sorted(set(src.files())) if kind(p)], src.realpath, lambda p: src.realpath(p) != p)
+    return [describe(p, text) for p in files for text in [src.read(p)] if text is not None]
 
 
 _RULE_DIRS = ('.claude/rules', '.agents/rules', '.cursor/rules', '.github/instructions')
@@ -145,10 +162,12 @@ def mining_sources(root):
     仅在已识别的规则目录内跟随目录链接；正文引用只读取明确的单个
     文本文件。引用使用真实文档所在目录解析，适用范围继承逻辑规则。
     读取失败也保留记录，供冻结 existing-rules 时报告不完整的采集。
+    同一份规则经链接出现多次时按 unique 只读一条。
     discover(Source(...)) 的 review/commit 语义不受此入口影响。
     """
     root = Path(root).absolute()
     records, seen = [], set()
+    pending = {}      # 入口规则文件 逻辑路径 -> 物理路径；按真实路径去重后再读
 
     def record(file, text, source_path, parent=None, issue=None):
         if parent is None and kind(file):
@@ -216,7 +235,7 @@ def mining_sources(root):
             if entry.is_dir():
                 walk_rules(logical, entry, ancestors + (real,))
             elif kind(logical):
-                read_file(logical, entry)
+                pending.setdefault(logical, entry)
             elif entry.is_symlink() and not entry.exists():
                 # 无扩展名的断链也可能原本指向一个规则子目录。
                 record(logical, '', os.path.realpath(entry), issue='规则目录内的符号链接已断开或循环')
@@ -230,7 +249,7 @@ def mining_sources(root):
     for file in sorted(files):
         path = root / file
         if kind(file) and not (path.is_dir() and file.startswith(tuple(d + '/' for d in _RULE_DIRS))):
-            read_file(file, path)
+            pending.setdefault(file, path)
     for container in sorted({d.split('/')[0] for d in _RULE_DIRS}):
         path = root / container
         if path.is_symlink() and not path.is_dir():
@@ -239,4 +258,8 @@ def mining_sources(root):
         path = root / directory
         if os.path.lexists(path):
             walk_rules(directory, path)
+    base = os.path.realpath(root)
+    for file in unique(sorted(pending), lambda f: os.path.realpath(pending[f]),
+                       lambda f: os.path.realpath(pending[f]) != os.path.join(base, f)):
+        read_file(file, pending[file])
     return records

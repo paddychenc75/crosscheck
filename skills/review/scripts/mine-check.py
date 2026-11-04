@@ -209,6 +209,16 @@ def main(argv):
                 require(not problems, "写法不合格:" + ";".join(problems))
                 paths = project_rules.patterns(c.get("paths") or [])
                 require(paths, "范围不对:没有适用路径")
+                # 不要报类要标明来源:已有规则的例外写进那条规则,通用直觉写进 REVIEW.md,由 suggest_dest 给默认去向
+                exception_of = None
+                if kind == "suppress":
+                    require("exception_of" in c, "suppress 须写 exception_of:已有规则的例外写 {file, title},通用直觉写 null")
+                    of = c["exception_of"]
+                    if of is not None:
+                        require(isinstance(of, dict) and nonempty(of.get("title")), "exception_of 应为 {file, title} 或 null")
+                        file, section = rules_plan.parse_dest(str(of.get("file", "")))
+                        require(file.startswith(rules_plan.RULES_DIR + "/") and not section, "exception_of.file 应为 .agents/rules/<主题>.md")
+                        exception_of = dict(file=file, title=crlib.norm(of["title"]))
                 coverage = coverage_review(work, root, c)
                 require(coverage["status"] != "covered", "已有约束覆盖:" + coverage["reason"])
                 ev, refs, people, states, bad = [], set(), set(), {}, []
@@ -266,7 +276,7 @@ def main(argv):
                                  severity_reason=crlib.norm(severity_reason),
                                  bad_example=str(c.get("bad_example") or ""), good_example=str(c.get("good_example") or ""),
                                  lang=next(iter(exts)) if len(exts) == 1 else "",
-                                 exceptions=crlib.norm(c.get("exceptions", "")), paths=paths,
+                                 exceptions=crlib.norm(c.get("exceptions", "")), paths=paths, exception_of=exception_of,
                                  topic=re.sub(r"[^a-z0-9-]+", "-", str(c.get("topic") or "general").lower()).strip("-") or "general",
                                  evidence=ev, mrs=sorted({e["mr"] for e in ev if "mr" in e}),
                                  mentions=len(refs), support=len(accepted), unknown=len(unknown), people=len(people),

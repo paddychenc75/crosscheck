@@ -26,7 +26,7 @@ class TestCollect(ProjectFixture):
         self.assertIn("logs/today.txt\tlog", skipped)
         self.assertNotIn("src/log/logger.ts", skipped, "log/ 目录里的源代码要审查")
         blocks = {b["file"]: b for b in self.load(os.path.join(rd, "rules-index.json"))}
-        self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", "CLAUDE.md"})
+        self.assertEqual(set(blocks), {"src/orders/REVIEW.md", "REVIEW.md", ".agents/rules/general.md", "CLAUDE.md"})
         self.assertEqual(blocks["src/orders/REVIEW.md"]["applies_files"], ["src/orders/paginate.ts"])
         self.assertEqual(blocks["src/orders/REVIEW.md"]["layer"], "L3")
         rules = Path(os.path.join(rd, "rules.txt")).read_text(encoding="utf-8")
@@ -34,7 +34,7 @@ class TestCollect(ProjectFixture):
         self.assertNotIn("skip:", rules, "frontmatter 不进规则正文")
         self.assertLess(rules.index("file=src/orders/REVIEW.md"), rules.index("file=REVIEW.md"), "越具体越先")
         meta = self.kv(os.path.join(rd, "rules-meta.txt"))
-        self.assertEqual(meta["blocks"], "3")
+        self.assertEqual(meta["blocks"], "4")
         self.assertIn("order_client 统一重试", blocks["REVIEW.md"]["suppress"])
         self.assertNotIn("order_client", blocks["REVIEW.md"]["text"], "「不要报」不算要检查的规则")
         self.assertIn("order_client 统一重试", rules, "「不要报」仍交给角色看")
@@ -79,10 +79,10 @@ class TestPipeline(ProjectFixture):
         cands = [
             {"file": P, "line": 2, "category": "bug", "severity": "major", "summary": "整页丢最后一页", "failure_scenario": "x", "found_by": ["reviewer"], "pass_hits": 2},
             {"file": L, "line": 1, "category": "security", "severity": "critical", "summary": "依据不存在", "failure_scenario": "x"},
-            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "日志里不能出现邮箱。", "summary": "日志有邮箱", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": ".agents/rules/general.md", "rule_quote": "日志里不能出现邮箱。", "summary": "日志有邮箱", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "rules", "rule_quote": "Use pnpm.", "summary": "没写出处", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "rules", "rule_file": "NOPE.md", "rule_quote": "编造", "summary": "编造的规则", "failure_scenario": "x"},
-            {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "不是原文", "summary": "引用不对", "failure_scenario": "x"},
+            {"file": P, "line": 2, "category": "rules", "rule_file": ".agents/rules/general.md", "rule_quote": "不是原文", "summary": "引用不对", "failure_scenario": "x"},
             {"file": L, "line": 1, "category": "rules", "rule_file": "src/orders/REVIEW.md", "rule_quote": "订单金额用 decimal", "summary": "范围不对", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "summary": "没有引文", "failure_scenario": "x"},
             {"file": P, "line": 2, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "order_client 统一重试", "summary": "引了不要报", "failure_scenario": "x"},
@@ -100,13 +100,13 @@ class TestPipeline(ProjectFixture):
                   "没有引文": (90, ev), "引了不要报": (90, ev), "小问题1": (85, ev), "小问题2": (84, ev),
                   "小问题3": (83, [{"file": L, "lines": "1-2"}]), "不在改动行": (95, ev),
                   "没满足验收标准": (95, ev + [{"file": "intent.md", "lines": "验收标准 1"}]),
-                  "文字定位的依据": (95, ev + [{"file": "REVIEW.md", "lines": "日志里不能出现邮箱"}]),
+                  "文字定位的依据": (95, ev + [{"file": ".agents/rules/general.md", "lines": "日志里不能出现邮箱"}]),
                   "文字定位不存在": (95, ev + [{"file": "REVIEW.md", "lines": "PRJ-999"}])}
         final, out = self.run_pipeline(rd, cands, scores)
         shown = {x["summary"]: x for g in final["groups"].values() for x in g}
         self.assertIn("整页丢最后一页", shown)
         self.assertIn("没满足验收标准", shown, "引用 review_dir 里的 intent.md 作依据是有效的")
-        self.assertIn("文字定位的依据", shown, "REVIEW.md 里能找到这段文字,依据有效")
+        self.assertIn("文字定位的依据", shown, "规则文件里能找到这段文字,依据有效")
         self.assertEqual(shown["整页丢最后一页"]["found_by"], ["reviewer"])
         self.assertEqual(shown["日志有邮箱"]["severity"], "minor")
         self.assertEqual(shown["没写出处"]["rule_file"], "CLAUDE.md", "没写出处时按引文找到规则文件")
@@ -126,7 +126,7 @@ class TestPipeline(ProjectFixture):
         self.assertEqual(len(standing), sum(len(g) for g in final["groups"].values()) + 1)
         lines = self.run_script("report-lines.sh", rd).stdout
         self.assertIn("SCOPE: 审查范围:分支 feature", lines)
-        self.assertIn("`REVIEW.md`", lines)
+        self.assertIn("`.agents/rules/general.md`", lines)
         self.assertIn("违反 2 条", lines)
         self.assertNotIn("VERIFY:", lines)
         self.assertIn("WEAKEN:", lines)
@@ -134,7 +134,7 @@ class TestPipeline(ProjectFixture):
     def test_same_rule_at_distinct_locations_is_not_automatically_merged(self):
         rd, _ = self.collect("feature")
         P = "src/orders/paginate.ts"
-        cands = [{"file": P, "line": n, "category": "rules", "rule_file": "REVIEW.md", "rule_quote": "日志里不能出现邮箱", "summary": "邮箱%d" % n, "failure_scenario": "x"} for n in (1, 2)]
+        cands = [{"file": P, "line": n, "category": "rules", "rule_file": ".agents/rules/general.md", "rule_quote": "日志里不能出现邮箱", "summary": "邮箱%d" % n, "failure_scenario": "x"} for n in (1, 2)]
         final, _ = self.run_pipeline(rd, cands, {"邮箱1": (90, [{"file": P, "lines": "1"}]), "邮箱2": (90, [{"file": P, "lines": "2"}])})
         self.assertEqual(len(final["groups"]["rules"]), 2, "同一引文不证明两处违反是同一根因")
 

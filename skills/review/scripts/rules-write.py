@@ -9,17 +9,19 @@
 
 plan.md 每条候选一个「## 序号. 标题」块,字段:候选、去向、动作、规则、原因、严重级别、范围、反例、正例、不要报
 (格式和字段见 rules_plan.py、improve/templates/plan.md;块末尾 > 开头的引用块是证据,只给人看,不读)。动作是 待定 / 写入 / 跳过 / 已写入:只处理「写入」,
-「待定」只统计,「跳过」「已写入」忽略。去向是下面两种之一:
-  .agents/rules/<主题>.md                    规则写成一个「## 标题」块;不要报类写进文件末尾的「## 不要报」一节
-  <目录>/REVIEW.md#每次都要检查 | #不要报     (根目录写 REVIEW.md#…)在该章节最后一个列表项后追加一行;
-                                             章节不存在就在文件末尾新建,文件不存在就新建(# Review 约定);不改头部和其他内容
-rule 类只能去 .agents/rules 或「每次都要检查」,suppress 类只能去 .agents/rules 的「不要报」一节或 REVIEW.md 的「不要报」。
-rule 类写进 REVIEW.md 的一行是「规则。严重级别:重要。不要报:边界。原因:… <!-- 来源 -->」,级别保留,review 按它定级。
+「待定」只统计,「跳过」「已写入」忽略。去向是下面三种之一:
+  .agents/rules/<主题>.md                 rule 类:写成一个「## 标题」块;新建的文件头部 paths、globs 写同一串逗号分隔的 glob
+  .agents/rules/<主题>.md#<规则标题>      suppress 类,这条是该规则的例外:并进那个「## 规则标题」块的「不要报」字段,
+                                          已有内容用「；」追加;文件不存在、找不到标题或标题重复时 ERROR
+  <目录>/REVIEW.md#不要报                 suppress 类的其余情况(根目录写 REVIEW.md#不要报):在「不要报」一节最后一个列表项后追加一行;
+                                          章节不存在就在文件末尾新建,文件不存在就新建(# Review 约定);不改头部和其他内容
+范围不等于目标本身的范围(REVIEW.md 所在目录、规则文件的 paths)时,把范围写进句子开头;目录 REVIEW.md 的范围要在该目录里。
 
 先逐块校验:格式、规则句(按 mine-check.py 的写法要求)、去向、候选编号是否在 candidates.json 里。任一块 ERROR 则整批
 什么都不写,退出码 2。来源注释 <!-- 来源:!123 !145 --> 按「候选」编号从 candidates.json 取,不取 plan.md 里的文字。
-写 .agents/rules 时只往带 crosscheck 沉淀标记的文件里追加,团队手写的文件(没有标记,或头部解析不了)跳过,另起 <主题>-2.md;
+写新规则时只往带 crosscheck 沉淀标记的文件里追加,团队手写的文件(没有标记,或头部解析不了)跳过,另起 <主题>-2.md;
 目标里完整内容、范围和边界都一致才跳过并补计划状态。根目录 REVIEW.md 头部(---)没写完整时拒绝写。不 git add、不提交。
+--apply 写了 .agents/rules 后打印接入建议(软链接命令、AGENTS.md 里的链接行),只打印,不执行;已经接上的不提示。
 
 输出(每行一条):
   WRITE: <相对路径> +<n>行        --check 会写 / --apply 写了
@@ -27,11 +29,13 @@ rule 类写进 REVIEW.md 的一行是「规则。严重级别:重要。不要报
   ERROR: 块 <n> <字段>: <原因>
   WARN: …                          文件超过约 15 条或 4000 字符
   PENDING: <k> 块还是待定
+  SUGGEST: …                       接入建议,由用户决定做不做
   NOTE: …
 """
 import argparse
 import difflib
 import os
+import shlex
 import stat
 import subprocess
 import tempfile
@@ -43,7 +47,6 @@ import crlib
 import project_rules
 import rules_plan
 
-SUPPRESS_HEAD = "## 不要报"
 MARK = "由 crosscheck 从 MR 评论沉淀"
 MAX_RULES, MAX_CHARS = 15, 4000
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
@@ -57,10 +60,7 @@ def source_note(c):
 
 def block_of(c):
     """一条规则一个 ## 块;反例 / 正例是字段行后的围栏代码块,和 plan.md 同一写法。"""
-    title = c.get("title") or c["rule"][:24]
-    if crlib.is_suppress_title(title):
-        title = c["rule"][:24]      # 不能让这条规则被当成「不要报」一节
-    lines = ["## " + title, ""]
+    lines = ["## " + (c.get("title") or c["rule"][:24]), ""]
     lines.append("- **规则**:" + c["rule"].rstrip(crlib.RULE_PUNCT))
     if c.get("why"):
         lines.append("- **原因**:" + c["why"])
@@ -74,38 +74,60 @@ def block_of(c):
     return lines
 
 
-def suppress_line(c):
+def suppress_text(c, scope):
+    """一条不要报的文字:规则句(原因)<!-- 来源 -->。范围不等于目标本身的范围 scope 时,把范围写进句子开头。"""
+    text = c["rule"]
+    if set(c["paths"]) - {"**"} and sorted(set(c["paths"])) != sorted(set(scope)):
+        text = "在 %s 范围内,%s" % (", ".join(c["paths"]), text)
     note = source_note(c)
-    return "- " + c["rule"] + (("(" + c["why"] + ")") if c.get("why") else "") + (" " + note if note else "")
+    return text + (("(" + c["why"] + ")") if c.get("why") else "") + (" " + note if note else "")
 
 
-def review_line(c):
-    """REVIEW.md 里的一行:规则、严重级别、例外、原因及来源 <!-- 来源 -->。
-    严重级别照 .agents/rules 块的字面写法,review 才按它定级;原因放最后,与 improve/templates/REVIEW.md 的示例一致。"""
-    note = source_note(c)
-    why = c.get("why", "")
-    return ("- " + c["rule"].rstrip(PUNCT) + "。" + "严重级别:" + (c.get("severity") or "轻微") + "。"
-            + "不要报:" + c.get("exceptions", "") + "。" + ("原因:" + why if why else "") + (" " + note if note else ""))
-
-
-def is_suppress_head(line):
-    return line.startswith("## ") and crlib.is_suppress_title(line[3:])
+def review_scope(rel):
+    d = os.path.dirname(rel)
+    return [d + "/**"] if d else ["**"]
 
 
 def has_rule(lines, c):
-    """恢复必须匹配完整块;范围由 pick_file 核对。"""
-    if c["kind"] == "suppress":
-        r = section_range(lines, "不要报")
-        return bool(r and suppress_line(c) in lines[r[0] + 1:r[1]])
+    """恢复必须匹配完整块;范围由 pick_file 核对。「不要报」字段后来并进了别的例外(「；」追加)也算同一块。"""
     wanted = block_of(c)
-    return any(lines[i:i + len(wanted)] == wanted for i in range(len(lines)))
+    same = lambda got, want: got == want or (want.startswith("- **不要报**:") and got.startswith(want.rstrip(PUNCT) + "；"))
+    return any(len(lines) - i >= len(wanted) and all(same(g, w) for g, w in zip(lines[i:], wanted)) for i in range(len(lines)))
 
 
-def has_review_line(lines, c):
-    section = "不要报" if c["kind"] == "suppress" else "每次都要检查"
-    r = section_range(lines, section)
-    item = suppress_line(c) if c["kind"] == "suppress" else review_line(c)
+def has_review_line(lines, item):
+    r = section_range(lines, "不要报")
     return bool(r and item in lines[r[0] + 1:r[1]])
+
+
+# ---------- 规则的例外 ----------
+
+def find_rule(lines, title, rel):
+    """标题为 title 的「## 」规则块的行号;没有或不止一个时抛 ValueError。"""
+    hits = [i for i in headings(lines) if lines[i][3:].strip() == title.strip()]
+    if not hits:
+        raise ValueError("%s 里没有标题为「%s」的规则" % (rel, title))
+    if len(hits) > 1:
+        raise ValueError("%s 里标题为「%s」的规则有 %d 条,无法确定是哪条的例外" % (rel, title, len(hits)))
+    return hits[0]
+
+
+def merge_exception(lines, head, item):
+    """把 item 并进 head 处规则块的「不要报」字段:已有内容用「；」追加,没有这个字段就在块的最后一个字段后补一行。
+    字段里已经有 item 时返回 False。"""
+    end = next((j for j in headings(lines) if j > head), len(lines))
+    fenced = crlib.fence_mask(lines)
+    for i in range(head + 1, end):
+        f = rules_plan.FIELD.match(lines[i])
+        if f and not fenced[i] and f.group(2).strip() == "不要报":
+            value = f.group(4).strip()
+            if item in value:
+                return False
+            lines[i] = lines[i][:f.start(4)] + (value.rstrip(PUNCT) + "；" if value else "") + item
+            return True
+    last = max(j for j in range(head, end) if fenced[j] or (lines[j].strip() and not lines[j].lstrip().startswith("<!--")))
+    lines.insert(last + 1, "- **不要报**:" + item)
+    return True
 
 
 def safe_target(root, path):
@@ -156,11 +178,26 @@ def pick_file(rules_dir, topic, paths, pending, root):
             return p, True
         text = "\n".join(pending[p]) if p in pending else open(p, encoding="utf-8").read()
         if MARK in text and not crlib.frontmatter_unclosed(text):
-            fm, _ = crlib.parse_frontmatter(text)
-            have = sorted(crlib.as_list(fm.get("paths") or fm.get("globs")) or ["**"])
-            if have == want:
+            if sorted(file_scope(p, text, root)) == want:
                 return p, False
         n += 1
+
+
+def file_scope(path, text, root):
+    """规则文件的适用范围(paths 或 globs,没有就是 **);头部写错时返回 []。"""
+    try:
+        r = project_rules.describe(os.path.relpath(path, root).replace(os.sep, "/"), text)
+    except ValueError:
+        return []
+    return [] if r["issues"] else r["patterns"]
+
+
+def front(paths):
+    """新建规则文件的头部:Claude 只读 paths,Cursor 只读 globs(逗号分隔的字符串),两个都写同一串。范围是 ** 时不写头部。"""
+    if paths == ["**"]:
+        return ""
+    value = '"%s"' % ", ".join(paths)
+    return "---\npaths: %s\nglobs: %s\n---\n" % (value, value)
 
 
 # ---------- REVIEW.md ----------
@@ -217,24 +254,29 @@ def insert_review(lines, section, item):
 # ---------- 校验 ----------
 
 def check_dest(root, kind, value):
-    """去向 -> (相对路径, 章节或 None);不合法时抛 ValueError。"""
+    """去向 -> (相对路径, REVIEW.md 的章节、规则标题或 None);不合法时抛 ValueError。"""
     path, section = rules_plan.parse_dest(value)
-    safe_target(root, os.path.join(root, path))
+    full = os.path.join(root, path)
+    safe_target(root, full)
     if os.path.basename(path) == "REVIEW.md":
-        if kind == "rule" and section != "每次都要检查":
-            raise ValueError("规则类只能写进「每次都要检查」,不能写进「不要报」")
-        if kind == "suppress" and section != "不要报":
-            raise ValueError("不要报类只能写进「不要报」,不能写进「每次都要检查」")
+        if kind == "rule":
+            raise ValueError("规则类是代码约束,写进 .agents/rules/<主题>.md;REVIEW.md 只收不要报类")
         d = os.path.dirname(path)
         if d:
             real = os.path.realpath(os.path.join(root, d))
             if ".git" in d.split("/") or not os.path.isdir(real) or os.path.commonpath([real, os.path.realpath(root)]) != os.path.realpath(root):
                 raise ValueError("目录 %s 不在仓库里" % d)
-        full = os.path.join(root, path)
         if os.path.exists(full) and crlib.frontmatter_unclosed(open(full, encoding="utf-8").read()):
             raise ValueError("%s 的头部(---)没有结束,先修好再写" % path)
     elif kind == "rule" and section:
-        raise ValueError("规则类不能写进「不要报」")
+        raise ValueError("规则类写成新的规则块,去向不带 #:.agents/rules/<主题>.md")
+    elif kind == "suppress":
+        if not section:
+            raise ValueError("不要报类写进 .agents/rules 时要指明是哪条规则的例外:.agents/rules/<主题>.md#<规则标题>;"
+                             "不是某条规则的例外就写进 REVIEW.md#不要报")
+        if not os.path.isfile(full):
+            raise ValueError("%s 不存在,找不到规则「%s」" % (path, section))
+        find_rule(open(full, encoding="utf-8").read().split("\n"), section, path)
     return path, section
 
 
@@ -263,11 +305,12 @@ def check_block(b, c, root):
     if f.get("去向", "").strip():
         try:
             dest = check_dest(root, kind, f["去向"])
-            if os.path.basename(dest[0]) == "REVIEW.md":
-                directory = os.path.dirname(dest[0])
-                scope = [directory + "/**"] if directory else ["**"]
-                if sorted(set(paths)) != scope:
-                    errs.append(("范围", "REVIEW.md 只能保留所在目录的范围 %s;请改去 .agents/rules/<主题>.md 保留 paths" % scope[0]))
+            directory = os.path.dirname(dest[0])
+            if os.path.basename(dest[0]) == "REVIEW.md" and directory:
+                outside = [p for p in paths if p != "**" and not p.startswith(directory + "/")]
+                if outside:
+                    errs.append(("范围", "%s 不在 %s 里:目录的 REVIEW.md 只对所在目录生效,改去根目录 REVIEW.md#不要报"
+                                 % (", ".join(outside), directory)))
         except ValueError as e:
             errs.append(("去向", str(e)))
 
@@ -294,63 +337,51 @@ def build(root, todo):
     """todo: [(块, 候选字典)]。返回 (SKIP 提示, 要写的文件 {绝对路径: 行}, 每个文件原来的行数, 写过的块, 警告)。"""
     touched, before, changed, skips, wrote, warns = {}, {}, [], [], [], []
 
-    def load_review(rel):
-        p = os.path.join(root, rel)
+    def load(p, new_text=None):
+        """读进 touched;文件不存在时用 new_text 起头(None 表示必须已存在)。"""
         if p not in touched:
-            if os.path.exists(p):
+            if os.path.exists(p) or new_text is None:
                 text = open(p, encoding="utf-8").read()
                 before[p] = len(text.rstrip("\n").split("\n"))
-                touched[p] = text.rstrip("\n").split("\n")
             else:
-                before[p] = 0
-                touched[p] = ["# Review 约定"]
-        return p
+                text, before[p] = new_text, 0
+            touched[p] = text.rstrip("\n").split("\n")
+        return touched[p]
 
     for b, c in todo:
         rel_dest, section = c["dest"]
         if os.path.basename(rel_dest) == "REVIEW.md":
-            path = load_review(rel_dest)
-            lines = touched[path]
-            if has_review_line(lines, c):
+            path = os.path.join(root, rel_dest)
+            lines = load(path, "# Review 约定")
+            item = "- " + suppress_text(c, review_scope(rel_dest))
+            if has_review_line(lines, item):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], rel_dest))
                 wrote.append(b)
                 continue
-            insert_review(lines, section, suppress_line(c) if c["kind"] == "suppress" else review_line(c))
-            if path not in changed:
-                changed.append(path)
+            insert_review(lines, section, item)
+        elif c["kind"] == "suppress":
+            path = os.path.join(root, rel_dest)
+            lines = load(path)
+            head = find_rule(lines, section, rel_dest)
+            if not merge_exception(lines, head, suppress_text(c, file_scope(path, "\n".join(lines), root))):
+                skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], rel_dest))
+                wrote.append(b)
+                continue
         else:
             rules_dir = os.path.join(root, os.path.dirname(rel_dest))
             topic = os.path.basename(rel_dest)[:-3]
             path, new = pick_file(rules_dir, topic, c["paths"], touched, root)
-            if path not in touched:
-                if new:
-                    head = ""
-                    if c["paths"] != ["**"]:
-                        head = "---\npaths: [%s]\n---\n" % ", ".join('"%s"' % p for p in c["paths"])
-                    title = os.path.splitext(os.path.basename(path))[0]
-                    text = head + "# %s\n\n%s,经人工挑选。每条规则后面的注释是证据所在的 MR。\n" % (title, MARK)
-                    before[path] = 0
-                else:
-                    text = open(path, encoding="utf-8").read()
-                    before[path] = len(text.rstrip("\n").split("\n"))
-                touched[path] = text.rstrip("\n").split("\n")
-            lines = touched[path]
+            title = os.path.splitext(os.path.basename(path))[0]
+            lines = load(path, front(c["paths"]) + "# %s\n\n%s,经人工挑选。每条规则后面的注释是证据所在的 MR。\n" % (title, MARK) if new else None)
             if has_rule(lines, c):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], os.path.relpath(path, root)))
                 wrote.append(b)
                 continue
-            if path not in changed:
-                changed.append(path)
-            heads = [i for i in headings(lines) if is_suppress_head(lines[i].strip())]
-            if c["kind"] == "suppress":
-                if not heads:
-                    lines += ["", SUPPRESS_HEAD, ""]
-                lines.append(suppress_line(c))
-            else:
-                at = heads[0] if heads else len(lines)
-                while at > 0 and not lines[at - 1].strip():
-                    at -= 1
-                lines[at:at] = [""] + block_of(c) + ([""] if heads else [])
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += [""] + block_of(c)
+        if path not in changed:
+            changed.append(path)
         wrote.append(b)
     for path in changed:
         lines, rel = touched[path], os.path.relpath(path, root)
@@ -359,7 +390,7 @@ def build(root, todo):
             fenced = crlib.fence_mask(lines)
             n = sum(1 for i, x in enumerate(lines) if re.match(r"^[-*+]\s", x) and not fenced[i])
         else:
-            n = sum(1 for i in headings(lines) if not is_suppress_head(lines[i].strip()))
+            n = len(headings(lines))
         if n > MAX_RULES or len(text) > MAX_CHARS:
             warns.append("WARN: %s 已有 %d 条规则、%d 个字符,超过约 %d 条或 %d 字符,建议按目录或主题拆成几个文件" % (rel, n, len(text), MAX_RULES, MAX_CHARS))
     return skips, touched, before, changed, wrote, warns
@@ -466,15 +497,37 @@ def main():
             return e.code
         print(str(e), file=sys.stderr)
         return 1
-    if changed:
-        note = "NOTE: 只改了工作区,没有 git add 或提交。"
-        if any(os.path.relpath(p, root).startswith(rules_plan.RULES_DIR + "/") for p in changed):
-            note += ("crosscheck 审查时会读 .agents/rules/;Claude Code、Cursor 写代码时不会自动读这个目录,"
-                     "需要的话可以在 AGENTS.md 或 CLAUDE.md 里加一行 `@.agents/rules/<文件>` 引入(先问用户)。")
-        print(note)
-    else:
+    if not changed:
         print("NOTE: 没有写任何文件。")
+        return 0
+    print("NOTE: 只改了工作区,没有 git add 或提交。")
+    rules = [os.path.relpath(p, root).replace(os.sep, "/") for p in changed]
+    tips = [x for rel in rules if rel.startswith(rules_plan.RULES_DIR + "/") for x in hookup(root, rel)]
+    if tips:
+        print("NOTE: crosscheck 审查时会读 .agents/rules/,写代码的工具不会自动读。下面是接入建议,只打印、没有执行;"
+              "命令在仓库根目录运行,做不做由用户决定。")
+        for x in tips:
+            print("SUGGEST: " + x)
     return 0
+
+
+def hookup(root, rel):
+    """让写代码的工具也读到 rel 这个规则文件的建议:仓库里有 .claude/、.cursor/ 时给软链接命令,有 AGENTS.md 时给一行
+    普通 Markdown 链接(不用 @ 引用)。链接或这行已经有了的不再提示。"""
+    name = os.path.splitext(os.path.basename(rel))[0]
+    out = []
+    for tool, link, note in ((".claude", ".claude/rules/%s.md" % name, ""),
+                             (".cursor", ".cursor/rules/%s.mdc" % name, "  # Cursor 官方未写明软链接和多余字段的处理,请自行确认")):
+        if os.path.isdir(os.path.join(root, tool)) and not os.path.lexists(os.path.join(root, link)):
+            target = os.path.relpath(rel, os.path.dirname(link)).replace(os.sep, "/")
+            out.append("mkdir -p %s && ln -s %s %s%s" % (shlex.quote(os.path.dirname(link)), shlex.quote(target), shlex.quote(link), note))
+    agents = os.path.join(root, "AGENTS.md")
+    if os.path.isfile(agents) and rel not in open(agents, encoding="utf-8").read():
+        text = open(os.path.join(root, rel), encoding="utf-8").read()
+        scope = file_scope(os.path.join(root, rel), text, root)
+        where = "所有文件" if scope == ["**"] else ", ".join(scope) or "(头部范围写错了,先修好)"
+        out.append("在 AGENTS.md 里加一行:- [%s](%s):改 %s 时遵守" % (name, rel, where))
+    return out
 
 
 if __name__ == "__main__":

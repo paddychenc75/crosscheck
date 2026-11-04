@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.8] - 2026-11-04
+
+**REVIEW.md 与规则分工**
+
+- `REVIEW.md` 只调整审查器自己的行为,不放代码约束:头部 `skip` / `limits` 只在根目录生效,正文三节「严重程度」(定级)、「审查重点」(查找,原「出问题长什么样」)、「不要报」(过滤);删除「每次都要检查」一节,子目录 `REVIEW.md` 只有这三节。模板开头列出判断一句话放哪的三个问题。
+- `REVIEW.md` 的「不要报」只压住审查器的通用直觉(「应该加重试」「应该补测试」这类);某条规则自己的例外写进 `.agents/rules` 里那条规则块的「不要报」字段。`.agents/rules` 文件不再有单独的「## 不要报」一节,审查时也不再把它当成「不要报」读。
+- 审查时当场定规则:「以后都要查 X」写进 `.agents/rules`;「以后这种别报了」是规则例外的并进那条规则的「不要报」字段,其余写进对应目录 `REVIEW.md` 的「不要报」。
+- `improve 检查` / `整理 REVIEW.md` 把 `REVIEW.md` 里的代码约束(包括旧版「每次都要检查」)标为放错位置,建议挪到 `.agents/rules`,只提示不自动迁移。
+
+**规则文件的读取**
+
+- `rules-write.py` 新建 `.agents/rules` 文件时头部 `paths` 和 `globs` 写同一串逗号分隔的 glob(Claude 只读 paths,Cursor 只读 globs);两者都写但展开后范围不同时,审查报规则来源问题。
+- 同一份规则经符号链接出现多次(如 `.claude/rules/x.md`、`.cursor/rules/x.mdc` 链接到 `.agents/rules/x.md`,`CLAUDE.md` 链接到 `AGENTS.md`)时按真实路径只读一条,优先保留 `.agents/rules` 的路径;审查装配规则和 improve 采集已有规则都一样,commit 里按链接内容解析。
+
+**improve:沉淀的去向**
+
+- 规则类只去 `.agents/rules/<主题>.md`。不要报类由 miner 标明 `exception_of`:已有规则的例外默认去 `.agents/rules/<主题>.md#<规则标题>`,并进该规则块的「不要报」字段(已有内容用「；」追加),文件不存在、标题找不到或重复时报 ERROR,整批不写;通用直觉去 `REVIEW.md#不要报`,范围正好是一个已有目录时用该目录的,否则用根目录的。
+- 删除 `REVIEW.md#每次都要检查` 去向和「范围须恰好等于所在目录」的拒绝;不要报类的范围不等于目标本身的范围时写进句子开头,子目录 `REVIEW.md` 的范围超出该目录时报 ERROR。规则块并进过例外后再写同一条规则仍识别为已写入。
+- `--apply` 写了 `.agents/rules` 后打印 `SUGGEST:` 接入建议,只打印不执行:有 `.claude/` 时给 `.claude/rules/<主题>.md` 软链接命令,有 `.cursor/` 时给 `.cursor/rules/<主题>.mdc` 软链接命令(附 Cursor 未写明软链接处理的提示),有 `AGENTS.md` 时给一行写明适用路径的普通 Markdown 链接;已经接上的不再提示。改为由 agent 转告,不再询问后代加 `@` 引入。
+
 ## [0.3.7] - 2026-11-04
 
 **improve:计划和规则文件的格式**

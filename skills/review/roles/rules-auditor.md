@@ -12,8 +12,8 @@
 === RULES layer=<L3|L2|external> source=<来源> file=<路径> scope=<glob> ===
 ```
 
-- `L3` 目录级 `REVIEW.md`,`L2` 项目根目录的 `REVIEW.md`。其中「不要报」(或 `Do not report`)一节的处理见 `common.md`;它本身不是要检查的规则;
-- `external` 是 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/`、`.agents/rules/` 这类给 coding agent 的约定文件。`.agents/rules/` 里的「不要报」一节和 `REVIEW.md` 的一样处理,不是要检查的规则。
+- `L3` 目录级 `REVIEW.md`,`L2` 项目根目录的 `REVIEW.md`。它只调整审查器自己的行为:「严重程度」用于定级,「审查重点」用于查找,「不要报」(或 `Do not report`)用于过滤(见 `common.md`),都不是要检查的代码约束;
+- `external` 是 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/`、`.agents/rules/` 这类给 coding agent 的约定文件,代码约束都在这里。`.agents/rules/` 每条规则块里的「不要报」字段是这条规则的例外,命中例外的不算违反。
 
 `scope` 是这块规则适用的路径。你还可能拿到 `batch=<n>`,只负责这一批的文件。
 
@@ -34,4 +34,4 @@
 返回符合 `finding-schema.md` 发现结构的 JSON 数组,什么都没违反就返回 `[]`。每条:
 
 - `category` 为 `rules`,`severity` 和 `rule_file`、`rule_quote` 的写法见 `finding-schema.md`。`rule_file` 照抄块头部的 `file=`;`rule_quote` 逐字引用规则原文(一句或一条就够),脚本会核对它真的出现在那个文件的规则里、那块规则覆盖这个文件,对不上的直接作废;
-- `failure_scenario` 写出违反在哪,例如 `REVIEW.md: "日期格式化统一用 src/utils/date.ts" — 第 18 行直接调用了 dayjs()`。
+- `failure_scenario` 写出违反在哪,例如 `.agents/rules/general.md: "日期格式化统一用 src/utils/date.ts" — 第 18 行直接调用了 dayjs()`。

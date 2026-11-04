@@ -24,7 +24,8 @@ except OSError:
 blocks, errors, excluded = [], [], []
 HEAD = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 def split_suppress(body):
-    """把「不要报」一节(到下一个同级或更高级标题为止)和其余正文分开。"""
+    """把 REVIEW.md 的「不要报」一节(到下一个同级或更高级标题为止)和其余正文分开。
+    .agents/rules 等规则文件不拆:规则自己的例外写在规则块的「不要报」字段里,随规则一起交给角色。"""
     keep, sup, level = [], [], None
     rows = body.split("\n")
     fenced = crlib.fence_mask(rows)
@@ -39,7 +40,7 @@ def split_suppress(body):
 def add(layer, record, scope, applies):
     body = record["body"].strip("\n")
     if body.strip() and applies:
-        text, suppress = split_suppress(body) if record["source"] in ("review", "agents-rules") else (body, "")
+        text, suppress = split_suppress(body) if record["source"] == "review" else (body, "")
         blocks.append({"layer": layer, "source": record["source"], "file": record["file"], "scope": scope,
                        "applies_files": applies, "text": text, "suppress": suppress, "offset": record["offset"]})
 

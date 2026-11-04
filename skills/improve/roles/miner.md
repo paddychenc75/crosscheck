@@ -70,6 +70,7 @@
 ```
 
 - `kind`:rule 是要检查的约束;suppress 是带明确条件的「不要报」边界。suppress 不填 severity、正反例和 exceptions,边界直接写入 rule;同样核对反例与已有规范。不能只因两次 invalid 就全局不报。
+- `exception_of`:suppress 必填,决定默认去向。这条是某条已有规则的例外(被判不成立的发现引用的就是那条规则)时写 `{"file": ".agents/rules/<主题>.md", "title": "<那条规则的 ## 标题>"}`,file 和 title 从 rules-sources.json 冻结的规则原文里取,不要编;是压住审查器自己的通用直觉(「应该加重试」「应该补测试」「可以重构」这类不来自任何项目规则的建议)时写 `null`。例外的规则不在 `.agents/rules/` 里(比如在 CLAUDE.md)时也写 `null`,在证据说明里写清是哪条。rule 类不填。
 - `rule`:一句能对照代码检查的约束,rule 类使用「必须 / 禁止」;不夸大评论要求。`paths` 使用仓库内相对 glob,范围来自证据。
 - `why`:rule 写违反约束的后果;suppress 写该条件下为什么不应报告。不要写 MR 号(脚本会标为待确认,写入前必须删掉)或复述自检过程。
 - `severity`:按后果写重要或轻微,不按评论语气;`severity_reason` 一句话说明是实际缺陷还是规范偏离,展示在计划的证据区。

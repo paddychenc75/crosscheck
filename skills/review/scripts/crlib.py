@@ -4,6 +4,7 @@
 import hashlib
 import json
 import os
+import posixpath
 import re
 import subprocess
 
@@ -434,7 +435,32 @@ class Source:
     def __init__(self, root, ref=None):
         self.root, self.ref = root, ref
         self._tree = None
+        self._links = None
         self._lines = {}
+
+    def realpath(self, path):
+        """跟随符号链接后的真实路径:在仓库里时是相对路径,指出仓库时是绝对路径。commit 里按链接内容逐级解析。"""
+        if not self.ref:
+            root = os.path.realpath(self.root)
+            real = os.path.realpath(os.path.join(self.root, path))
+            return os.path.relpath(real, root).replace(os.sep, "/") if os.path.commonpath([root, real]) == root else real
+        if self._links is None:
+            out = git(self.root, "ls-tree", "-r", "-z", self.ref, check=False)
+            self._links = {}
+            for row in out.split("\0"):
+                head, _, name = row.partition("\t")
+                if head.startswith("120000 "):
+                    self._links[name] = git(self.root, "cat-file", "blob", head.split()[2], check=False)
+        seen = set()
+        while path in self._links and path not in seen:
+            seen.add(path)
+            target = self._links[path]
+            if target.startswith("/"):
+                return target
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+            if path == ".." or path.startswith("../"):
+                return os.path.normpath(os.path.join(self.root, path))
+        return path
 
     def files(self):
         if self._tree is None:
