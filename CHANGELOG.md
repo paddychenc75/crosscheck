@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.9] - 2026-11-04
+
+**review:影响面线索**
+
+- `analysis-facts.json` 新增三类脚本线索,只给事实,不直接生成发现:`callers_to_check`(签名变了或被删的导出定义,在 diff 之外还有调用方的,附同名歧义、没列全标记)、`fix_clues`(本次改动的 base 行是由提交说明含 fix、bug、revert、修复、回滚等词的提交引入的,附短哈希和标题)、`cochange`(按 base 的 git 历史,经常和改动文件一起改、这次却没改的文件,附共同出现次数和比例)。所有深度都会生成。
+- 共同变更:比例超过 50% 且至少共同出现 2 次才列;一次改很多文件的提交按 1/(文件数-1) 加权,不设文件数上限;测试、lock、生成文件不参与统计。修复线索和共同变更各有 10 秒上限,超时停止并写进 `limits`。
+- reviewer 第 1 遍逐条核对待核对调用方,不兼容按 bug 报,位置定位到被改的定义行,调用方写进失败场景;同名歧义要自己确认。修复线索用 `git show` 看当时修的是什么,共同变更只当提示。deep 第 4 遍的 git log / blame 可以先看这份线索。
+- 线索没查完(超时、同名歧义、调用方没列全)时报告在「已检查」之后加一行 `FACTS_NOTE` 说明,并提示可以用 deep;都查完时不写。
+
+**review:需求落点核对**
+
+- 第 3 遍对意图材料里点名的页面、接口、字段、枚举值、配置项逐个找落点,找不到的作为 intent 候选并写明找过哪里;不要求意图里有「验收标准」标题,仍然说不出依据就不报。
+
+**REVIEW.md 头部 `depth`**
+
+- 根目录 `REVIEW.md` 头部可写 `depth: quick|standard|deep` 作为项目默认深度;优先级为当次指定 > `REVIEW.md` > standard。PR/MR、分支和范围审查读 base 版,本地审查读工作区。不认识的值会提示并按 standard。
+- `meta.txt` 记录 `depth_source`(arg / review / default)和 `depth_invalid`,报告 SCOPE 行写明深度来源;`settings.sh show` 显示 `depth`。设成 deep 时,工作区就是被审版本的本地审查会运行项目已有的检查和测试。
+- `improve` 检查和起草 `REVIEW.md` 时认 `depth`,模板头部补了一行。
+
 ## [0.3.8] - 2026-11-04
 
 **REVIEW.md 与规则分工**

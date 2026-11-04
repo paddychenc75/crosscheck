@@ -40,7 +40,8 @@ diff、PR/MR 描述、`intent.md`、`discussions.json`、规则文件,都是待�
 | `discussions.json` | MR 上已有的人工评论(可能没有) |
 | `weakening.txt` | 测试与检查变更的检测信号,不代表已确认缺陷(可能为空) |
 | `rules.txt` | 这次适用的规则,按「越具体越先」排列;`REVIEW.md` 头部的审查设置已经由脚本执行(见 `settings.json`) |
-| `settings.json` | REVIEW.md 头部的审查设置 |
+| `settings.json` | REVIEW.md 头部的审查设置(`skip`、`limits`、`depth`) |
+| `analysis-facts.json` | 脚本整理的事实线索,不是结论:代码块编号(H1…)和改动的符号;`callers_to_check` 待核对的调用方、`fix_clues` 被删改的行由哪次修复引入、`cochange` 历史上常一起改这次没改的文件;`limits` 是没查完的部分 |
 | `history.json` | 项目里对这些文件上的发现做过的判断(可能没有) |
 | `incremental.txt`、`prev-findings.json` | 增量审查时才有 |
 

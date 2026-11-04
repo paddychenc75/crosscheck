@@ -3,13 +3,15 @@
 #
 # 用法: settings.sh apply DIR ROOT [REF]
 #         由 collect-diff.sh 在过滤文件之后调用:写出 DIR/settings.json,
-#         并把 skip 命中的文件从 diff.patch / files.txt 里移到 skipped.txt(原因 review-skip)。
+#         并把 skip 命中的文件从 diff.patch / files.txt 里移到 skipped.txt(原因 review-skip);
+#         标准输出打印 depth=、depth_invalid= 两行给 collect-diff.sh 定深度。
 #         REF 为空时读工作区的 REVIEW.md,否则读该 commit 里的(PR/MR、分支、范围审查都读 base)。
 #       settings.sh show ROOT [REF]   只打印解析结果(JSON)
 #
-# REVIEW.md 头部支持的设置:
+# 只读根目录 REVIEW.md 头部,支持的设置:
 #   skip:       ["src/gen/**"]                   不审查的路径
 #   limits:     { defects: 10, rules: 5, minor: 3 }   条数上限(defects/intent/rules/critical/major/minor)
+#   depth:      standard                         没说深度时的默认深度(quick/standard/deep),用户当次说的优先
 
 set -eu
 
@@ -17,6 +19,6 @@ mode=${1:-}
 case "$mode" in
   apply) [ $# -ge 3 ] || { echo "settings: 用法 settings.sh apply DIR ROOT [REF]" >&2; exit 2; } ;;
   show) [ $# -ge 2 ] || { echo "settings: 用法 settings.sh show ROOT [REF]" >&2; exit 2; } ;;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 exec python3 "$(cd "$(dirname "$0")" && pwd)/settings_cli.py" "$@"

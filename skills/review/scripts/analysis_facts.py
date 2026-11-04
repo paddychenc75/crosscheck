@@ -10,6 +10,11 @@
 定义识别覆盖 TS/JS、Go、Python、Java/Kotlin;其他语言退回 git hunk 头里的函数名,再不行只给到文件。
 调用方是按名字的文本匹配(git grep -w),同名、反射、依赖注入、跨仓库调用都会多报或漏报,
 所以只当线索用。出错时尽量写出已有的部分,并在 limits 里注明;只有完全失败才以非零退出。
+
+review 另外写三类线索(describe 复用 Facts.run,不带这些),都只是线索、不下结论:
+  callers_to_check  签名变化或删除的公开符号,在 diff 之外的调用方:要逐个确认是否仍兼容
+  fix_clues         被删改的 base 行最初由修复类提交引入(git blame):核对本次是否让那次修复失效
+  cochange          历史上常和改动文件一起改、这次没改的文件(git log):核对是否漏改
 """
 import json
 import os
@@ -26,6 +31,26 @@ MAX_SYMBOLS = 30         # 最多查多少个符号的调用方
 MAX_HITS = 50            # 单个符号命中超过这个数只给数量
 MAX_LISTED = 20          # 每个符号最多列出多少处调用方
 METHOD = '按名字在本仓库文本匹配(git grep -w),只看签名变化'
+BLAME_BUDGET = 10.0      # 查修复线索(git blame)的总耗时上限(秒)
+COCHANGE_BUDGET = 10.0   # 读共同变更历史(git log)的总耗时上限(秒)
+# 修复类提交说明的关键词。英文按单词边界(不配 prefix、debug、fixture),中文没有词边界,只收不易误配的词
+# (不收「回退」:常指 fallback)。大小写不敏感。
+FIX_WORDS = re.compile(r'(?<![A-Za-z0-9_])(fix(e[sd]|ing|up)?|bug(s|fix(es)?)?|hotfix(es)?|revert(s|ed|ing)?|'
+                       r'regressions?)(?![A-Za-z0-9_])|修复|修正|回滚|热修', re.I)
+LOCK_FILE = re.compile(r'(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|'
+                       r'Gemfile\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|composer\.lock|go\.sum)$|\.lock$')
+# 共同变更:CHID(Empirical Software Engineering, 2025)把共同变更比例超过 50% 视为强关联。
+COCHANGE_RATIO = 0.5
+# 最少一起出现 2 次:只一起改过一次可能是巧合
+COCHANGE_MIN_TOGETHER = 2
+# 按提交规模加权后的共同变更量至少为 1,即至少相当于一次只改这两个文件的提交,见 cochange_stats
+COCHANGE_MIN_WEIGHT = 1.0
+CLUES_METHOD = {
+    'callers_to_check': '签名变化或删除的公开符号在改动行之外的调用方(同上的文本匹配,ambiguous 是有同名定义,truncated 是没列全)',
+    'fix_clues': '被删改的 base 行用 git blame -w -M -C 找引入它的提交,提交说明含修复类关键词的列出',
+    'cochange': '从 base 往前的 git log,按提交规模加权(每对 1/(n-1)),比例超过 50%%、一起改至少 %d 次、'
+                '加权量至少 %g 的未改文件' % (COCHANGE_MIN_TOGETHER, COCHANGE_MIN_WEIGHT),
+}
 
 COMMON = {w.lower() for w in """
 get set run init main handle handler process update create delete remove list value values data name type index
@@ -244,6 +269,46 @@ def config_key_at(text, lineno):
     return '.'.join(parts)
 
 
+# ---------- 共同变更 ----------
+
+def unquote_path(p):
+    """git 输出里带特殊字符的路径是加了引号的 C 风格转义(\\346\\226…),还原成原样。"""
+    p = p.strip()
+    if len(p) < 2 or p[0] != '"' or p[-1] != '"':
+        return p
+    raw = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), p[1:-1])
+    raw = raw.replace('\\"', '"').replace('\\t', '\t').replace('\\n', '\n').replace('\\\\', '\\')
+    return raw.encode('latin-1', 'replace').decode('utf-8', 'replace')
+
+
+def cochange_stats(commits, anchors):
+    """commits:历史上每个提交改过的文件集合;anchors:本次改动的文件。返回强关联的
+    (anchor, partner, 一起改的次数, anchor 被改的次数, 比例),比例从高到低。
+
+    批量提交(格式化、重命名、依赖升级)一次改很多文件,按次数算会让其中任意两个文件都像强关联。
+    这里不设文件数上限,而是按提交规模加权:每个提交给其中每个文件的共同变更证据合计为 1,
+    平均分给其余 n-1 个文件,即每对文件得 1/(n-1)(只改一个文件的提交按 1 计入 anchor 的分母)。
+    只改两个文件的提交给这一对完整的 1,改了 200 个文件的提交只给每对 1/199。
+      比例 = 一起改的提交的权重之和 / anchor 所在提交的权重之和(anchor 被改时 partner 也被改的加权比例)
+    强关联要同时满足:比例 > COCHANGE_RATIO(CHID 的 50%);一起改的次数 >= COCHANGE_MIN_TOGETHER(排除一次巧合);
+    加权共同变更量 >= COCHANGE_MIN_WEIGHT(至少相当于一次只改这两个文件的提交,只靠批量提交凑不够)。"""
+    total, changes, pair_n, pair_w = {}, {}, {}, {}
+    for files in commits:
+        w = 1.0 / max(len(files) - 1, 1)
+        for a in anchors & files:
+            total[a] = total.get(a, 0.0) + w
+            changes[a] = changes.get(a, 0) + 1
+            for b in files - {a}:
+                pair_n[(a, b)] = pair_n.get((a, b), 0) + 1
+                pair_w[(a, b)] = pair_w.get((a, b), 0.0) + w
+    out = []
+    for (a, b), n in pair_n.items():
+        ratio = pair_w[(a, b)] / total[a]
+        if n >= COCHANGE_MIN_TOGETHER and pair_w[(a, b)] >= COCHANGE_MIN_WEIGHT - 1e-9 and ratio > COCHANGE_RATIO:
+            out.append((a, b, n, changes[a], round(ratio, 2)))
+    return sorted(out, key=lambda x: (-x[4], -x[2], x[0], x[1]))
+
+
 # ---------- 读代码 ----------
 
 class Repo:
@@ -456,6 +521,162 @@ class Facts:
             s['callers'] = [{'file': p, 'line': ln, 'in_diff': self.in_diff(p, ln)} for p, ln in callers[:MAX_LISTED]]
             s['callers_truncated'] = len(callers) > MAX_LISTED
 
+    # ----- review 用的线索:只给事实,结论由 reviewer / verifier 下 -----
+    def new_side_line(self, hid, old_no):
+        """删掉的定义在新侧的落点:删除处之后(没有就之前)最近的新侧行,落在该 hunk 的新侧范围里;没有新侧行时为 None。"""
+        for f in self.files:
+            for h in f['hunks']:
+                if h.get('id') != hid or h['new_len'] == 0:
+                    continue
+                lines, before = h['lines'], None
+                for i, (tag, _, o, n) in enumerate(lines):
+                    if tag == '-' and o == old_no:
+                        after = next((x[3] for x in lines[i:] if x[3] is not None), None)
+                        return after if after is not None else before
+                    if n is not None:
+                        before = n
+                return hunk_range(h)[0]
+        return None
+
+    def callers_to_check(self, symbols, reviewed):
+        """签名变化或删除、不确定是私有的符号,在改动行之外还有调用方的:逐个确认是否仍兼容。
+        line 是被改的定义在新侧的行(删除时取删除处所在 hunk 的新侧行),发现定位到这里。"""
+        out = []
+        for s in symbols:
+            if s['change'] not in ('signature_changed', 'removed') or s['exported'] is False:
+                continue
+            if reviewed is not None and s['file'] not in reviewed:
+                continue
+            outside = [{'file': c['file'], 'line': c['line']} for c in s['callers'] if not c['in_diff']]
+            truncated = bool(s['callers_truncated'] or s['skipped'] == 'too_many_hits')
+            if not outside and not truncated:
+                continue
+            line = s['line'] if s['change'] == 'signature_changed' else self.new_side_line(s['hunk'], s['line'])
+            out.append({'name': s['name'], 'file': s['file'], 'line': line, 'change': s['change'],
+                        'old_sig': s['old_sig'], 'new_sig': s['new_sig'], 'callers': outside,
+                        'callers_total': s['callers_total'], 'truncated': truncated, 'ambiguous': s['ambiguous']})
+        return out
+
+    def fix_clues(self, reviewed, deadline):
+        """被删除或修改的 base 行,由哪个提交引入;提交说明像修复(FIX_WORDS)的列出来。
+        每个文件一次 git blame(所有 hunk 的行范围用多个 -L 一起传),再一次 git log 取这些提交的说明。"""
+        todo = []
+        for f in self.files:
+            if f['status'] == 'added' or (reviewed is not None and f['path'] not in reviewed):
+                continue
+            spans = []
+            for h in f['hunks']:
+                for tag, _, o, _ in h['lines']:
+                    if tag != '-':
+                        continue
+                    if spans and spans[-1][2] == h['id'] and spans[-1][1] == o - 1:
+                        spans[-1][1] = o
+                    else:
+                        spans.append([o, o, h['id']])
+            if spans:
+                todo.append((f.get('old_path') or f['path'], f['path'], spans))
+        blamed, done = [], 0     # (path, hid, base 行号, sha)
+        for old_path, path, spans in todo:
+            left = deadline - time.time()
+            if left <= 0:
+                break
+            args = ['blame', '-w', '-M', '-C', '--porcelain'] + \
+                [x for lo, hi, _ in spans for x in ('-L', '%d,%d' % (lo, hi))] + [self.repo.base_sha, '--', old_path]
+            try:
+                r = self.repo.git(*args, timeout=left)
+            except subprocess.TimeoutExpired:
+                break
+            done += 1
+            if r.returncode != 0:
+                continue
+            for line in r.stdout.decode('utf-8', 'replace').split('\n'):
+                m = re.match(r'^([0-9a-f]{40}) \d+ (\d+)', line)
+                if m:
+                    n = int(m.group(2))
+                    hid = next((s[2] for s in spans if s[0] <= n <= s[1]), None)
+                    blamed.append((path, hid, n, m.group(1)))
+        if done < len(todo):
+            self.limits.append('查最近修复的线索超过 %d 秒,已停止;%d 个文件只查了 %d 个' % (BLAME_BUDGET, len(todo), done))
+        shas = sorted({b[3] for b in blamed})
+        if not shas:
+            return []
+        left = deadline - time.time()
+        try:
+            if left <= 0:
+                raise subprocess.TimeoutExpired('git', 0)
+            r = self.repo.git('log', '--no-walk=unsorted', '--format=%H%x00%s%x00%B%x1e', *shas, timeout=left)
+        except subprocess.TimeoutExpired:
+            self.limits.append('查最近修复的线索超过 %d 秒,已停止;提交说明没有读完,修复线索没有列出' % BLAME_BUDGET)
+            return []
+        fixes = {}
+        for rec in r.stdout.decode('utf-8', 'replace').split('\x1e'):
+            parts = rec.strip('\n').split('\x00')
+            if len(parts) == 3 and FIX_WORDS.search(parts[1] + '\n' + parts[2]):
+                fixes[parts[0]] = parts[1].strip()
+        out = []
+        for path, hid, n, sha in sorted((b for b in blamed if b[3] in fixes), key=lambda b: (b[0], b[3], b[2])):
+            last = out[-1] if out else None
+            if last and (last['file'], last['commit'], last['hunk']) == (path, sha[:10], hid) and last['_end'] == n - 1:
+                last['_end'] = n
+            else:
+                out.append({'file': path, 'hunk': hid, '_start': n, '_end': n, 'commit': sha[:10], 'title': fixes[sha]})
+        for c in out:
+            a, b = c.pop('_start'), c.pop('_end')
+            c['base_lines'] = str(a) if a == b else '%d-%d' % (a, b)
+        return sorted(out, key=lambda c: (c['file'], int(c['base_lines'].split('-')[0])))
+
+    def cochange(self, reviewed, changed, skip, deadline):
+        """历史上常和本次改动的文件一起改、这次没改的文件。只读一次 git log(从 base 往前,只取碰过这些文件的提交),
+        按 cochange_stats 判强关联。超时用已经读到的最近那部分提交,并写进 limits。"""
+        anchors = {}   # 历史里的路径 -> 本次的路径(改名时历史在旧名下)
+        for f in self.files:
+            if reviewed is not None and f['path'] not in reviewed:
+                continue
+            if f.get('kind') in ('test', 'generated') or LOCK_FILE.search(f['path']):
+                continue
+            anchors[f.get('old_path') or f['path']] = f['path']
+        if not anchors:
+            return []
+        args = ['log', '--no-merges', '--no-renames', '--full-diff', '--name-only', '--format=%x1e%H',
+                self.repo.base_sha, '--'] + [':(literal)' + p for p in sorted(anchors)]
+        left, partial = deadline - time.time(), False
+        try:
+            if left <= 0:
+                raise subprocess.TimeoutExpired('git', 0)
+            out = self.repo.git(*args, timeout=left).stdout
+        except subprocess.TimeoutExpired as e:
+            out, partial = e.stdout or b'', True
+        chunks = out.decode('utf-8', 'replace').split('\x1e')[1:]
+        if partial and chunks:
+            chunks = chunks[:-1]     # 最后一个提交可能没读完
+        # 测试、lock、生成文件(按路径认)不参与统计,也不算进提交规模:改代码顺带改测试和 lock 不该稀释代码文件之间的关联
+        commits = [{p for p in (unquote_path(x) for x in c.split('\n')[1:] if x.strip())
+                    if not (is_test(p) or LOCK_FILE.search(p) or GENERATED_PATH.search(p))} for c in chunks]
+        if partial:
+            self.limits.append('读共同变更历史超过 %d 秒,已停止;只统计了最近 %d 个相关提交' % (COCHANGE_BUDGET, len(commits)))
+        res = []
+        for a, b, together, changes, ratio in cochange_stats(commits, set(anchors)):
+            if b in changed or crlib.any_match(skip, b):
+                continue
+            if self.repo.new(b) is None or self.is_generated(b):
+                continue     # 被审查的版本里已经没有这个文件,或者是生成的
+            res.append({'file': b, 'with': anchors[a], 'together': together, 'changes': changes, 'ratio': ratio})
+        return res
+
+    def review_clues(self, data, rd):
+        files_txt = os.path.join(rd, 'files.txt')
+        reviewed = set(read_text(files_txt).split('\n')) - {''} if os.path.exists(files_txt) else None
+        data['callers_to_check'] = self.callers_to_check(data['symbols'], reviewed)
+        data['fix_clues'], data['cochange'] = [], []
+        if not self.repo.base_sha:
+            self.limits.append('没有对比基准的提交,没有查修复线索和共同变更')
+            return
+        data['fix_clues'] = self.fix_clues(reviewed, time.time() + BLAME_BUDGET)
+        changed = {p for f in self.files for p in (f['path'], f.get('old_path')) if p}
+        changed |= {l.split('\t', 1)[0] for l in read_text(os.path.join(rd, 'skipped.txt')).split('\n') if l.strip()}
+        skip = crlib.load_json(os.path.join(rd, 'settings.json'), {}).get('skip') or []
+        data['cochange'] = self.cochange(reviewed, changed, skip, time.time() + COCHANGE_BUDGET)
+
     def run(self):
         hunks = self.build_hunks()
         symbols, unknown = [], []
@@ -510,9 +731,17 @@ def main(argv):
         data = {'version': 1, 'scope': {'diff': facts.diff_name, 'files': len(facts.files), 'added': 0, 'deleted': 0},
                 'hunks': [], 'symbols': [],
                 'method': METHOD, 'limits': facts.limits}
+    try:
+        facts.review_clues(data, rd)
+    except Exception as e:  # noqa: BLE001 线索出错不影响已有的事实
+        facts.limits.append('整理线索时出错(%s: %s),待核对调用方、修复线索、共同变更可能不全' % (type(e).__name__, e))
+    for k in ('callers_to_check', 'fix_clues', 'cochange'):
+        data.setdefault(k, [])
+    data['clues_method'] = CLUES_METHOD
     with open(os.path.join(rd, 'analysis-facts.json'), 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    print('analysis_facts: hunks=%d symbols=%d' % (len(data['hunks']), len(data['symbols'])))
+    print('analysis_facts: hunks=%d symbols=%d callers_to_check=%d fix_clues=%d cochange=%d' % (
+        len(data['hunks']), len(data['symbols']), len(data['callers_to_check']), len(data['fix_clues']), len(data['cochange'])))
     return 0
 
 

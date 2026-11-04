@@ -128,3 +128,58 @@ class ProjectRulesTests(fixture.Base):
         self.assertEqual(final['groups']['rules'][0]['severity'], 'major')
         final, _ = self.run_pipeline(rd, [cand], {'审计缺失': (79, [{'file': 'src/a.ts', 'lines': '1'}])})
         self.assertEqual(final['groups']['rules'], [])
+
+
+class DepthSettingTests(fixture.Base):
+    """REVIEW.md 头部的 depth:参数 > REVIEW.md > standard;非法值报出来按 standard;非本地审查读 base 版。"""
+
+    def repo(self, review, branch_review=None, name='app'):
+        repo = self.make_repo(name, {'REVIEW.md': review, 'src/a.py': 'def a():\n    return 1\n'})
+        self.git(repo, 'switch', '-qc', 'feature')
+        files = {'src/a.py': 'def a():\n    return 2\n'}
+        if branch_review is not None:
+            files['REVIEW.md'] = branch_review
+        self.commit(repo, files, 'change')
+        return repo
+
+    def collect(self, repo, *args):
+        r = self.run_script('collect-diff.sh', *args, cwd=repo)
+        return r.stdout, self.review_dir(r.stdout)
+
+    def test_precedence_arg_then_review_then_standard(self):
+        repo = self.repo('---\ndepth: deep\n---\n- rule\n')
+        out, rd = self.collect(repo)
+        meta = self.kv(Path(rd, 'meta.txt'))
+        self.assertEqual((meta['depth'], meta['depth_source'], meta['depth_invalid']), ('deep', 'review', ''))
+        self.assertEqual(meta['may_run_checks'], 'yes', 'REVIEW.md 设 deep 时和参数一样会在工作区运行检查')
+        self.assertIn('深度:深度(REVIEW.md 设定)', self.run_script('report-lines.sh', rd).stdout)
+        _, rd = self.collect(repo, '--depth', 'quick')
+        meta = self.kv(Path(rd, 'meta.txt'))
+        self.assertEqual((meta['depth'], meta['depth_source']), ('quick', 'arg'))
+        self.assertEqual(meta['may_run_checks'], 'no')
+        self.assertIn('深度:快速(本次指定)', self.run_script('report-lines.sh', rd).stdout)
+        repo2 = self.repo('- rule\n', name='app2')
+        _, rd = self.collect(repo2)
+        meta = self.kv(Path(rd, 'meta.txt'))
+        self.assertEqual((meta['depth'], meta['depth_source']), ('standard', 'default'))
+        self.assertIn('深度:标准(默认)', self.run_script('report-lines.sh', rd).stdout)
+
+    def test_invalid_value_is_reported_and_falls_back_to_standard(self):
+        repo = self.repo('---\ndepth: thorough\n---\n')
+        out, rd = self.collect(repo)
+        meta = self.kv(Path(rd, 'meta.txt'))
+        self.assertEqual((meta['depth'], meta['depth_source'], meta['depth_invalid']), ('standard', 'default', 'thorough'))
+        self.assertIn('depth「thorough」不认识', out)
+        self.assertIn('REVIEW.md 的 depth「thorough」不认识', self.run_script('report-lines.sh', rd).stdout)
+        shown = json.loads(self.run_script('settings.sh', 'show', repo).stdout)
+        self.assertEqual((shown['depth'], shown['depth_invalid']), (None, 'thorough'))
+
+    def test_branch_review_reads_depth_from_base(self):
+        repo = self.repo('---\ndepth: quick\n---\n', branch_review='---\ndepth: deep\n---\n')
+        self.git(repo, 'switch', '-q', 'main')
+        _, rd = self.collect(repo, 'feature')
+        meta = self.kv(Path(rd, 'meta.txt'))
+        self.assertEqual((meta['depth'], meta['depth_source']), ('quick', 'review'), '改动本身改的 depth 不在审查它时生效')
+        self.assertTrue(self.load(Path(rd, 'settings.json'))['source'].startswith('base:'))
+        shown = json.loads(self.run_script('settings.sh', 'show', repo).stdout)
+        self.assertEqual(shown['depth'], 'quick')

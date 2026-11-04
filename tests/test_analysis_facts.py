@@ -220,3 +220,141 @@ class ConfigAndScope(Facts):
         })
         self.assertFalse(any(s["file"] in ("config/new.yml", "bin/run.sh") for s in data["symbols"]))
         self.assertTrue(any("bin/run.sh" in l for l in data["limits"]))
+
+
+class CallersToCheck(Facts):
+    def test_only_signature_changes_and_removals_with_callers_outside_the_diff(self):
+        repo = self.make_repo("todo", {
+            "src/a.ts": "export function listOrders(p: number) {\n  return p\n}\n"
+                        "export function onlyInDiff(p: number) {\n  return p\n}\n"
+                        "export function dropMe(x: number) {\n  return x\n}\n"
+                        "export function bodyOnly(x: number) {\n  return x\n}\n"
+                        "function privateOne(x: number) {\n  return x\n}\n",
+            "src/b.ts": "onlyInDiff(1)\nbodyOnly(1)\nprivateOne(1)\n",
+            "src/c.ts": "dropMe(2)\n",
+            "src/f.ts": "// 用法\nlistOrders(1)\n",
+            "src/d.ts": "export function dupName(x: string) {\n  return x\n}\n",
+        })
+        self.git(repo, "switch", "-qc", "feature")
+        self.commit(repo, {
+            "src/a.ts": "export function listOrders(p: string) {\n  return p\n}\n"
+                        "export function onlyInDiff(p: string) {\n  return p\n}\n"
+                        "export function bodyOnly(x: number) {\n  return x + 1\n}\n"
+                        "function privateOne(x: string) {\n  return x\n}\n"
+                        "export function dupName(x: number) {\n  return x\n}\n",
+            "src/b.ts": "onlyInDiff('1')\nbodyOnly(1)\nprivateOne(1)\n",
+        }, "改")
+        self.git(repo, "switch", "-q", "main")
+        data, rd = self.facts(repo, "feature")
+        todo = {c["name"]: c for c in data["callers_to_check"]}
+        self.assertEqual(sorted(todo), ["dropMe", "listOrders"], "只改实现、私有、调用方都在改动行里的都不列")
+        lo = todo["listOrders"]
+        self.assertEqual((lo["file"], lo["line"], lo["change"], lo["callers"]), ("src/a.ts", 1, "signature_changed", [{"file": "src/f.ts", "line": 2}]))
+        self.assertEqual((lo["ambiguous"], lo["truncated"]), (False, False))
+        drop = todo["dropMe"]
+        self.assertEqual((drop["change"], drop["callers"]), ("removed", [{"file": "src/c.ts", "line": 1}]))
+        with open(os.path.join(rd, "ranges.txt"), encoding="utf-8") as f:
+            ranges = [l.split("\t") for l in f.read().splitlines()]
+        self.assertTrue(any(p == "src/a.ts" and int(a) <= drop["line"] <= int(b) for p, a, b in ranges), "删除的定义也定位到改动行上")
+
+    def test_ambiguous_and_truncated_are_marked(self):
+        many = "".join("bigCaller(%d)\n" % i for i in range(60))
+        _, data = self.feature("todo2", {
+            "src/a.ts": "export function bigCaller(a: number) {\n  return a\n}\nexport function dupName(a: number) {\n  return a\n}\n",
+            "src/use.ts": many + "dupName(1)\n",
+            "src/other.ts": "export function dupName(x: string) {\n  return x\n}\n",
+        }, {"src/a.ts": "export function bigCaller(a: string) {\n  return a\n}\nexport function dupName(a: string) {\n  return a\n}\n"})
+        todo = {c["name"]: c for c in data["callers_to_check"]}
+        self.assertTrue(todo["dupName"]["ambiguous"])
+        self.assertEqual((todo["bigCaller"]["truncated"], todo["bigCaller"]["callers"], todo["bigCaller"]["callers_total"]), (True, [], 60))
+
+
+class FixClues(Facts):
+    def test_lines_introduced_by_a_fix_commit_are_listed(self):
+        repo = self.make_repo("fix", {"src/page.py": "def page(n):\n    return n\n\n\ndef size():\n    return 10\n"})
+        self.commit(repo, {"src/page.py": "def page(n):\n    if n < 0:\n        return 0\n    return n\n\n\ndef size():\n    return 10\n"},
+                    "Fix crash on negative page")
+        self.commit(repo, {"src/page.py": "def page(n):\n    if n < 0:\n        return 0\n    return n\n\n\ndef size():\n    return 20  # prefix\n"},
+                    "add prefix option")
+        self.git(repo, "switch", "-qc", "feature")
+        self.commit(repo, {"src/page.py": "def page(n):\n    return n\n\n\ndef size():\n    return 30\n"}, "简化")
+        self.git(repo, "switch", "-q", "main")
+        data, _ = self.facts(repo, "feature")
+        fix_sha = self.git(repo, "log", "-1", "--format=%H", "--grep=Fix crash", "main")
+        self.assertEqual(data["fix_clues"], [{"file": "src/page.py", "hunk": "H1", "commit": fix_sha[:10],
+                                              "title": "Fix crash on negative page", "base_lines": "2-3"}],
+                         "prefix 不算 fix;只列修复提交引入的那几行")
+
+    def test_chinese_keyword_and_no_clue_without_fix(self):
+        repo = self.make_repo("fix2", {"a.go": "package a\n\nfunc A() int {\n\treturn 1\n}\n"})
+        self.commit(repo, {"a.go": "package a\n\nfunc A() int {\n\treturn 2\n}\n"}, "修复返回值")
+        self.git(repo, "switch", "-qc", "feature")
+        self.commit(repo, {"a.go": "package a\n\nfunc A() int {\n\treturn 3\n}\n"}, "改")
+        self.git(repo, "switch", "-q", "main")
+        data, _ = self.facts(repo, "feature")
+        self.assertEqual([c["title"] for c in data["fix_clues"]], ["修复返回值"])
+        _, data = self.feature("nofix", {"b.go": "package b\n\nfunc B() int {\n\treturn 1\n}\n"},
+                               {"b.go": "package b\n\nfunc B() int {\n\treturn 2\n}\n"})
+        self.assertEqual(data["fix_clues"], [])
+
+
+class Cochange(Facts):
+    def test_stats_weight_batch_commits_by_size(self):
+        import sys
+        sys.path.insert(0, fixture.SCRIPTS)
+        import analysis_facts as af
+        batch = {"a.ts", "x.ts"} | {"f%d.ts" % i for i in range(30)}
+        commits = [{"a.ts", "b.ts"}, {"a.ts", "b.ts", "c.ts"}, batch, batch, {"a.ts"}]
+        got = {(a, b): (n, total, ratio) for a, b, n, total, ratio in af.cochange_stats(commits, {"a.ts"})}
+        self.assertEqual(got, {("a.ts", "b.ts"): (2, 5, 0.58)}, "两次批量提交凑不出强关联,c.ts 只一起改过一次")
+        # 只出现在批量提交里的文件,比例再高也不算
+        self.assertEqual(af.cochange_stats([batch, batch], {"a.ts"}), [])
+        # 每次都一起改的一组文件(不止两个)仍是强关联
+        trio = [{"m.py", "n.py", "o.py"}] * 2
+        self.assertEqual({b for _, b, *_ in af.cochange_stats(trio, {"m.py"})}, {"n.py", "o.py"})
+
+    def test_files_often_changed_together_but_not_this_time(self):
+        files = {"src/model.ts": "export const m = 1\n", "src/api.ts": "export const a = 1\n", "src/model.test.ts": "m\n",
+                 "yarn.lock": "x\n", "src/other.ts": "export const o = 1\n"}
+        files.update({"pkg/f%d.ts" % i: "export const f = 1\n" for i in range(25)})
+        repo = self.make_repo("co", files)
+        for i in (2, 3):
+            self.commit(repo, {"src/model.ts": "export const m = %d\n" % i, "src/api.ts": "export const a = %d\n" % i,
+                               "src/model.test.ts": "m%d\n" % i, "yarn.lock": "x%d\n" % i}, "改 model %d" % i)
+        for i in (4, 5):   # 格式化这类批量提交:model 和 other 都在里面
+            self.commit(repo, dict({"src/model.ts": "export const m = %d\n" % i, "src/other.ts": "export const o = %d\n" % i},
+                                   **{"pkg/f%d.ts" % k: "export const f = %d\n" % i for k in range(25)}), "format %d" % i)
+        self.git(repo, "switch", "-qc", "feature")
+        self.commit(repo, {"src/model.ts": "export const m = 9\n"}, "改")
+        self.git(repo, "switch", "-q", "main")
+        data, _ = self.facts(repo, "feature")
+        got = {c["file"]: c for c in data["cochange"]}
+        self.assertEqual(sorted(got), ["src/api.ts"], "测试、lock、只在批量提交里一起改的都不列")
+        self.assertEqual((got["src/api.ts"]["with"], got["src/api.ts"]["together"]), ("src/model.ts", 3))
+        self.assertGreater(got["src/api.ts"]["ratio"], 0.5)
+
+
+class FactsNote(Facts):
+    def report_note(self, rd):
+        return [l for l in self.run_script("report-lines.sh", rd).stdout.splitlines() if l.startswith("FACTS_NOTE:")]
+
+    def test_disclosed_only_when_something_was_not_checked(self):
+        repo = self.make_repo("note", {"src/a.ts": "export function listOrders(p: number) {\n  return p\n}\n", "src/b.ts": "listOrders(1)\n"})
+        self.git(repo, "switch", "-qc", "feature")
+        self.commit(repo, {"src/a.ts": "export function listOrders(p: string) {\n  return p\n}\n"}, "改")
+        self.git(repo, "switch", "-q", "main")
+        data, rd = self.facts(repo, "feature")
+        self.assertEqual(data["limits"], [])
+        self.assertEqual(self.report_note(rd), [])
+        data["limits"].append("查调用方超过 10 秒,已停止;调用方没有列出")
+        data["callers_to_check"][0]["ambiguous"] = True
+        with open(os.path.join(rd, "analysis-facts.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        note = self.report_note(rd)
+        self.assertEqual(len(note), 1)
+        self.assertIn("查调用方超过 10 秒", note[0])
+        self.assertIn("同名定义 1 个、调用方没列全 0 个", note[0])
+        self.assertIn("可以用 deep", note[0])
+        with open(os.path.join(rd, "meta.txt"), "a", encoding="utf-8") as f:
+            f.write("depth=deep\n")
+        self.assertIn("deep 的影响面一遍已从使用方往回查", self.report_note(rd)[0])

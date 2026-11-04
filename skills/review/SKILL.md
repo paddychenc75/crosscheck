@@ -35,7 +35,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | `--base-target` | 「仅本次按目标分支」「就用推荐项」:本次使用 MR/PR 的目标分支,没有 MR 信息时使用默认分支,不记项目规则。回答后补充需求资料、重新运行时继续带上它,避免重复问基准 |
 | `--base-rule <规则>` | **只有明确说「记住项目规则」「以后都这样」才用**:`target` 跟随每个 MR/PR 各自的目标分支,无 MR 时跟随默认分支;`branch:<分支>` 固定对比指定分支。每次重新解析远端最新版本,不记提交。默认仅本次,不回答是否记住也不保存 |
 | `--ask-base` | 「换个基准」「重新选对比基准」:忽略已有规则和自动来源,重新问一次;回答默认仅本次,明确记住才更新记录 |
-| `--depth quick` / `--depth deep` | 「快速看一下」/「仔细看」「上线前深度审一下」。没说就不传,按 standard 跑 |
+| `--depth quick` / `--depth standard` / `--depth deep` | 「快速看一下」/「按标准审」/「仔细看」「上线前深度审一下」。没说就不传,由脚本按根 `REVIEW.md` 头部的 `depth` 或 standard 决定 |
 | `--only <list>` | 「只看安全问题」「只对照一下规范」→ `bug`、`security`、`rules` 中的若干项。默认三项都查 |
 | `--intent "…"` | 「这次是为了修复分页丢数据」。意图和 `--doc` 按审查目标记录,同一目标之后不说就沿用,报告写明「沿用」;说「之前的意图不算了」就传 `--intent ""` |
 | `--doc <文件>`(可多次) | 「方案在 docs/plan.md」「接口文档在 docs/api.md」。`--plan` 是同一个意思。说「之前的文档不算了」就传 `--doc ""` |
@@ -80,17 +80,17 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 规则、用户给的意图或计划、审查设置、`--only`、`--with-tests` 或插件本身变化时,本轮自动重审目标的全部 diff;提交说明、MR 讨论和判断记录变化不会触发。宿主实际模型变化而脚本无法感知时,主动加 `--full`。
 
 ```
-sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|deep] [--only <list>] [--full] [--with-tests]
+sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|standard|deep] [--only <list>] [--full] [--with-tests]
    [--base <分支>] [--intent "<一句话>"] [--doc <文件>]... [--source <类别>=<值>]... [--source-dir <目录>]
    [--verifier-model <模型>] [--repo <目录>] [--base-sha <提交>] [--code-host-dir <目录>]
    [--base-target | --base-rule target|branch:<分支>] [--ask-base] [--non-interactive]
 ```
 
-深度:用户说了快速或仔细才传(`--depth quick` / `--depth deep`);明确说 standard 或没说深度时都不传,保持 standard。全量(`--full`)和全部改动(`--allow-large`)只决定范围,不能据此升级为 deep。其余选项照用户的要求传。
+深度:用户这次说了快速、标准或仔细才传(`--depth quick|standard|deep`);没说就不传,由脚本按根 `REVIEW.md` 头部的 `depth`(读的版本和 `skip` 一样,PR/MR 读 base)决定,没写或写错时为 standard。实际深度和来源以 `meta.txt` 的 `depth`、`depth_source` 为准,后面各步都按它走。全量(`--full`)和全部改动(`--allow-large`)只决定范围,不能据此升级为 deep。其余选项照用户的要求传。
 
 **需要本地仓库。** 当前目录不是仓库时脚本会报错:知道仓库在哪就加 `--repo <目录>`;不知道就问用户,不要在磁盘上到处找。读代码时以 `meta.txt` 的 `repo_root` 为准。
 
-输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论,可能没有)、`weakening.txt`(测试与检查变更的检测信号,不代表已确认缺陷)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)。增量时还有 `incremental.txt`、`prev-findings.json`。
+输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论,可能没有)、`weakening.txt`(测试与检查变更的检测信号,不代表已确认缺陷)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)、`analysis-facts.json`(代码块编号、改动的符号,以及给 reviewer 第 1 遍核对的线索:待核对的调用方、被删改行引入时的修复提交、历史上常一起改这次没改的文件;没查完的写在 `limits`)。增量时还有 `incremental.txt`、`prev-findings.json`。
 
 基准由脚本解析:当次明确选择优先,其次是保存的项目规则、MR/PR 目标、可验证的本地创建来源。自动选择不保存规则;不自行猜基准。实际版本及来源以 `SCOPE:` 为准。
 
@@ -171,7 +171,7 @@ sh <skill_dir>/scripts/prepare-verify.sh <review_dir>
 
 **模型。** `meta.txt` 的 `verifier_model` 不是 `host` 时(用户这次指定的,或配置里的 `model.verifier`),启动 verifier 时使用那个模型。能用另一家的模型核实效果更好,两者的盲区不同;宿主不支持指定模型时照常运行,并在报告里说明。
 
-`may_run_checks` 只在 deep 且 `head_checked_out=yes` 时为 yes:工作区不是被审查的版本时,运行结果不属于这份代码,`run-check.sh` 会拒绝,verifier 只读代码。允许运行时,verifier 的所有运行都经 `sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命令>...`,运行记录在 `review_dir/runs/`;`aggregate.sh` 核对声称的运行都有记录,再按 outcome 区分已复现、运行反证、结果未定和读代码推断(照抄 `MARK:`)。记录存在或非零退出不证明复现,`reproduced` 需实际观察说明;`refuted` 不得作为确认展示,`inconclusive` 仍按代码证据评分。展示的输出取自运行日志,保存记录时保留 runs/。
+`may_run_checks` 只在 deep 且 `head_checked_out=yes` 时为 yes(`REVIEW.md` 设了 `depth: deep` 时同样如此,审本地工作区会运行项目的检查和测试):工作区不是被审查的版本时,运行结果不属于这份代码,`run-check.sh` 会拒绝,verifier 只读代码。允许运行时,verifier 的所有运行都经 `sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命令>...`,运行记录在 `review_dir/runs/`;`aggregate.sh` 核对声称的运行都有记录,再按 outcome 区分已复现、运行反证、结果未定和读代码推断(照抄 `MARK:`)。记录存在或非零退出不证明复现,`reproduced` 需实际观察说明;`refuted` 不得作为确认展示,`inconclusive` 仍按代码证据评分。展示的输出取自运行日志,保存记录时保留 runs/。
 
 把每个 verifier 的回复原样写成 `<review_dir>/verify/result-<n>.json`。不要附上查找者的推理或你自己的意见 —— verifier 必须依据代码判断。
 

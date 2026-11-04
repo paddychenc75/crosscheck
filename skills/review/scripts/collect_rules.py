@@ -57,7 +57,7 @@ for dd in sorted(dirs, key=lambda x: (-x.count("/"), x)):
         add("L3", r, dd + "/**", [f for f in changed if f.startswith(dd + "/")])
 if "REVIEW.md" in records:
     if crlib.frontmatter_unclosed(records["REVIEW.md"]["text"]):
-        errors.append("REVIEW.md: frontmatter 缺少结束分隔符,头部设置(skip、limits)没有生效")
+        errors.append("REVIEW.md: frontmatter 缺少结束分隔符,头部设置(skip、limits、depth)没有生效")
     add("L2", records["REVIEW.md"], "**", list(changed))
 for path, r in sorted(records.items()):
     if r["source"] == "review":

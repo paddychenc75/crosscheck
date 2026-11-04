@@ -146,10 +146,10 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --apply
 - **工具能不能查。** linter、格式化、类型检查、CI 已经能拦住的,建议交给工具。
 - **重复和矛盾。** 不同文件里几乎相同或互相冲突的规则。
 - **长度。** 单个文件超过约 15 条或 4000 字符时重要的容易被稀释(Copilot 这类工具只读前 4000 字符),建议按目录或主题拆到 `.agents/rules/`。
-- **放错位置。** 一句话该放哪里依次问三个问题:脚本能执行吗(`skip`、`limits`)→ 根目录 `REVIEW.md` 头部;写代码的 agent 也要遵守吗(必须 / 禁止怎样写代码)→ `.agents/rules/<主题>.md`;都不是 → `REVIEW.md` 正文的「严重程度」「审查重点」「不要报」三节。按这个标准:
+- **放错位置。** 一句话该放哪里依次问三个问题:脚本能执行吗(`skip`、`limits`、`depth`)→ 根目录 `REVIEW.md` 头部;写代码的 agent 也要遵守吗(必须 / 禁止怎样写代码)→ `.agents/rules/<主题>.md`;都不是 → `REVIEW.md` 正文的「严重程度」「审查重点」「不要报」三节。按这个标准:
   - `REVIEW.md` 里有代码约束(包括旧版的「每次都要检查」一节),标为放错位置,建议挪到 `.agents/rules/<主题>.md` 并写 `paths` / `globs`;只提示,不自动迁移。
   - `REVIEW.md` 的「不要报」里写的是某条规则的例外,建议挪进那条规则的「不要报」字段;它只该压住审查器的通用直觉。
-  - `.agents/rules/` 里放了严重程度、审查重点、`skip` / `limits` 这类审查设置的,提示它们只有 `REVIEW.md` 里才会被读到,应挪进 `REVIEW.md`;规则文件里单独的「## 不要报」一节不会被当成「不要报」读,建议并进对应规则的「不要报」字段。
+  - `.agents/rules/` 里放了严重程度、审查重点、`skip` / `limits` / `depth` 这类审查设置的,提示它们只有 `REVIEW.md` 里才会被读到,应挪进 `REVIEW.md`;规则文件里单独的「## 不要报」一节不会被当成「不要报」读,建议并进对应规则的「不要报」字段。
   - `.agents/rules/` 文件头部同时写了 `paths` 和 `globs` 但范围不同的,审查会报规则来源问题,建议改成同一串。
 - **误报情况。** 从 MR 评论沉淀的规则(末尾有 `<!-- 来源:… -->`)和其他规则,在 `~/.crosscheck/reviews/<项目>/` 的审查记录里看它有没有被引用过(`findings.json` 的 `rule_file`、`rule_quote`),以及在 `feedback.jsonl` 里被判为成立还是不成立。命中后长期被判不成立的,建议停用或补上「不要报」的边界。
 
@@ -171,7 +171,7 @@ python3 <cr_dir>/scripts/rules-write.py <work_dir> --apply
 
 ### 已经有
 
-1. 用 `sh <cr_dir>/scripts/settings.sh show <仓库根目录>` 看头部设置能不能解析;解析失败或有不认识的设置(只支持 `skip`、`limits`)时指出来。`skip` 里的路径用 `git ls-files` 确认还能匹配到文件。
+1. 用 `sh <cr_dir>/scripts/settings.sh show <仓库根目录>` 看头部设置能不能解析;解析失败或有不认识的设置(只支持 `skip`、`limits`、`depth`)时指出来,`depth` 只能是 `quick`、`standard`、`deep`(输出的 `depth_invalid` 有值就是写错了)。`skip` 里的路径用 `git ls-files` 确认还能匹配到文件。
 2. 正文按「严重程度」「审查重点」「不要报」三节整理;缺「审查重点」的,按上面「还没有」的方式问负责人补一两句。代码约束(包括旧版「每次都要检查」一节的内容)标为放错位置,建议挪到 `.agents/rules/<主题>.md`,只提示不自动迁移;写给写代码的 agent 的说明(怎么跑测试、用哪个包管理器)建议挪到 `CLAUDE.md` / `AGENTS.md`。
 3. 按上面「检查」的标准过一遍 `REVIEW.md` 正文,只检查这份文件本身,不顺带检查 `.agents/rules/`。
 4. 「不要报」:同样从判断记录里找反复被判不成立、又不是某条规则例外的情况补充候选。

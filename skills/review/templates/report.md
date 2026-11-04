@@ -42,6 +42,7 @@
 <TRIMMED>
 <SKIPPED>
 <CHECKED>
+<FACTS_NOTE>
 <INCOMPLETE>
 消耗:<save-review 的 cost>
 <FEEDBACK,仅脚本输出时展示,没有时整行省略>

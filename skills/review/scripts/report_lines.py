@@ -47,7 +47,11 @@ if m.get("merged") == "yes":
     # 已合入的 MR 改描述、改代码都影响不了这次合入;位置见 report-format
     print("MERGED: %s 已合入%s。按合入前的改动审查;描述已无法影响合入;要修请另开分支" % (
         "分支 %s" % sb if mode != "pr" else ("这个 PR" if plat == "github" else "这个 MR"), " " + tb.replace("origin/", "", 1) if tb else ""))
-print("SCOPE: 审查范围:%s · 深度:%s · %s%s" % (what, DEPTH.get(m.get("depth"), m.get("depth")), scope, ref_note))
+depth_from = {"arg": "本次指定", "review": "REVIEW.md 设定", "default": "默认"}.get(m.get("depth_source", ""), "")
+if m.get("depth_invalid"):
+    depth_from += ";REVIEW.md 的 depth「%s」不认识" % m["depth_invalid"]
+print("SCOPE: 审查范围:%s · 深度:%s%s · %s%s" % (what, DEPTH.get(m.get("depth"), m.get("depth")),
+      "(%s)" % depth_from if depth_from else "", scope, ref_note))
 
 # 意图
 print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"),
@@ -107,10 +111,10 @@ if (rm_blocks == 0 or quick) and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
 if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
-    dims.remove("需求核对")
-    extra.append("需求核对:缺少明确验收标准,未完成")
+    # 没有验收标准时第 3 遍仍核对意图里点名的对象有没有落点,只是没有逐条验收
+    dims[dims.index("需求核对")] = "需求核对(没有验收标准,只核对意图里点名的对象)"
 st = crlib.load_json(os.path.join(d, "settings.json"), {})
-if any(st.get(k) for k in ("skip", "limits")):
+if any(st.get(k) for k in ("skip", "limits")) or m.get("depth_source") == "review":
     extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % st.get("source", ""))
 if m.get("code_host_reason"):
     extra.append("MR 信息没有读到(tools.code_host:%s),标题和描述未用上" % m["code_host_reason"])
@@ -130,6 +134,17 @@ if rs.get("total") or rs.get("failed_claims"):
     extra.append(part)
 print("CHECKED: 已检查:%s · 深度:%s · 范围:%s%s" % ("、".join(dims), DEPTH.get(m.get("depth"), m.get("depth")), "增量" if m.get("review_scope") == "incremental" else "全量",
       " · " + " · ".join(extra) if extra else ""))
+
+# 调用方、修复线索、共同变更没查完(analysis-facts.json 的 limits,以及待核对调用方里同名歧义、没列全的条目)
+facts = crlib.load_json(os.path.join(d, "analysis-facts.json"), {})
+todo = facts.get("callers_to_check") or []
+parts = list(facts.get("limits") or [])
+amb, cut = sum(1 for c in todo if c.get("ambiguous")), sum(1 for c in todo if c.get("truncated"))
+if amb or cut:
+    parts.append("待核对调用方里有同名定义 %d 个、调用方没列全 %d 个" % (amb, cut))
+if parts:
+    print("FACTS_NOTE: 影响面线索没有查完(按名字和 git 历史的文本线索):%s · %s" % (
+        ";".join(parts), "deep 的影响面一遍已从使用方往回查" if m.get("depth") == "deep" else "要从使用方往回再查一遍可以用 deep"))
 
 tr = final.get("trimmed", {})
 if tr:

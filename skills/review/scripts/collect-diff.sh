@@ -19,7 +19,7 @@
 #                无明确基准时沿用已有规则,PR/MR 用已知目标,本地尝试验证创建来源线索;无法确认才 BASE_UNSET
 #                非交互无可靠来源用推荐项并标「基准未确认」;计算失败 BASE_FAILED 非零停止,不能编基准
 #   --ask-base   忽略已有规则和创建来源,重新问一次;回答默认仅本次,明确记住才用 --base-rule 更新记录
-#   --depth      不传时为 standard
+#   --depth      不传时用根 REVIEW.md 头部的 depth(读的版本和 skip 一样),没写或不认识时为 standard
 #   --intent     用户补充的一句话意图;--plan / --doc 方案、计划等文档(可多次,仓库相对路径或绝对路径)
 #                都记进来源记录,同一审查目标之后不传时沿用;--intent ""、--doc "" 分别清除
 #   --source KIND=VALUE  需求来源(可多次):KIND 是 requirement(需求单)或 doc(需求文档);工具见配置的 tools.requirement、tools.doc_reader,VALUE 是链接、
@@ -77,7 +77,7 @@ command -v python3 >/dev/null 2>&1 || die "审查需要 python3(3.8 或更新),�
 target=""
 platform="${CR_PLATFORM:-}"
 out=""
-depth=standard
+depth=""
 only=all
 full=no
 local_path=""
@@ -147,7 +147,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-case "$depth" in quick|standard|deep) ;; *) die "--depth 应为 quick、standard 或 deep" ;; esac
+case "$depth" in ""|quick|standard|deep) ;; *) die "--depth 应为 quick、standard 或 deep" ;; esac
 only=$(printf '%s' "$only" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u | tr '\n' ',' | sed 's/,$//')
 case ",$only," in
   ,all,|,bug,rules,security,) only=all ;;
@@ -775,7 +775,17 @@ if [ "$mode" != local ]; then
   [ -n "$base_sha" ] && git cat-file -e "$base_sha^{commit}" 2>/dev/null || die "base 无法读取，不使用工作区规则代替"
   settings_ref=$base_sha
 fi
-sh "$script_dir/settings.sh" apply "$out" "$root" "$settings_ref" || die "读取审查设置失败"
+settings_kv=$(sh "$script_dir/settings.sh" apply "$out" "$root" "$settings_ref") || die "读取审查设置失败"
+# 深度:用户当次说的(--depth)> 根 REVIEW.md 头部的 depth(读的版本同上,PR 改不了自己的深度)> standard。
+# 要在写 meta.txt、挑增量对象和算 may_run_checks 之前定下来。
+depth_invalid=""
+if [ -n "$depth" ]; then
+  depth_source=arg
+else
+  depth=$(printf '%s\n' "$settings_kv" | sed -n 's/^depth=//p')
+  depth_invalid=$(printf '%s\n' "$settings_kv" | sed -n 's/^depth_invalid=//p')
+  if [ -n "$depth" ]; then depth_source=review; else depth=standard; depth_source=default; fi
+fi
 
 # 每个文件 diff 的哈希。内容没变则哈希不变,下次审查据此跳过。
 split="$out/split"
@@ -827,6 +837,7 @@ finder_model=$(sh "$script_dir/../../../scripts/config.sh" get model.finder)
   # 提前读取历史时,工作区目标也必须从工作区读取代码锚点。
   if [ "$code_ref" = WORKTREE ]; then printf 'head_checked_out=yes\n'; fi
   printf 'depth=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$plan_arg" "$store_dir" "$repo_id"
+  printf 'depth_source=%s\ndepth_invalid=%s\n' "$depth_source" "$depth_invalid"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
   printf 'with_tests=%s\nonly=%s\nbase_sha_arg=%s\n' "$with_tests" "$only" "$base_sha_arg"
   printf 'source_branch=%s\ntarget_key=%s\nrepo=%s\n' "$source_branch" "$target_key" "$repo"
@@ -951,6 +962,8 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
   printf 'with_tests=%s\n' "$with_tests"
   printf 'batches=%s\n' "$batch_count"
   printf 'depth=%s\n' "$depth"
+  # 深度从哪来:arg(用户当次说的)、review(根 REVIEW.md 的 depth)、default(都没有,standard)
+  printf 'depth_source=%s\ndepth_invalid=%s\n' "$depth_source" "$depth_invalid"
   printf 'only=%s\n' "$only"
   printf 'review_scope=%s\n' "$review_scope"
   printf 'prev_review=%s\n' "$prev_review"
@@ -1024,6 +1037,7 @@ if [ "$base_state" = unset ]; then
   fi
 fi
 [ -z "$code_host_notes" ] || printf '%s\n' "$code_host_notes" | sed 's/^/NOTE: /'
+[ -z "$depth_invalid" ] || printf 'NOTE: REVIEW.md 头部的 depth「%s」不认识(只支持 quick、standard、deep),按 standard 审查\n' "$depth_invalid"
 if [ "$merged" = yes ]; then
   if [ "$mode" = pr ]; then
     what="这个 MR"; [ "$platform" = github ] && what="这个 PR"

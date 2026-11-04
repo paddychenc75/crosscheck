@@ -621,7 +621,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
           <div class="track" data-track="review">
           <div class="scene" data-scene="0">
-            <div class="kv a" style="--i:0"><span class="k">翻译成设置</span><span>「MR 128」→ 目标 !128 · 没说深度 → standard · 「这次是修复分页丢数据」→ 意图</span></div>
+            <div class="kv a" style="--i:0"><span class="k">翻译成设置</span><span>「MR 128」→ 目标 !128 · 没说深度 → 根目录 REVIEW.md 的 depth，没写按 standard · 「这次是修复分页丢数据」→ 意图</span></div>
             <div class="kv a" style="--i:1"><span class="k">先复述</span><span>把理解到的范围、深度和意图说一遍，理解错了可以马上纠正</span></div>
             <div class="kv a" style="--i:2"><span class="k">只读</span><span>审查阶段不改你的代码，也不往 MR 上写任何东西</span></div>
           </div>
@@ -974,7 +974,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
           <li><b>插件共享配置：</b>审查流程在 <code>skills/review/</code> 下，PR/MR 描述在 <code>skills/describe/</code> 下（采集直接调用 review 的脚本，不依赖审查结果），规则维护在 <code>skills/improve/</code> 下，三者共用插件级 <code>config/defaults.conf</code> 和 <code>scripts/config.py</code>；直接拷贝安装必须保留共享目录与 skills 的相对布局。不依赖宿主专属功能；三个宿主的 <code>plugin.json</code> 只是安装清单，hook 缺了流程也不变。代价是用不上宿主特有的能力，好处是只维护一套流程，三个宿主行为一致。</li>
           <li><b>报告里的代码是摘出来的：</b>问题代码由 <code>snippet.sh</code> 从被审查的那一版带行号摘取，不让 agent 凭记忆写，否则容易和原文有出入，被审查的代码不在工作区时还可能摘到另一个版本。修复建议的代码来自发现本身，经 verifier 过目；没有确切替换代码时用文字。报告开头有概览表，先看有几条、多严重、在哪里。</li>
           <li><b>只审有效代码：</b>脚本跳过测试、测试数据、日志、覆盖率报告、备份和 lock、生成、vendored、二进制文件；文件名规则偏保守（不把 <code>spec/</code> 一概当成测试，它也可能放接口定义），宁可多审一个文件也不漏产品代码。测试默认不审，<code>--with-tests</code> 可打开。文件内部由角色判断：注释和排版、原样移动、被注释掉的和没被用上的代码不按缺陷报，评分标准里有对应的封顶检查。</li>
-          <li><b>意图在调用时给，不放进仓库：</b>计划和意图描述的是“这一次改动”，提交进仓库会在合并后过期，还会被之后的审查读到，所以只从 MR 描述、需求单、提交说明和 <code>--intent</code> / <code>--doc</code> 取。只有意图里有明确的验收标准才做需求核对，没有就不猜“应该做什么”。意图可以解释某个行为变化是有意的，不能让安全问题不报。</li>
+          <li><b>意图在调用时给，不放进仓库：</b>计划和意图描述的是“这一次改动”，提交进仓库会在合并后过期，还会被之后的审查读到，所以只从 MR 描述、需求单、提交说明和 <code>--intent</code> / <code>--doc</code> 取。需求核对只对照意图里写明的东西：明确的验收标准，以及点名的页面、接口、字段、枚举值、配置项（逐个找落点，找不到的写明找过哪里）；没写的不猜“应该做什么”。意图可以解释某个行为变化是有意的，不能让安全问题不报。</li>
           <li><b>测试削弱由脚本扫出来：</b>删除测试、断言减少、新增 skip / only / 抑制注释、降低覆盖率阈值、放宽 CI 检查，不是缺陷，但评审的人必须看到，所以单列一节，不占缺陷条数，也不经 verifier。</li>
         </ul>
       </details>
@@ -1023,13 +1023,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
         <tr><td>standard（默认）</td><td>reviewer（同一上下文分遍：正确性、安全、需求核对）、rules-auditor 并行</td><td>verifier 子代理，只读代码，每批最多 3 条</td><td>缺陷 10 条；需求核对、规范各 5 条</td></tr>
         <tr><td>deep</td><td>同 standard，reviewer 多做一遍影响面（从使用方往回查）</td><td>工作区就是被审版本时，verifier 可以跑项目已有的类型检查和测试来复现</td><td>同 standard</td></tr>
       </table></div>
-      <p>改动较大时按约 1000 行一批（<code>CR_BATCH_LINES</code> 可调），reviewer 和 rules-auditor 每批各跑一次；quick 不分批。超过 4 批（<code>CR_LARGE_BATCHES</code>）先问你，确认后加 <code>--allow-large</code> 再跑。条数上限可被 <code>REVIEW.md</code> 的 <code>limits</code> 覆盖，不指定深度按 standard。deep 下 verifier 只能运行项目已经定义的只读和构建类命令，不装包、不改已跟踪的文件、不访问网络。</p>
+      <p>改动较大时按约 1000 行一批（<code>CR_BATCH_LINES</code> 可调），reviewer 和 rules-auditor 每批各跑一次；quick 不分批。超过 4 批（<code>CR_LARGE_BATCHES</code>）先问你，确认后加 <code>--allow-large</code> 再跑。条数上限可被 <code>REVIEW.md</code> 的 <code>limits</code> 覆盖。深度按“当次指定 &gt; 根目录 <code>REVIEW.md</code> 头部的 <code>depth</code> &gt; standard”决定，PR/MR、分支和范围审查读 base 版；<code>meta.txt</code> 记下来源（<code>depth_source</code>），报告的范围行写明，不认识的值提示后按 standard。项目设成 deep 时，本地审查工作区就是被审版本，会运行项目已有的检查和测试。deep 下 verifier 只能运行项目已经定义的只读和构建类命令，不装包、不改已跟踪的文件、不访问网络。</p>
 
       <h3>流程是否走完</h3>
       <ul>
         <li><b>进行中标记：</b>真正开始审查时在记录目录写 <code>pending</code>，保存成功后删除；下次审查同一目标时标记还在，就提示上一次没有保存、很可能提前结束，然后照常重新审查。</li>
         <li><b>非交互运行：</b>没有人在场时（<code>claude -p</code>、<code>codex exec</code>、CI）必须前台启动子代理，等每个子代理的最终 JSON 都回来再进入下一步，全部返回之前不写报告、不保存记录。</li>
-        <li><b>代码块编号和调用方交给脚本：</b><code>analysis_facts.py</code> 给每个改动块编号（H1…），提取改了哪些函数、接口、类型和配置键，用 <code>git grep</code> 按名字找本仓库里的调用方，写进 <code>analysis-facts.json</code> 供 reviewer 引用；依赖注入、反射、跨服务调用搜不到。它失败不阻止审查，但会在 NOTE 里披露，并记为流程缺项，报告标题与首句写“审查未完成”，并说明缺项和已检查部分确认的发现数。</li>
+        <li><b>代码块编号和调用方交给脚本：</b><code>analysis_facts.py</code> 给每个改动块编号（H1…），提取改了哪些函数、接口、类型和配置键，用 <code>git grep</code> 按名字找本仓库里的调用方，写进 <code>analysis-facts.json</code> 供 reviewer 引用；依赖注入、反射、跨服务调用搜不到。review 还在同一文件里给三类线索，所有深度都生成，只给事实、不直接生成发现：<code>callers_to_check</code>（签名变了或被删的导出定义，diff 之外还有调用方的，标同名歧义和没列全）、<code>fix_clues</code>（<code>git blame -w -M -C</code> 找出被改的 base 行由提交说明含 fix、revert、修复等词的提交引入）、<code>cochange</code>（base 历史里经常和改动文件一起改、这次没改的文件）。共同变更参考 CHID（ESE 2025）的阈值：比例超过 50% 且至少共同出现 2 次；一次改很多文件的提交按 1/(文件数-1) 加权，不设文件数上限；测试、lock、生成文件不参与统计。修复线索和共同变更各限 10 秒，超时写进 <code>limits</code>；这些线索没查完时报告在“已检查”后加一行说明，并提示 deep。它失败不阻止审查，但会在 NOTE 里披露，并记为流程缺项，报告标题与首句写“审查未完成”，并说明缺项和已检查部分确认的发现数。</li>
         <li><b>实际用的模型：</b>消耗行列出会话记录里实际出现的模型名；配置的查找或核实模型没有出现在记录里时，报告多一行“模型与配置不一致”。</li>
       </ul>
 
@@ -1119,14 +1119,14 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       <div class="table-wrap"><table>
         <tr><th>类别</th><th>文件</th><th>谁来写</th><th>生效范围</th></tr>
         <tr><td>目录审查约定（最具体）</td><td>子目录的 <code>REVIEW.md</code></td><td>该目录的负责人手写；<code>improve</code> 可按 <code>plan.md</code> 在「不要报」下追加一行</td><td>只对该目录下的改动；只有严重程度、审查重点、不要报三节，头部设置不执行</td></tr>
-        <tr><td>项目审查约定</td><td>根目录 <code>REVIEW.md</code></td><td>负责人手写；<code>improve</code> 可起草，也可按 <code>plan.md</code> 在「不要报」下追加一行</td><td>全部改动；头部 <code>skip</code>、<code>limits</code> 由脚本执行</td></tr>
+        <tr><td>项目审查约定</td><td>根目录 <code>REVIEW.md</code></td><td>负责人手写；<code>improve</code> 可起草，也可按 <code>plan.md</code> 在「不要报」下追加一行</td><td>全部改动；头部 <code>skip</code>、<code>limits</code>、<code>depth</code> 由脚本执行</td></tr>
         <tr><td>代码规则</td><td><code>.agents/rules/&lt;主题&gt;.md</code></td><td><code>improve</code> 从 MR 评论归纳成 <code>plan.md</code>，你逐条标“写入”并说“确定”后才写入；审查时当场定的“以后都要查 X”也写这里</td><td>按 frontmatter 的 <code>paths</code> / <code>globs</code>（新建时两个字段写同一串 glob，范围不同时报问题）；不写表示全仓库；写错字段整个文件不生效，不会悄悄变成全局</td></tr>
         <tr><td>团队已有约定（只读）</td><td><code>CLAUDE.md</code>、<code>AGENTS.md</code>、<code>.claude/rules/</code>、<code>.cursor/rules/</code>、<code>.github/instructions/</code></td><td>团队本来就在维护</td><td>按各自的目录或 <code>paths</code> / <code>globs</code> / <code>applyTo</code>；Copilot 的 <code>excludeAgent: code-review</code> 会被排除</td></tr>
       </table></div>
       <ul>
         <li><b>冲突怎么办：</b>同一件事几层说法不同时，目录 <code>REVIEW.md</code> 优先于根目录 <code>REVIEW.md</code>，再优先于 <code>.agents/rules</code> 和团队约定。同一层里两条互相矛盾时，两条都不报，改发一条“规则冲突”的说明交给人处理。这一步由 rules-auditor 判断，脚本只负责排序。</li>
         <li><b>从哪一版读：</b>审查 PR/MR、其他分支或提交范围时从 base 读，PR 改不了审查用的规则；审查自己当前的分支时读工作区。base 读不到就停止，不回退工作区。</li>
-        <li><b>任何规则都不能越权：</b>不能取消核实、降低 80 分门槛或授权写操作。<code>REVIEW.md</code> 头部只认 <code>skip</code> 和 <code>limits</code>；正文里的严重程度定义和证据要求照常采用。</li>
+        <li><b>任何规则都不能越权：</b>不能取消核实、降低 80 分门槛或授权写操作。<code>REVIEW.md</code> 头部只认 <code>skip</code>、<code>limits</code> 和 <code>depth</code>；正文里的严重程度定义和证据要求照常采用。</li>
         <li><b>「审查重点」（原「出问题长什么样」）：</b>作用于查找。由这块代码的负责人写它失败时会变成什么样（文档写错事实、配置接错路由或开关、迁移不可回滚）。它帮助判断后果类型，不改变严重程度的定义，也不用来挑风格、命名上的小毛病；不写也能审查。</li>
         <li><b>「不要报」有两处：</b><code>REVIEW.md</code> 里标题为「不要报」（或 <code>Do not report</code>）的一节作用于过滤，只压住审查器的通用直觉（“应该加重试”“应该补测试”“可以重构”这类不来自任何项目规则的建议），只对它所在的目录生效，本身不算要检查的规则，规则发现引用它会作废。某条规则自己的例外不写这里，写在 <code>.agents/rules</code> 那条规则块的“不要报”字段，和规则放在一起；规则文件末尾不再有单独的“## 不要报”一节。</li>
         <li><b>接入写代码的工具：</b>目前没有工具原生读 <code>.agents/rules/</code>（agents.md 只有提案）。Claude Code 读 <code>.claude/rules</code> 的 <code>paths</code>，Cursor 读 <code>.cursor/rules/*.mdc</code> 的 <code>globs</code>，Codex 只读 <code>AGENTS.md</code>。所以 <code>improve</code> 写入后按仓库里有什么打印软链接命令和 <code>AGENTS.md</code> 引用行，只打印不执行；经软链接出现多次的同一份规则，审查只读一次，优先 <code>.agents/rules</code> 那份。</li>
@@ -1136,12 +1136,13 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
 
       <h3>REVIEW.md 写什么、怎么写</h3>
       <p><b>REVIEW.md 是只给审查用的短清单，每一条都应该是“光看代码不会知道”的信息。</b>官方文档："Keep REVIEW.md to instructions that change review behavior, and leave general project context in CLAUDE.md."（只放会改变审查行为的内容，通用的项目背景放 <code>CLAUDE.md</code>）。Anthropic 的博客说得更直接："The good ones are short."（出处见本节末尾的“设计依据”）。</p>
-      <p><b>一句话放哪，依次问三个问题：</b>① 脚本能执行吗（跳过哪些路径、报几条）？能就写进根目录 <code>REVIEW.md</code> 的头部。② 写代码的 agent 也要遵守吗（必须 / 禁止怎样写代码）？要就写进 <code>.agents/rules/&lt;主题&gt;.md</code>。③ 都不是，才写进 <code>REVIEW.md</code> 正文的三节：严重程度（定级）、审查重点（查找）、不要报（过滤）。例如“新页面使用新版组件”是代码约束，放 <code>.agents/rules</code>；“旧页面不要求迁移”是这条规则自己的例外，写在规则块的“不要报”字段，也不进 <code>REVIEW.md</code>。业界的划分也是这条线：Claude Code Review 分 <code>REVIEW.md</code> 和 <code>CLAUDE.md</code>，CodeRabbit 分 <code>path_instructions</code> 和 code guidelines，Copilot 用 <code>excludeAgent</code> 区分只给审查还是只给编码 agent。</p>
+      <p><b>一句话放哪，依次问三个问题：</b>① 脚本能执行吗（跳过哪些路径、报几条、默认多深）？能就写进根目录 <code>REVIEW.md</code> 的头部。② 写代码的 agent 也要遵守吗（必须 / 禁止怎样写代码）？要就写进 <code>.agents/rules/&lt;主题&gt;.md</code>。③ 都不是，才写进 <code>REVIEW.md</code> 正文的三节：严重程度（定级）、审查重点（查找）、不要报（过滤）。例如“新页面使用新版组件”是代码约束，放 <code>.agents/rules</code>；“旧页面不要求迁移”是这条规则自己的例外，写在规则块的“不要报”字段，也不进 <code>REVIEW.md</code>。业界的划分也是这条线：Claude Code Review 分 <code>REVIEW.md</code> 和 <code>CLAUDE.md</code>，CodeRabbit 分 <code>path_instructions</code> 和 code guidelines，Copilot 用 <code>excludeAgent</code> 区分只给审查还是只给编码 agent。</p>
       <p>官方文档按“遇到什么问题，就加哪类指令”来写。对应到 CrossCheck 的模板：</p>
       <div class="table-wrap"><table>
         <tr><th>遇到的问题</th><th>在 REVIEW.md 里写什么</th><th>对应哪一节</th><th>短例子</th></tr>
         <tr><td>不重要的问题被标成重要</td><td>重新定义什么算重要</td><td>严重程度</td><td>风格、命名、重构建议最高为轻微；<code>scripts/</code> 下只在几乎确定且严重时才报</td></tr>
         <tr><td>小毛病太多</td><td>限制轻微问题的条数</td><td>头部 <code>limits</code></td><td><code>limits: { minor: 3 }</code>（官方示例：“Report at most five Nits per review.”）</td></tr>
+        <tr><td>这个项目每次都要审得更细（或更快）</td><td>项目默认深度，当次说的仍然优先</td><td>头部 <code>depth</code></td><td><code>depth: deep</code></td></tr>
         <tr><td>对生成文件、CI 已查的内容出评论</td><td>列出要跳过的路径和类别</td><td>头部 <code>skip</code>；不要报</td><td><code>skip: ["**/generated/**"]</code>；不要报：lint、格式、类型错误（CI 已经查）</td></tr>
         <tr><td>团队的规则没被查</td><td>不写进 REVIEW.md：代码约束写进 <code>.agents/rules</code>，写代码的 agent 也能读到（官方示例的 "Always check" 在这里拆出去）</td><td>—</td><td>新增或修改图标组件时，必须判断是否需要加 rtl 类名</td></tr>
         <tr><td>发现经常有误</td><td>要求先给证据</td><td>严重程度</td><td>说某段代码的行为有问题，要附 <code>file:line</code>，不能只凭变量名猜</td></tr>
@@ -1158,7 +1159,7 @@ footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px
       </ul>
 
       <h4 class="ex-h">样例：一份很短的根目录 <code>REVIEW.md</code></h4>
-      <p class="muted">虚构的前端项目，约 20 行。头部只认 <code>skip</code> 和 <code>limits</code>，只在根目录执行。节名和 <code>improve</code> 的模板一致；rtl 类名、日期格式化这类代码约束不在这里，放 <code>.agents/rules</code>。</p>
+      <p class="muted">虚构的前端项目，约 20 行。头部只认 <code>skip</code>、<code>limits</code> 和 <code>depth</code>，只在根目录执行。节名和 <code>improve</code> 的模板一致；rtl 类名、日期格式化这类代码约束不在这里，放 <code>.agents/rules</code>。</p>
 <pre><code>---
 skip: ["**/generated/**", "*.snap"]
 limits: { minor: 3 }
@@ -1181,7 +1182,7 @@ limits: { minor: 3 }
       <h4 class="ex-h">怎么长出来，放到哪里</h4>
       <ul>
         <li><b>从反复出现的评论里搬进来：</b>Anthropic 的博客建议 "Add a REVIEW.md, and move repeated review comments into it"，先在一个仓库里调几周再推广（"tune REVIEW.md for a few weeks, then widen"）。Copilot 也建议先加一条或一小组，看下一轮审查有没有被遵循，再加下一批。不要一次写满。</li>
-        <li><b>放哪的标准，看内容，不看数量和范围：</b>REVIEW.md 只放审查行为（<code>skip</code> / <code>limits</code>、严重程度、审查重点、压住通用直觉的不要报）；<code>.agents/rules</code> 放所有代码约束和它们自己的例外，按 <code>paths</code> / <code>globs</code> 限定范围。子目录 <code>REVIEW.md</code> 管“这个目录怎么审”，<code>.agents/rules</code> 管“这些文件该怎么写”，两者不再重叠。机制上，严重程度、审查重点、<code>skip</code>、<code>limits</code> 只有 REVIEW.md 里才会被读到。</li>
+        <li><b>放哪的标准，看内容，不看数量和范围：</b>REVIEW.md 只放审查行为（<code>skip</code> / <code>limits</code> / <code>depth</code>、严重程度、审查重点、压住通用直觉的不要报）；<code>.agents/rules</code> 放所有代码约束和它们自己的例外，按 <code>paths</code> / <code>globs</code> 限定范围。子目录 <code>REVIEW.md</code> 管“这个目录怎么审”，<code>.agents/rules</code> 管“这些文件该怎么写”，两者不再重叠。机制上，严重程度、审查重点、<code>skip</code>、<code>limits</code>、<code>depth</code> 只有 REVIEW.md 里才会被读到。</li>
         <li><b>旧仓库里的必查项：</b>旧版模板的“每次都要检查”一节不再当作代码约束检查；<code>improve</code> 的“检查”“整理 REVIEW.md”把它标为放错位置，建议迁到 <code>.agents/rules</code>，只提示不自动迁移。官方的做法是内容太长时用 <code>@</code> 引入其他文件（最多 8 个文件，合计 150,000 字节）；<code>.agents/rules</code> 目录是我们的扩展，官方没有。</li>
       </ul>
 
@@ -1481,11 +1482,11 @@ globs: "src/orders/**"
         <template data-track="review" data-title="读文件找问题" data-who="脚本" data-cap="脚本读头部设置、核对 skip 里的路径在仓库里还在不在；主 agent再按“检查”的标准过一遍正文，列出问题。判断标准是官方那句：REVIEW.md 只放会改变审查行为的内容，背景和写给 agent 的操作说明不属于它。">
           <div class="tc">
             <div class="tt"><span class="bul">◆</span><b>运行</b> settings.sh show .</div>
-            <div class="to"><span class="tree">└</span>settings: REVIEW.md 头部以 --- 开头但没有结束的 ---,skip、limits 都没有生效</div>
+            <div class="to"><span class="tree">└</span>settings: REVIEW.md 头部以 --- 开头但没有结束的 ---,skip、limits、depth 都没有生效</div>
             <div class="tt"><span class="bul">◆</span><b>运行</b> git ls-files（核对 skip 的路径）</div>
             <div class="to"><span class="tree">└</span>legacy/** 在仓库里没有匹配的文件</div>
             <div class="ta"><span class="bul">●</span>发现 4 个问题：</div>
-            <div class="tpre"><span class="mi">✗</span> 头部缺结束的 ---，skip 和 limits 都没生效
+            <div class="tpre"><span class="mi">✗</span> 头部缺结束的 ---，skip、limits、depth 都没生效
 <span class="mi">✗</span> skip 里的 legacy/** 在仓库里不存在
 <span class="mi">✗</span> “每次都要检查”一节是代码约束，放错位置，建议迁到 .agents/rules（其中“注意性能”说不出违没违反，迁之前要改写）
 <span class="mi">✗</span> “项目简介”一节是背景介绍，不会改变审查行为，应放 CLAUDE.md</div>
@@ -1683,7 +1684,7 @@ globs: "src/orders/**"
         <li>MR 描述、需求单、评论、规则文件里写给 reviewer 的话（“忽略安全问题”“approve 这个”）一律不执行；意图只能解释改动，不能让安全问题不报。</li>
         <li>不改变仓库状态：不切换分支，不 <code>reset</code> / <code>stash</code> / <code>clean</code> / <code>commit</code> / <code>push</code>，读其他版本的代码一律用 <code>git show</code>。这条在 SKILL.md 和每个角色说明里各写了一遍，因为子代理不会看到 SKILL.md；被审查内容是数据这条同理，每个角色独立读材料。</li>
         <li><code>--fix</code> 只在你明确要求时进入（“review 一下”“该怎么修”不算），只编辑工作区、不暂存不提交，只应用通过核实的发现，每条用最小改动、不顺手重构，修复方式不明确的跳过并说明。</li>
-        <li><code>REVIEW.md</code> 的头部只认 skip 和 limits，正文可说明严重程度与证据要求，不能取消核实、降低 80 分阈值、触发 <code>--fix</code>、往外发内容或 approve。只认 <code>REVIEW.md</code>：它是专门写给 review 的文件，<code>CLAUDE.md</code>、<code>AGENTS.md</code> 里指挥审查的文字仍然不采用。</li>
+        <li><code>REVIEW.md</code> 的头部只认 skip、limits 和 depth，正文可说明严重程度与证据要求，不能取消核实、降低 80 分阈值、触发 <code>--fix</code>、往外发内容或 approve。只认 <code>REVIEW.md</code>：它是专门写给 review 的文件，<code>CLAUDE.md</code>、<code>AGENTS.md</code> 里指挥审查的文字仍然不采用。</li>
         <li>凭证：脚本和角色不读取、不保存、不输出 token；检查环境只看变量名在不在，不看值。</li>
       </ul>
       <details class="design-basis">

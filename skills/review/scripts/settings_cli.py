@@ -17,12 +17,17 @@ src = crlib.Source(root, ref or None)
 text = src.read("REVIEW.md")
 fm = crlib.parse_frontmatter(text)[0] if text else {}
 if text and crlib.frontmatter_unclosed(text):
-    print("settings: REVIEW.md 头部以 --- 开头但没有结束的 ---,skip、limits 都没有生效", file=sys.stderr)
+    print("settings: REVIEW.md 头部以 --- 开头但没有结束的 ---,skip、limits、depth 都没有生效", file=sys.stderr)
+raw_depth = fm.get("depth")
+raw_depth = "" if raw_depth is None else str(raw_depth).strip()
 settings = {
     "source": ("base:" + ref[:12]) if ref else "worktree",
     "found": text is not None,
     "skip": crlib.as_list(fm.get("skip")),
     "limits": crlib.as_map(fm.get("limits")),
+    # 项目的默认深度;不认识的值记在 depth_invalid,按没写处理(collect-diff.sh 报出来并用 standard)
+    "depth": raw_depth.lower() if raw_depth.lower() in ("quick", "standard", "deep") else None,
+    "depth_invalid": raw_depth if raw_depth and raw_depth.lower() not in ("quick", "standard", "deep") else None,
 }
 
 if mode == "show":
@@ -30,6 +35,8 @@ if mode == "show":
     sys.exit(0)
 
 crlib.save_json(os.path.join(out, "settings.json"), settings)
+# 给 collect-diff.sh:它在算 may_run_checks 之前按「参数 > REVIEW.md > standard」定深度
+print("depth=%s\ndepth_invalid=%s" % (settings["depth"] or "", settings["depth_invalid"] or ""))
 if not settings["skip"]:
     sys.exit(0)
 

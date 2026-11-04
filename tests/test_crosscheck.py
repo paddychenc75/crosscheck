@@ -327,6 +327,18 @@ class TestGitLab(Base):
         self.assertEqual(len(self.load(os.path.join(rd, "discussions.json"))), 1)
         self.assertIn("#7", meta["intent_sources"])
 
+    def test_mr_reads_depth_from_base(self):
+        # MR 里改 REVIEW.md 的 depth 不影响审查它自己:按 base 版(这里 base 没写 depth,按 standard)
+        self.git(self.repo, "checkout", "-q", self.head)
+        head = self.commit(self.repo, {"REVIEW.md": "---\ndepth: deep\n---\n"}, "设 deep")   # 工作区停在 head,读错工作区就会变 deep
+        mr = dict(self.mr, diff_refs={"base_sha": self.base, "start_sha": self.base, "head_sha": head})
+        self.mock_api("projects/:id/merge_requests/12", mr)
+        self.mock_api("projects/eng%2Fshop/merge_requests/12", mr)
+        self.config("gitlab_hosts=code.example.com\n")
+        rd = self.review_dir(self.run_script("collect-diff.sh", "12", cwd=self.repo).stdout)
+        meta = self.kv(os.path.join(rd, "meta.txt"))
+        self.assertEqual((meta["mode"], meta["depth"], meta["depth_source"]), ("pr", "standard", "default"))
+
     def test_subpath_mr_url(self):
         self.config("gitlab_hosts=company.com/gitlab\n")
         self.git(self.repo, "remote", "set-url", "origin", "https://company.com/gitlab/eng/shop.git")
