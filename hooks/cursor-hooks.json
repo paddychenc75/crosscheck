@@ -10,11 +10,6 @@
       {
         "command": "sh ./skills/review/scripts/guard.sh"
       }
-    ],
-    "beforeSubmitPrompt": [
-      {
-        "command": "sh ./skills/review/scripts/guard.sh"
-      }
     ]
   }
 }

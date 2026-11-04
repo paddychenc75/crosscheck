@@ -1,4 +1,4 @@
-# rule_candidates.py — 候选规则文件 rule-candidates.md 的格式:mine-check.py 生成,rules-write.py 解析。
+# rule_candidates.py — 历史归纳的内部候选格式:mined-candidates.md,不直接用于仓库写入。
 # 只被本目录下的脚本 import,不单独运行。字段名、动作、去向、证据区和来源注释的写法都以这里为准。
 
 import datetime
@@ -9,7 +9,7 @@ import re
 
 import crlib
 
-FILE = "rule-candidates.md"    # 和 candidates.json 放在同一个 work_dir,按指纹冻结配对
+FILE = "mined-candidates.md"    # 内部材料,与 candidates.json 按指纹冻结配对;人读总草稿是 rules-draft.md
 TITLE = "# 候选规则"
 FIELDS = ("候选", "去向", "动作", "规则", "原因", "严重级别", "范围", "反例", "正例", "不要报")
 # 各类候选必填的字段;suppress 类不用严重级别、反例、正例、不要报
@@ -17,7 +17,7 @@ REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重�
             "suppress": ("候选", "去向", "动作", "规则", "范围")}
 SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
 EXAMPLES = ("反例", "正例")
-ACTIONS = ("待定", "写入", "跳过", "已写入")
+ACTIONS = ("待定", "写入", "跳过")
 RULES_DIR = ".agents/rules"
 # 头部字段:写在头部(第一个 ## 块之前),不属于任何候选块。取值和块的「动作」一样,也用 ACTIONS
 HOOKUP = "接入 AGENTS.md"
@@ -252,7 +252,7 @@ def render(cands, root, meta):
     if hookup:
         lines.append("「%s」也是待定 / 写入 / 跳过:标写入时,把本次写入的 .agents/rules 文件以链接行写进 %s 的「## %s」一节,"
                      "让只读 %s 的工具(如 Codex)也知道改哪些路径前要先读哪个文件。" % (HOOKUP, AGENTS_FILE, AGENTS_SECTION, AGENTS_FILE))
-    lines.append("改完用 rules-write.py <work_dir> --check 预演,没问题再 --apply。-->")
+    lines.append("改完用 rules-write.py <work_dir> --prepare 编译到 rules-draft.md;最终预演和确认写入只用 rules-draft.py。-->")
     for c in cands:
         lines += [""] + render_block(c, suggest_dest(c, root))
     return "\n".join(lines) + "\n"

@@ -172,4 +172,7 @@ findings = crlib.load_json(os.path.join(d, "findings.json"), [])
 feedback_ids = {f.get("id") for f in findings if f.get("id")}
 feedback = [f for f in shown if f.get("no") and f.get("id") in feedback_ids]
 if feedback:
-    print("FEEDBACK: 看完可以直接回复,例如「%s 误报:说明原因」或「%s 先不改:说明原因」,判断会被记录并供后续审查参考;代码或判断前提变化时会重新核实。" % (feedback[0]["no"], feedback[0]["no"]))
+    if crlib.storage_mode(m) == "temporary":
+        print("FEEDBACK: 看完可以直接回复,例如「%s 误报:说明原因」或「%s 先不改:说明原因」;判断仅保留在本次临时目录,后续反馈须使用这份报告的运行目录。" % (feedback[0]["no"], feedback[0]["no"]))
+    else:
+        print("FEEDBACK: 看完可以直接回复,例如「%s 误报:说明原因」或「%s 先不改:说明原因」,判断会被记录并供后续审查参考;代码或判断前提变化时会重新核实。" % (feedback[0]["no"], feedback[0]["no"]))

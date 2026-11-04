@@ -89,13 +89,19 @@ class FlowCompleteness(fixture.ProjectFixture):
         store = self.kv(os.path.join(self.rd, "meta.txt"))["store_dir"]
         self.assertTrue(os.path.isfile(os.path.join(store, "pending")), "开始真正审查时留下进行中标记")
         # 没有保存就结束(标记还在),下一次对同一目标审查时要说出来
-        _, out = self.collect("feature")
+        next_rd, out = self.collect("feature")
         self.assertIn("上一次对这个目标的审查(开始于", out)
         self.assertIn("没有保存", out)
         self.finders("reviewer.json", "rules-auditor.json")
         self.run_pipeline(self.rd, CAND, SCORE)
         self.save()
-        self.assertFalse(os.path.exists(os.path.join(store, "pending")), "保存后标记清除")
+        pending = os.path.join(store, "pending")
+        self.assertEqual(self.kv(pending)["review_dir"], next_rd, "较早运行完成不能清除较新运行的标记")
+        self.rd = next_rd
+        self.finders("reviewer.json", "rules-auditor.json")
+        self.run_pipeline(self.rd, CAND, SCORE)
+        self.save()
+        self.assertFalse(os.path.exists(pending), "本轮保存后清除自己的标记")
 
     def test_configured_model_missing_from_session_is_noted(self):
         self.finders("reviewer.json", "rules-auditor.json")

@@ -71,6 +71,17 @@ def store_path(meta):
     return os.path.join(os.path.dirname(store), "sources", re.sub(r"[^A-Za-z0-9._-]", "_", branch) + ".json")
 
 
+def material_store(meta, review_dir):
+    """历史只读,本轮变更写运行目录;describe 永不改 review 的来源记录。"""
+    history = store_path(meta)
+    if crlib.storage_mode(meta) == "temporary" or meta.get("collection_skill") == "describe" or current_skill() == "describe":
+        if crlib.storage_mode(meta) == "temporary":
+            crlib.check_temporary_path(review_dir)
+        path = os.path.join(review_dir, "sources-store.json")
+        return path, load_store(path if os.path.isfile(path) else history)
+    return history, load_store(history)
+
+
 def load_store(path):
     data = crlib.load_json(path, {}) if path else {}
     if not isinstance(data, dict):
@@ -152,8 +163,7 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
     只有 conf["required"] 里的类别(当前技能要问、且配了读取工具)缺了才算缺;其他类别不问。
     用 --doc 给了本地文档的,需求文档算已经给了。"""
     conf = settings(cfg)
-    path = store_path(meta)
-    store = load_store(path)
+    path, store = material_store(meta, review_dir)
     auto = detect(text, conf)
     docs = read_staged(stage_dir)
     out, missing, changed = [], [], False
@@ -194,7 +204,8 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
                         read_error=next((x["error"] for x in kdocs if x["error"]), "")))
     if changed:
         save_store(path, store)
-    crlib.save_json(os.path.join(review_dir, "sources.json"), {"items": out, "missing": missing, "store": path})
+    crlib.save_json(os.path.join(review_dir, "sources.json"),
+                    {"items": out, "missing": missing, "store": path, "history_store": store_path(meta)})
     return missing, docs, conf
 
 
@@ -215,8 +226,7 @@ def main(argv):
         return 0
     if cmd in ("show", "set") and len(argv) >= 2:
         meta = _meta_of(argv[1])
-        path = store_path(meta)
-        store = load_store(path)
+        path, store = material_store(meta, argv[1])
         if cmd == "show":
             print(json.dumps(store, ensure_ascii=False, indent=2))
             return 0

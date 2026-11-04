@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 import fixture
@@ -153,6 +154,9 @@ class GuardRegressions(fixture.Base):
     def marker(self):
         return Path(self.env['TMPDIR'], 'cr-guard', 'session')
 
+    def reset(self):
+        shutil.rmtree(Path(self.env['TMPDIR'], 'cr-guard'), ignore_errors=True)
+
     def test_failed_collect_releases_without_exit_code(self):
         self.start()
         self.assertTrue(self.marker().exists())
@@ -165,6 +169,85 @@ class GuardRegressions(fixture.Base):
         cmd = 'sh /example/save-review.sh %s' % self.rd
         self.hook(inp={'command': cmd}, command=cmd)
         self.assertEqual((self.rd/'usage.txt').read_text(), 'usage_status=no_start\n')
+
+    def test_quoted_paths_and_assignments_support_save_fallback(self):
+        rd = Path(self.tmp, 'review output'); rd.mkdir()
+        (rd / 'meta.txt').write_text('')
+        for quote in ('"', "'"):
+            with self.subTest(quote=quote):
+                collect = 'NOTE="two words" sh %s/example/installed crosscheck-r1/collect-diff.sh%s target' % (quote, quote)
+                self.hook(inp={'command': collect})
+                self.assertTrue(self.marker().exists())
+                # 不发送 collect 的 PostToolUse,验证 save 从命令提取完整目录的后备路径。
+                save = 'NOTE="two words" sh %s/example/installed crosscheck-r1/save-review.sh%s %s%s%s' % (quote, quote, quote, rd, quote)
+                self.hook(inp={'command': save})
+                self.assertEqual((rd / 'usage.txt').read_text(), 'usage_status=no_start\n')
+                self.hook('PostToolUse', inp={'command': save}, tool_response={'stdout': 'report=/r/index.html'})
+                self.assertFalse(self.marker().exists())
+
+    def test_command_substitution_and_heredoc_are_parsed(self):
+        rd = Path(self.tmp, 'review output'); rd.mkdir()
+        (rd / 'meta.txt').write_text('')
+        collect = '"/example/installed crosscheck-r1/collect-diff.sh"'
+        save = '"/example/installed crosscheck-r1/save-review.sh"'
+        starts = [
+            'rd=$(TMPDIR="/tmp/a b" bash %s target)' % collect,
+            'rd=`NOTE="two words" sh %s target`' % collect,
+            'echo "$(sh %s target)"' % collect,
+            'cat <<-"EOF" > /dev/null; NOTE=x sh %s target\n\tbody sh %s\n\tEOF' % (collect, save),
+        ]
+        for cmd in starts:
+            with self.subTest(command=cmd):
+                self.hook(inp={'command': cmd})
+                self.assertTrue(self.marker().exists())
+                self.reset()
+        saves = [
+            'out=$(NOTE="two words" sh %s "%s" 2>&1)' % (save, rd),
+            # 先用 heredoc 写报告文件,正文里提到 save-review.sh 不算;正文结束后的调用才算
+            "cat > \"%s/report.md\" <<'EOF'\n正文 sh %s /elsewhere\nEOF\nsh %s \"%s\"" % (rd, save, save, rd),
+            'cat <<EOF > "%s/notes.md"\n正文\nEOF\nout=`sh %s "%s"`' % (rd, save, rd),
+        ]
+        for cmd in saves:
+            with self.subTest(command=cmd):
+                self.start()     # 不记下 collect 的目录,验证 save 从命令里取完整目录
+                self.hook(inp={'command': cmd})
+                self.assertEqual((rd / 'usage.txt').read_text(), 'usage_status=no_start\n')
+                self.hook('PostToolUse', inp={'command': cmd}, tool_response={'stdout': 'report=/r/index.html'})
+                self.assertFalse(self.marker().exists())
+                (rd / 'usage.txt').unlink()
+
+    def test_mentions_syntax_checks_and_help_are_not_executions(self):
+        for name in ('collect-diff.sh', 'save-review.sh'):
+            script = '"/example/installed crosscheck-r1/%s"' % name
+            commands = [
+                'cat ' + script, 'grep needle ' + script,
+                'sh -n ' + script, 'bash -xn ' + script,
+                'sh -s ' + script, 'sh - ' + script,
+                'sh -o noexec ' + script, 'sh ' + script + ' --help',
+                'sh ' + script + ' -h',
+                'echo \'sh %s\'' % script,
+                'printf \'noise; sh %s\'' % script,
+                'echo ";" "sh" ' + script,
+                'sh -c \'echo "sh %s"\'' % script,
+                '# sh ' + script,
+                'cat <<EOF\nsh ' + script + '\nEOF',
+                'cat <<-EOF\n\tsh ' + script + '\n\tEOF',
+                "cat <<'EOF'\nrd=$(sh " + script + ')\nEOF',
+                "echo '$(sh %s)'" % script,
+                "echo '`sh %s`'" % script,
+                'rd=$(sh -n %s)' % script,
+            ]
+            for cmd in commands:
+                with self.subTest(name=name, command=cmd):
+                    if name == 'save-review.sh':
+                        self.start()
+                        self.hook('PostToolUse', inp={'command': 'sh /example/collect-diff.sh'},
+                                  tool_response={'stdout': str(self.rd)})
+                    self.hook(inp={'command': cmd})
+                    self.assertFalse((self.rd / 'usage.txt').exists())
+                    self.hook('PostToolUse', inp={'command': cmd}, tool_response={'stdout': 'report=/r/index.html'})
+                    self.assertEqual(self.marker().exists(), name == 'save-review.sh')
+                    self.reset()
 
     def test_usage_review_dir_comes_from_marker_not_command_text(self):
         # 命令里写的是 $D 这样的变量时,review_dir 取 collect-diff 完成时记下的目录
@@ -204,10 +287,31 @@ class GuardRegressions(fixture.Base):
         self.assertFalse(self.marker().exists())
         self.assertFalse(Path(self.env['TMPDIR'], 'cr-guard', 'session.review').exists())
 
-    def test_new_prompt_releases_review(self):
+    def test_prompt_events_keep_review(self):
+        # 子代理回报也会触发提问事件,宿主分不清它和用户的新消息,所以提问事件不能结束审查
         self.start()
         self.hook('UserPromptSubmit', prompt='hi')
-        self.assertFalse(self.marker().exists())
+        self.assertTrue(self.marker().exists())
+        self.start(cursor=True)
+        self.assertEqual(self.hook('beforeSubmitPrompt', prompt='hi'), '')
+        self.assertTrue(self.marker().exists())
+
+    def test_usage_counted_across_subagent_reports(self):
+        transcript = Path(self.tmp, 'session.jsonl')
+        transcript.write_text(json.dumps({'type': 'user', 'message': {'content': 'review'}}) + '\n')
+        cmd = 'sh /example/collect-diff.sh target'
+        self.hook(inp={'command': cmd}, transcript_path=str(transcript))
+        self.hook('PostToolUse', inp={'command': cmd}, tool_response=str(self.rd))
+        for i in range(3):   # 每个子代理回报送达主会话时宿主都会发一次提问事件
+            with transcript.open('a') as f:
+                f.write(json.dumps({'type': 'assistant', 'message': {'id': 'm%d' % i, 'model': 'claude-sonnet-5-5',
+                        'usage': {'input_tokens': 10, 'output_tokens': 2}}}) + '\n')
+            self.hook('UserPromptSubmit', prompt='agent report %d' % i)
+        cmd = 'sh /example/save-review.sh %s' % self.rd
+        self.hook(inp={'command': cmd})
+        usage = self.kv(str(self.rd / 'usage.txt'))
+        self.assertEqual((usage['usage_total_tokens'], usage['usage_model_calls']), ('36', '3'))
+        self.assertNotIn('usage_status', usage)
 
     def test_cursor_failure_and_claude_failure_release(self):
         for event in ['afterShellExecution', 'PostToolUseFailure']:

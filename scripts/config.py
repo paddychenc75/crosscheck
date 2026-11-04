@@ -19,8 +19,56 @@ def config_path():
     return os.path.join(home(), "config")
 
 
+def storage_mode(meta=None):
+    """运行元数据是后续命令的依据;环境变量仅用于入口的子进程。旧元数据默认保存。"""
+    mode = (meta.get("storage_mode", "persistent") if meta is not None
+            else os.environ.get("CR_STORAGE_MODE", "persistent"))
+    if mode not in ("persistent", "temporary"):
+        sys.exit("crosscheck: 未知 storage_mode: %s" % mode)
+    return mode
+
+
+def run_mode(directory):
+    meta = {}
+    try:
+        with open(os.path.join(directory, "meta.txt"), encoding="utf-8") as f:
+            for line in f:
+                if "=" in line:
+                    k, v = line.rstrip("\n").split("=", 1)
+                    meta[k] = v
+    except FileNotFoundError:
+        pass
+    except OSError as err:
+        sys.exit("crosscheck: 无法读取运行模式 %s: %s" % (directory, err.strerror))
+    return storage_mode(meta)
+
+
+def check_temporary_path(path):
+    """临时产物不能放回插件长期记录目录;不改变配置和历史的读取位置。"""
+    root, dest = os.path.realpath(home()), os.path.realpath(path)
+    if os.path.commonpath([root, dest]) == root:
+        sys.exit("crosscheck: --no-store 的运行目录不能位于 ~/.crosscheck: %s" % path)
+
+
+def create_work(kind, key, mode="persistent"):
+    """创建跨命令保留的工作目录,调用方负责写 meta;不设置过期或自动删除。"""
+    storage_mode({"storage_mode": mode})
+    if mode == "temporary":
+        parent = os.environ.get("TMPDIR") or tempfile.gettempdir()
+        check_temporary_path(parent)
+        with record_write(parent):
+            return tempfile.mkdtemp(prefix="cr-%s." % kind, dir=parent)
+    parent = os.path.join(home(), kind, key)
+    makedirs(parent)
+    with record_write(parent):
+        return tempfile.mkdtemp(prefix="run-", dir=parent)
+
+
 def _denied_message(path, err):
     reason = "(%s)" % err.strerror if isinstance(err, OSError) and err.strerror else ""
+    if not _under_home(path):
+        sys.stderr.write("crosscheck: 无法写入运行文件 %s%s;材料目录保留,请检查该路径后重试。\n" % (path, reason))
+        return
     sys.stderr.write(
         "crosscheck: 无法写入 %s%s\n"
         "宿主不允许写入 ~/.crosscheck。请按宿主的方式申请一次写入权限(只针对这条命令、只写 ~/.crosscheck 这个目录),"
@@ -36,6 +84,8 @@ def write_denied(path, err=None):
 @contextlib.contextmanager
 def record_write(path):
     """在记录目录里创建目录、写文件:失败时走 write_denied。"""
+    if storage_mode() == "temporary":
+        check_temporary_path(path)
     try:
         yield
     except OSError as e:
@@ -121,6 +171,10 @@ def main(args=None):
         print(home())
     elif args == ["probe"]:
         probe()
+    elif len(args) == 2 and args[0] == "run-mode":
+        print(run_mode(args[1]))
+    elif len(args) == 2 and args[0] == "check-temporary":
+        check_temporary_path(args[1])
     elif len(args) == 2 and args[0] == "mkdir":
         makedirs(args[1])
     elif len(args) == 2 and args[0] == "get":
@@ -128,7 +182,7 @@ def main(args=None):
         if value:
             print(value)
     else:
-        sys.exit("用法: config.py get KEY | path | plugin-path | home | probe | mkdir DIR")
+        sys.exit("用法: config.py get KEY | path | plugin-path | home | probe | mkdir DIR | run-mode DIR | check-temporary DIR")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # 候选规则
 
-<!-- 这是 mine-check.py 生成的候选规则文件 rule-candidates.md 的样例(内容和链接都是虚构的),放在 work_dir 里,和 candidates.json 按指纹配对;
-和用户、agent 对话修改它,预演无误后再写入。
+<!-- 这是 mine-check.py 生成的内部历史材料 mined-candidates.md 的样例(内容和链接都是虚构的),放在 work_dir 里,和 candidates.json 按指纹配对;
+按对话整理候选后编译成统一 rules-draft.md,最终展示/确认/应用只走 rules-draft.py。
 每条候选一个「## 序号. 标题」块,字段名不能改,可以删掉可选字段:
 候选:候选编号(必填,写入的来源注释按它从 candidates.json 取,不取这里的文字;不能新增没有候选编号的块)。括号里是来源个数和评审人数,只给人看
 去向:写到哪里,三选一
@@ -9,7 +9,7 @@
   .agents/rules/<主题>.md#<规则标题>    不要报类,是那条已有规则的例外:并进该规则块的「不要报」字段
   <目录>/REVIEW.md#不要报               不要报类的其余情况(压住审查器的通用直觉):范围恰好是一个已有目录时用该目录的,
                                         否则用根目录的 REVIEW.md#不要报;对该目录所有人生效,要写窄
-动作:待定 / 写入 / 跳过 / 已写入。默认待定,要逐条改成写入或跳过;待定的不写,已写入的由脚本改
+动作:待定 / 写入 / 跳过。默认待定;写入表示选入拟写草稿,不是最终授权。完成状态记录在统一草稿中
 规则:一句「在 X 范围内,必须 / 禁止 Y」,能对照代码检查;一条只含一个约束,末尾标点由脚本去掉
 原因:一行,来自评论或负责人的话;不写 MR 号(来源由脚本写在注释里),写了预演会报 ERROR
 严重级别:重要 或 轻微(只有规则类有)
@@ -28,8 +28,9 @@
 头部的「接入 AGENTS.md」是头部字段,不属于任何块,只在本批有规则类候选时出现。取值同「动作」:默认待定,待定和跳过都不写;
   标写入时,对本次写入或确认已在其中的每个 .agents/rules 文件,在 AGENTS.md 的「## 代码约束」一节保证有一行
   - [<主题>](.agents/rules/<主题>.md):改 <范围> 时先读这个文件并遵守(范围取文件头部的 paths)。已有指向同一文件的链接不重复写,
-  节不存在就在末尾新建,AGENTS.md 不存在就新建,不动其他内容;写完由脚本改成已写入。Codex 只读 AGENTS.md,不读 .agents/rules。
-预演:python3 rules-write.py <work_dir> --check;确定写入:--apply。任一块或头部字段有 ERROR 则整批不写。 -->
+  节不存在就在末尾新建,AGENTS.md 不存在就新建,不动其他内容;变更统一进草稿,最终确认后才应用。Codex 只读 AGENTS.md,不读 .agents/rules。
+编译:python3 rules-write.py <work_dir> --prepare。最终预演:rules-draft.py <work_dir> --check;
+用户确认具体 diff 后:rules-draft.py <work_dir> --apply --expected-digest <已确认的DIGEST>。 -->
 
 - 项目:demo-shop
 - 扫描:最近 90 天,64 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)

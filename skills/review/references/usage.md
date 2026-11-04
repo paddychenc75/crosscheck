@@ -18,6 +18,7 @@
 | 只关心某一方面 | 「只看安全问题」「只对照一下团队规范」 |
 | 测试也一起看 | 「测试也一起看」 |
 | 从头完整审一遍 | 「重新审」「全量审一遍」 |
+| 本次不保存插件记录 | 「本次不保存」「这次不需要留记录」;仅说「测试一下」仍默认保存 |
 | 告诉它改动的目的 | 「这次是为了修复分页丢数据」「方案在 docs/plan.md」 |
 | 给需求链接 | 「需求单是 <链接>,需求文档是 <链接>」「这是 hotfix,没有需求单」 |
 
@@ -36,8 +37,10 @@
 | 想做的 | 可以这样说 |
 |---|---|
 | 写 PR / MR 描述 | 不属于审查:说「写一下 PR 描述」「生成 MR 描述」,或用命令 `/crosscheck:describe`(Codex 里 `$crosscheck:describe`,拷贝安装时 `$describe`)。它是独立技能,只在本地生成 `describe.md`、`describe.html`,不发布、不改平台上的描述;每次都会先问需求单链接。review 不生成描述 |
-| 规则维护 | 用命令 `/crosscheck:improve`(Codex 里 `$crosscheck:improve`,拷贝安装时 `$improve`):不带参数会先列出三件事让你选,带「沉淀」是从 MR 评论里沉淀规则,带「检查」是检查现有规则,带「整理 REVIEW.md」是起草或整理 REVIEW.md。不能用自然语言触发 |
+| 规则维护 | 用命令 `/crosscheck:improve`(Codex 里 `$crosscheck:improve`,拷贝安装时 `$improve`):统一维护 rules 和 REVIEW.md,默认整理本地规则,明确要求从历史 MR 沉淀时才采集历史。新增、修改、删除、合并及用户补充先形成 rules-draft.md 预演,确认后只写工作区,不提交;补充改变草稿后重新确认。不能用自然语言触发 |
 | 用历史 bug 检验 | 「拿我们修过的 bug 测一下能不能抓到」 |
+
+review、improve、describe 默认保存插件产物。明确本次不保存时,仍可读个人配置、历史和已有缓存,必要中间文件及报告留在临时目录;不会修改长期来源、反馈、缓存或描述。后续补充与反馈必须使用同一运行目录。规则写入确认独立于记录保存,可以不留分析记录而确认应用工作区规则。
 
 想预先配置私有化 GitLab 的域名、查找和核实用的模型、读 MR 的代码托管工具、读需求单和需求文档的工具时,打开插件里的 `config/defaults.conf`:所有设置都列在里面,默认全部注释掉,每项一两句话说明用途和不写时的行为。团队统一的写在这一份里,个人的写到 `~/.crosscheck/config`(`sh "<plugin_dir>/scripts/config.sh" path` 查位置),格式相同。三个工具(`tools.code_host`、`tools.requirement`、`tools.doc_reader`)各写一句话告诉 agent 用什么、怎么用,想让它自动识别需求链接就在那句话里写一个链接示例。`tools.code_host` 是只读的代码托管工具:写了以后,贴 MR / PR 链接时由它读标题、描述和讨论,不再用 gh / glab;要给完整链接,只给编号时照旧用 gh / glab。
 

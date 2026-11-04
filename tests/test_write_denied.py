@@ -14,7 +14,7 @@ ENTRY_SCRIPTS = {   # 各技能的入口:一开始就要试写记录目录
     "skills/review/scripts/collect-diff.sh": 'sh "$config_sh" probe',
     "skills/review/scripts/save-review.sh": 'sh "$config_sh" probe',
     "skills/review/scripts/mine-mrs.sh": "scripts/config.sh\" probe",
-    "skills/describe/scripts/collect.py": "crlib.probe()",
+    "skills/describe/scripts/collect.py": '"collect-diff.sh"',  # 共用入口先识别模式再 probe
 }
 WRITE = re.compile(r"\bos\.makedirs\(|\bos\.mkdir\(|\.mkdir\(|(^|[;&|(]|\bthen|\bdo)\s*mkdir\b")   # shell 里命令位置的 mkdir
 
@@ -147,10 +147,12 @@ class WritePoints(unittest.TestCase):
             with self.subTest(rel):
                 self.assertIn(probe, Path(fixture.PLUGIN, rel).read_text(encoding="utf-8"))
 
-    def test_improve_probes_before_menu(self):
+    def test_improve_initializes_work_with_explicit_storage_policy(self):
         text = Path(fixture.PLUGIN, "skills", "improve", "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn('config.sh" probe', text)
-        self.assertLess(text.index('config.sh" probe'), text.index("菜单:"))
+        self.assertIn('crlib.py" init-work', text)
+        self.assertIn("--no-store", text)
+        self.assertIn("storage_mode", text)
+        self.assertIn("不要换目录", text)
 
     def test_skills_explain_how_to_handle_denied_writes(self):
         for skill in ("review", "improve", "describe"):

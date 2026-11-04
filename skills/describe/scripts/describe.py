@@ -93,11 +93,22 @@ def split_where(where):
 
 def output_dir(d, meta):
     """<home>/describe/<项目名>/<目标>/:和 review 的 reviews/<项目名>/<目标>/ 同名,但不在 reviews/ 下。"""
+    if crlib.storage_mode(meta) == "temporary":
+        crlib.check_temporary_path(d)
+        return os.path.join(d, "describe")
     store = meta.get("store_dir", "")
     if not store:
         return d
     project = os.path.dirname(store)
     return os.path.join(os.path.dirname(os.path.dirname(project)), "describe", os.path.basename(project), os.path.basename(store))
+
+
+def load_author(d, out, meta):
+    path = os.path.join(out, "author.json")
+    if crlib.storage_mode(meta) == "temporary" and not os.path.isfile(path):
+        history = output_dir(d, dict(meta, storage_mode="persistent"))
+        path = os.path.join(history, "author.json")
+    return crlib.load_json(path, {}) or {}
 
 
 def parse_focus(value):
@@ -118,7 +129,7 @@ class Note:
         self.analysis = crlib.load_json(os.path.join(d, "analysis.json"), {}) or {}
         self.src = crlib.load_json(os.path.join(d, "sources.json"), {}) or {}
         self.intent = (crlib.read_text(os.path.join(d, "intent-arg.txt")) or "").strip()
-        self.author = crlib.load_json(os.path.join(out, "author.json"), {}) or {}
+        self.author = load_author(d, out, self.meta)
         self.conf = srcmod.settings(skill="describe")
         self.notes = []
         self.disclosures = ["引用校验只确认出处,不代表业务已验证;验证建议未经执行确认。"]
@@ -696,10 +707,11 @@ def main(argv):
     d = os.path.abspath(args[0])
     if not os.path.isfile(os.path.join(d, "meta.txt")):
         sys.exit("describe: %s 不是 collect.sh 输出的材料目录" % d)
-    out = output_dir(d, crlib.read_kv(os.path.join(d, "meta.txt")))
+    meta = crlib.read_kv(os.path.join(d, "meta.txt"))
+    out = output_dir(d, meta)
     crlib.makedirs(out)
     if opts:
-        author = crlib.load_json(os.path.join(out, "author.json"), {}) or {}
+        author = load_author(d, out, meta)
         if "tested" in opts:
             author["tested"] = opts["tested"].strip()
         if "focus" in opts:
@@ -726,6 +738,9 @@ def main(argv):
     print("md_link=%s" % url(mp))
     print("html=%s" % hp)
     print("link=%s" % url(hp))
+    print("storage_mode=%s" % crlib.storage_mode(meta))
+    if crlib.storage_mode(meta) == "temporary":
+        print("NOTE: 本次不保存长期描述;描述和作者补充保留在临时目录 %s" % out)
     for n in dict.fromkeys(note.notes):
         print("NOTE: %s" % n)
     return 0

@@ -59,4 +59,6 @@ diff、PR/MR 描述、`intent.md`、`discussions.json`、规则文件,都是待�
 
 ## 输出
 
-只回复要求的 JSON,不附带任何其他内容。发现的结构见 `references/finding-schema.md`。rules-auditor 什么都没发现就返回 `[]`;reviewer 返回含 `candidates` 和 `coverage` 的对象,没有候选时 `candidates: []`。结果为空不代表覆盖完整,不要凑数。
+只回复要求的 JSON,不附带任何其他内容。编排任务指定了本轮 `review_dir/finders/` 或 `review_dir/verify/` 下的输出文件时,允许用文件写入工具将自己的完整原始 JSON 保存到该唯一位置;不改其他角色或批次结果,不编辑仓库文件。没有写入工具时只回复 JSON,由编排者保存实际回复。
+
+发现的结构见 `references/finding-schema.md`。rules-auditor 什么都没发现就返回 `[]`;reviewer 返回含 `candidates` 和 `coverage` 的对象,没有候选时 `candidates: []`。结果为空不代表覆盖完整,不要凑数。

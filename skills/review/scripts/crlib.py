@@ -7,6 +7,9 @@ import os
 import posixpath
 import re
 import subprocess
+import sys
+
+sys.dont_write_bytecode = True
 
 
 def read_kv(path):
@@ -33,6 +36,8 @@ def load_json(path, default):
 
 
 def save_json(path, data):
+    if storage_mode() == "temporary":
+        check_temporary_path(path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
@@ -462,12 +467,13 @@ class Source:
                 return os.path.normpath(os.path.join(self.root, path))
         return path
 
-    def files(self):
+    def files(self, check=False):
+        """仓库文件列表。check=True 时 git 枚举失败抛 RuntimeError,而不是当作空仓库。"""
         if self._tree is None:
             if self.ref:
-                out = git(self.root, "ls-tree", "-r", "--name-only", self.ref, check=False)
+                out = git(self.root, "ls-tree", "-r", "--name-only", self.ref, check=check)
             else:
-                out = git(self.root, "ls-files", "--cached", "--others", "--exclude-standard", check=False)
+                out = git(self.root, "ls-files", "--cached", "--others", "--exclude-standard", check=check)
             self._tree = [x for x in out.split("\n") if x]
         return self._tree
 
@@ -552,6 +558,24 @@ write_denied = _config_module.write_denied
 record_write = _config_module.record_write
 makedirs = _config_module.makedirs
 probe = _config_module.probe
+storage_mode = _config_module.storage_mode
+run_mode = _config_module.run_mode
+check_temporary_path = _config_module.check_temporary_path
+create_work = _config_module.create_work
+
+
+def init_work(repo_root, storage_mode="persistent"):
+    """本地规则维护的运行目录;不需要拉取 MR,不改变仓库或个人配置。"""
+    root = git(repo_root, "rev-parse", "--show-toplevel").strip()
+    repo_id = repo_identity(root)
+    pdir = project_dir(repo_id)
+    key = os.path.basename(pdir) if pdir else re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(repo_id))
+    work = create_work("maintenance", key, storage_mode)
+    with record_write(work):
+        with open(os.path.join(work, "meta.txt"), "w", encoding="utf-8") as f:
+            f.write("repo_root=%s\nrepo_id=%s\nhead=%s\nstorage_mode=%s\n" %
+                    (root, repo_id, git(root, "rev-parse", "--verify", "HEAD", check=False).strip(), storage_mode))
+    return work
 
 
 def strip_remote(url):
@@ -651,5 +675,10 @@ if __name__ == "__main__":
         print("base=%s\nmerge_commit=%s" % (b, m))
     elif cmd == ["repo-id"]:
         print(repo_identity())
+    elif cmd == ["init-work"] and (len(sys.argv) == 3 or (len(sys.argv) == 4 and sys.argv[3] == "--no-store")):
+        try:
+            print(init_work(sys.argv[2], "temporary" if len(sys.argv) == 4 else "persistent"))
+        except RuntimeError as e:
+            sys.exit("crosscheck: %s" % e)
     else:
         sys.exit(2)

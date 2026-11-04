@@ -25,7 +25,7 @@
 set -eu
 
 die() { printf 'mine-mrs: %s\n' "$*" >&2; exit 1; }
-days=90; limit=0; repo_arg=""; platform=""
+days=90; limit=0; repo_arg=""; platform=""; storage_mode=persistent
 while [ $# -gt 0 ]; do
   case "$1" in
     --days) [ $# -ge 2 ] || die "--days 需要一个值"; days=$2; shift 2 ;;
@@ -36,6 +36,7 @@ while [ $# -gt 0 ]; do
       limit=$2; shift 2 ;;
     --repo) [ $# -ge 2 ] || die "--repo 需要一个值"; repo_arg=$2; shift 2 ;;
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
+    --no-store) storage_mode=temporary; shift ;;
     -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "不认识的参数: $1" ;;
   esac
@@ -45,7 +46,7 @@ case "$limit" in ''|*[!0-9]*) die "--limit 应为正整数" ;; esac
 command -v python3 >/dev/null 2>&1 || die "需要 python3(3.8 或更新)"
 script_dir=$(cd "$(dirname "$0")" && pwd)
 # 先试写一次记录目录:写不了就在这里说明怎么申请写入权限并退出,不等拉完 MR 才失败
-sh "$script_dir/../../../scripts/config.sh" probe || exit $?
+if [ "$storage_mode" = persistent ]; then sh "$script_dir/../../../scripts/config.sh" probe || exit $?; fi
 if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的目录不存在: $repo_arg"; fi
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 git 仓库,请用 --repo 指定"
 root=$(git rev-parse --show-toplevel)
@@ -53,4 +54,4 @@ root=$(git rev-parse --show-toplevel)
 repo_id=$(python3 "$script_dir/crlib.py" repo-id)   # 项目的身份;原始的远程地址不会被输出
 # Python 入口先从 origin 解析平台；不得按 repo_id 的子串或 CLI 默认主机选平台。
 
-exec python3 "$script_dir/mine_mrs.py" "$root" "$repo_id" "$platform" "$days" "$limit"
+exec python3 "$script_dir/mine_mrs.py" "$root" "$repo_id" "$platform" "$days" "$limit" "$storage_mode"

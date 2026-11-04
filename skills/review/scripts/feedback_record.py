@@ -20,14 +20,18 @@ def fail(msg):
 
 
 def parse(argv):
-    repo, rest = None, []
+    repo, review_dir, no_store, rest = None, None, False, []
     it = iter(argv)
     for a in it:
         if a == "--repo":
             repo = next(it, None) or fail("--repo 需要一个值")
+        elif a == "--review-dir":
+            review_dir = next(it, None) or fail("--review-dir 需要一个值")
+        elif a == "--no-store":
+            no_store = True
         else:
             rest.append(a)
-    return repo, rest
+    return repo, review_dir, no_store, rest
 
 
 def find(pdir, target, record="findings.json"):
@@ -51,7 +55,21 @@ def find(pdir, target, record="findings.json"):
 
 
 def main(argv):
-    repo, args = parse(argv)
+    repo, review_dir, no_store, args = parse(argv)
+    meta = {}
+    if review_dir:
+        review_dir = os.path.abspath(review_dir)
+        meta = crlib.read_kv(os.path.join(review_dir, "meta.txt"))
+        if not meta:
+            fail("指定运行的 meta.txt 已不存在;不能回退到其他记录")
+        repo = repo or meta.get("repo_root")
+    mode = crlib.storage_mode(meta) if review_dir else crlib.storage_mode()
+    if no_store:
+        mode = "temporary"
+    if mode == "temporary":
+        if not review_dir:
+            fail("不保存的反馈必须用 --review-dir 指定本次临时材料目录,不能查询最新记录")
+        crlib.check_temporary_path(review_dir)
     if not args or args[0] not in NAMES:
         fail("VERDICT 应为 invalid、wontfix、valid 或 disputed")
     verdict, args = args[0], args[1:]
@@ -65,10 +83,25 @@ def main(argv):
     if subprocess.run(["git"] + (["-C", repo] if repo else []) + ["rev-parse", "--is-inside-work-tree"], capture_output=True).returncode:
         fail("当前目录不是 git 仓库,请用 --repo 指定发现所属的仓库")
     repo_id = crlib.repo_identity(repo)
-    pdir = crlib.project_dir(repo_id) or fail("这个项目还没有审查记录")
-
-    # 没通过核实的候选只在发现里找不到时才搜,否则同一个 file:line 会多出歧义
-    hits = find(pdir, target) or find(pdir, target, "rejected.json")
+    if review_dir:
+        if meta.get("repo_id") and meta["repo_id"] != repo_id:
+            fail("指定运行不属于当前仓库,不能记录到另一个项目")
+        pdir = os.path.dirname(meta.get("store_dir", ""))
+        if mode == "persistent" and not pdir:
+            fail("指定运行缺少 store_dir")
+        m = re.fullmatch(r"(.+):(\d+)", target)
+        hits = {}
+        # 只绑定给出的运行,目录/发现失效时不尝试 latest 或其他报告。
+        for name in ("findings.json", "rejected.json"):
+            for f in crlib.load_json(os.path.join(review_dir, name), []):
+                if f.get("id") == target or (m and f.get("file") == m.group(1) and str(f.get("line")) == m.group(2)):
+                    hits[crlib.finding_key(f)] = (meta.get("store_dir", ""), f)
+            if hits:
+                break
+    else:
+        pdir = crlib.project_dir(repo_id) or fail("这个项目还没有审查记录")
+        # 旧的独立反馈入口仍按项目查询;指定运行的反馈绝不走此分支。
+        hits = find(pdir, target) or find(pdir, target, "rejected.json")
     if not hits:
         fail("在这个项目的审查记录里找不到 %s。请用报告里的 id 再试一次" % target)
     if len(hits) > 1:
@@ -84,11 +117,17 @@ def main(argv):
         "code_line": f.get("code_line", ""), "context_hash": f.get("context_hash", ""), "target": os.path.basename(tdir),
         "rule_file": f.get("rule_file", ""), "rule_quote": f.get("rule_quote", ""), "author": crlib.author_hash(repo), "project": repo_id,
     }
-    with open(os.path.join(pdir, "feedback.jsonl"), "a", encoding="utf-8") as out:
+    if review_dir:
+        entry["review_dir"] = review_dir
+    destination = review_dir if mode == "temporary" else pdir
+    crlib.makedirs(destination)
+    with open(os.path.join(destination, "feedback.jsonl"), "a", encoding="utf-8") as out:
         out.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     print("已记录:`%s:%s` %s → %s%s" % (f.get("file"), f.get("line"), f.get("summary", ""), NAMES[verdict], "(原因:%s)" % reason if reason else ""))
-    if verdict in ("invalid", "wontfix"):
+    if mode == "temporary":
+        print("本次判断仅保留在临时目录 %s,没有写入项目历史。" % review_dir)
+    elif verdict in ("invalid", "wontfix"):
         print("之后在这个项目的任何分支、MR 和范围上审查到这段代码时,verifier 会参考这条判断:先重新核对是否同一场景、调用环境与判断前提;仍适用才抑制重复提醒。「不修」不否定缺陷事实或置信度。")
 
 

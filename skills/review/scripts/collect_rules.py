@@ -15,6 +15,11 @@ if meta.get("mode", "local") != "local":
         sys.exit(1)
     ref, source_note = base, "base:" + base[:12]
 src = crlib.Source(root, ref)
+try:
+    src.files(check=True)       # 枚举失败时停止,不能当作没有规则
+except RuntimeError as e:
+    print("collect-rules: 无法列出规则来源文件(%s),不当作没有规则: %s" % (source_note, e or "git 失败"), file=sys.stderr)
+    sys.exit(1)
 
 try:
     changed = [x.strip() for x in open(os.path.join(d, "files.txt"), encoding="utf-8") if x.strip()]

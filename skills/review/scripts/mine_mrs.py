@@ -7,6 +7,7 @@ import host_target
 
 root, repo_id, platform = sys.argv[1], sys.argv[2], sys.argv[3]
 days, limit, home = int(sys.argv[4]), int(sys.argv[5]), crlib.home()
+storage_mode = crlib.storage_mode({"storage_mode": sys.argv[6] if len(sys.argv) > 6 else "persistent"})
 
 target_error = False
 try:
@@ -97,7 +98,8 @@ pdir = crlib.project_dir(repo_id) or ""
 key = os.path.basename(pdir) if pdir else re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(repo_id))
 base = os.path.join(home, "mining", key)
 cache = os.path.join(base, "mrs")
-crlib.makedirs(cache)
+if storage_mode == "persistent":
+    crlib.makedirs(cache)
 
 now = datetime.datetime.utcnow().replace(microsecond=0)
 since = now - datetime.timedelta(days=days)
@@ -153,9 +155,9 @@ def changed_after(sha, final, path, line):
     return not any(after[i:i + n] == before for i in range(len(after) - n + 1))
 
 # 在任何平台请求前创建本次记录，失败也保留可复核诊断。
-work = os.path.join(base, "run-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
-with crlib.record_write(work):
-    os.makedirs(work)
+work = crlib.create_work("mining", key, storage_mode)
+with open(os.path.join(work, "meta.txt"), "w", encoding="utf-8") as f:
+    f.write("repo_root=%s\nstorage_mode=%s\n" % (root, storage_mode))
 errors, records, mrs = [], [], []
 head_result = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True)
 head = head_result.stdout.strip() if head_result.returncode == 0 else ""
@@ -263,7 +265,8 @@ for m in mrs:
         failed += 1
         errors.append(dict(resource=e.resource, kind=e.kind))
         continue
-    crlib.save_json(cp, rec)
+    if storage_mode == "persistent":
+        crlib.save_json(cp, rec)
     records.append(rec); fetched += 1
 
 if not target_error:
@@ -325,6 +328,7 @@ with open(os.path.join(work, "existing-rules.txt"), "w", encoding="utf-8") as f:
 
 
 with open(os.path.join(work, "meta.txt"), "w", encoding="utf-8") as f:
+    f.write("storage_mode=%s\n" % storage_mode)
     f.write("repo_root=%s\nrepo_id=%s\nrepo_url=%s\nplatform=%s\ndays=%d\nsince=%s\nmrs=%d\nnotes=%d\nreviewers=%d\nbatches=%d\n"
             "feedback=%d\ncache=%s\nproject_dir=%s\ncomplete=%s\nbatch_char_budget=%d\nhead=%s\n"
             % (root, repo_id, repo_url, platform, days, since_s, len(records), len(notes), len(people), len(batches), len(fb), cache, pdir, str(complete).lower(), BATCH_CHAR_BUDGET, head))
@@ -336,6 +340,8 @@ if complete and not notes and not fb:
 if errors:
     for e in errors:
         print("mine-mrs: 采集不完整 resource=%s kind=%s" % (e["resource"], e["kind"]), file=sys.stderr)
+if storage_mode == "temporary":
+    print("NOTE: 本次不保存长期记录或缓存;临时材料保留在 %s" % work)
 print(work)
 if not complete:
     sys.exit(1)

@@ -20,6 +20,6 @@
 # 插件配置的位置可以用 CROSSCHECK_PLUGIN_CONFIG 覆盖。解析在插件 scripts/config.py 里,和其他脚本共用一份。
 
 case "${1:-}" in
-  get|path|plugin-path|home|probe|mkdir) exec python3 "$(cd "$(dirname "$0")" && pwd)/config.py" "$@" ;;
+  get|path|plugin-path|home|probe|mkdir|run-mode|check-temporary) exec python3 "$(cd "$(dirname "$0")" && pwd)/config.py" "$@" ;;
   *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

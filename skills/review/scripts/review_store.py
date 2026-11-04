@@ -54,6 +54,10 @@ def transitions(review_dir, findings, prev, src):
 
 def main(review_dir, dest):
     meta = crlib.read_kv(os.path.join(review_dir, "meta.txt"))
+    if crlib.storage_mode(meta) == "temporary":
+        crlib.check_temporary_path(review_dir)
+        if os.path.realpath(dest) != os.path.realpath(review_dir):
+            sys.exit("review_store: --no-store 只能补全本次临时材料,不能写入归档目录")
     src = crlib.code_source(meta)
     for name in ("findings.json", "rejected.json"):
         fp = os.path.join(dest, name)

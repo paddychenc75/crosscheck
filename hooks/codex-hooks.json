@@ -24,17 +24,6 @@
           }
         ]
       }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh \"${PLUGIN_ROOT}/skills/review/scripts/guard.sh\"",
-            "timeout": 10
-          }
-        ]
-      }
     ]
   }
 }

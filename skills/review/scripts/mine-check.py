@@ -4,10 +4,11 @@
 python3 mine-check.py WORK_DIR --observations
     核对所有 batch/result 的线程覆盖与引文,写 observations.json。
 python3 mine-check.py WORK_DIR synthesis.json
-    重新核对观察,校验全局归并的来源、范围和结构,生成与 candidates.json 冻结配对的候选规则文件 rule-candidates.md。
+    重新核对观察、来源、范围与结构,生成冻结的内部历史候选,编译到 rules-draft.md。
 
 所有评论与判断记录均取自本次 snapshot.json,不读取共享缓存。
 """
+import importlib.util
 import json
 import os
 import re
@@ -310,13 +311,19 @@ def main(argv):
                                          "(" + ";".join(c["unmet"]) + ")" if c["unmet"] else ""))
         for item in dropped:
             print("排除: %s — %s" % (item["rule"], item["reason"]))
-        if merged:
-            if os.path.exists(out):
-                print("NOTE: %s 已存在,没有覆盖;它与 candidates.json 的配对保持不变。" % out)
-            else:
-                with open(out, "w", encoding="utf-8") as f:
-                    f.write(rule_candidates.render(merged, root, inputs.meta))
-            print("RULE_CANDIDATES: " + out)
+        if os.path.exists(out):
+            print("NOTE: %s 已存在,没有覆盖;它与 candidates.json 的配对保持不变。" % out)
+        else:
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(rule_candidates.render(merged, root, inputs.meta))
+        view = os.path.join(work, "rules-draft.md")
+        if not os.path.exists(view):
+            spec = importlib.util.spec_from_file_location("crosscheck_rules_writer", os.path.join(os.path.dirname(__file__), "rules-write.py"))
+            writer = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(writer)
+            writer.prepare(work, root)
+        else:
+            print("RULES_DRAFT: " + view)
         return 0
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print("mine-check: " + str(error), file=sys.stderr)

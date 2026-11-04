@@ -50,27 +50,34 @@ done
 [ -f "$dir/report.md" ] || die "$dir 中没有 report.md"
 [ ! -f "$dir/verification-errors.json" ] || die "核实未完成，不能保存为完整审查记录"
 [ -f "$dir/findings.json" ] || die "$dir 中没有 findings.json"
+dir=$(cd "$dir" && pwd)
 
 meta() { sed -n "s/^$1=//p" "$dir/meta.txt" | tail -n 1; }
 store=$(meta store_dir)
 [ -n "$store" ] || die "meta.txt 中没有 store_dir"
 
 config_sh="$(cd "$(dirname "$0")" && pwd)/../../../scripts/config.sh"
-# 先试写一次记录目录:写不了就说明怎么申请写入权限并退出
-sh "$config_sh" probe || exit $?
-stamp=$(date +%Y%m%d-%H%M%S)
-dest="$store/$stamp"
-sh "$config_sh" mkdir "$dest" || exit $?
-repo_marker="$(dirname "$store")/.repo"
-[ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
-cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
-[ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
-for f in context-hash.txt candidates.json history.json final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json completeness.txt; do
-  [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
-done
-for sub in finders verify runs; do
-  [ -d "$dir/$sub" ] && cp -R "$dir/$sub" "$dest/"
-done
+storage_mode=$(sh "$config_sh" run-mode "$dir") || exit $?
+if [ "$storage_mode" = temporary ]; then
+  sh "$config_sh" check-temporary "$dir" || exit $?
+  dest=$dir
+else
+  # 默认保存行为不变;temporary 仍完成报告和用量,但绝不归档。
+  sh "$config_sh" probe || exit $?
+  stamp=$(date +%Y%m%d-%H%M%S)
+  dest="$store/$stamp"
+  sh "$config_sh" mkdir "$dest" || exit $?
+  repo_marker="$(dirname "$store")/.repo"
+  [ -f "$repo_marker" ] || printf '%s\n' "$(meta repo_id)" > "$repo_marker"
+  cp "$dir/report.md" "$dir/findings.json" "$dir/meta.txt" "$dir/hashes.txt" "$dest/"
+  [ -f "$dir/incremental.txt" ] && cp "$dir/incremental.txt" "$dest/"
+  for f in context-hash.txt candidates.json history.json final.json rejected.json intent.md weakening.txt settings.json rules-index.json rules-meta.txt rules-notes.json sources.json analysis-facts.json completeness.txt; do
+    [ -f "$dir/$f" ] && cp "$dir/$f" "$dest/"
+  done
+  for sub in finders verify runs; do
+    [ -d "$dir/$sub" ] && cp -R "$dir/$sub" "$dest/"
+  done
+fi
 if { [ -z "$run_candidates" ] || [ -z "$run_passed" ]; } && [ -f "$dir/final.json" ]; then
   counts=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])).get("counts",{}); print(c.get("candidates",""), c.get("passed",""))' "$dir/final.json" 2>/dev/null || true)
   [ -n "$run_candidates" ] || run_candidates=${counts% *}
@@ -82,7 +89,13 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 python3 "$here/review_store.py" "$dir" "$dest" || true
 
-printf '%s\n' "$dest" > "$dir/record.txt"
+if [ "$storage_mode" = persistent ]; then
+  # 后续反馈绑定原运行目录,沿用保存当时的代码指纹,不能从已变的工作区重算。
+  for f in findings.json rejected.json; do
+    [ ! -f "$dest/$f" ] || cp "$dest/$f" "$dir/$f"
+  done
+  printf '%s\n' "$dest" > "$dir/record.txt"
+fi
 
 # 角色数和核实数从落盘的文件数出来:查找角色的回复在 finders/,核实的回复在 verify/result-*.json。
 run_finders=$(find "$dir/finders" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
@@ -169,14 +182,21 @@ case "$(saved depth)" in standard|deep)
   fi ;;
 esac
 
-printf '%s\n' "$stamp" > "$store/latest"
-rm -f "$store/pending"   # 进行中的标记到这里结束
+if [ "$storage_mode" = persistent ]; then
+  printf '%s\n' "$stamp" > "$store/latest"
+  # 只结束属于本次运行的标记,不清除后来开始的另一轮审查。
+  pending_dir=$(sed -n 's/^review_dir=//p' "$store/pending" 2>/dev/null || true)
+  [ "$pending_dir" != "$dir" ] || rm -f "$store/pending"
+fi
+printf 'completed=%s\n' "$dir" > "$dir/completed.txt"
 report="$dest/report.md"
 link="file://$(printf '%s' "$report" | sed -e 's/%/%25/g' -e 's/ /%20/g' -e 's/#/%23/g' -e 's/?/%3F/g')"
 
 printf 'report=%s\n' "$report"
 printf 'link=%s\n' "$link"
 printf 'dir=%s\n' "$dest"
+printf 'storage_mode=%s\ncompleted=%s\n' "$storage_mode" "$dir"
+[ "$storage_mode" != temporary ] || printf 'NOTE: 本次没有保存长期记录;报告和后续反馈使用此临时目录: %s\n' "$dir"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
 [ -z "$missing" ] || printf 'incomplete=%s\n' "$missing"
 [ -z "$model_note" ] || printf 'model_note=%s\n' "$model_note"

@@ -218,7 +218,10 @@ class IncrementalScope(fixture.Base):
         self.assertIn("SOURCES_MISSING: 需求文档", self.run_script("collect-diff.sh", cwd=self.repo).stdout)
 
     def test_help_lists_full(self):
-        self.assertIn("--full 忽略历史", self.run_script("collect-diff.sh", "--help").stdout)
+        help_text = self.run_script("collect-diff.sh", "--help").stdout
+        self.assertIn("--full 忽略历史", help_text)
+        self.assertIn("--no-store", help_text)
+        self.assertNotIn("set -eu", help_text)
 
     def test_only_rule_files_change_the_context(self):
         save_baseline(self, self.collect())

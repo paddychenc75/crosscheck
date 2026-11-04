@@ -1,7 +1,7 @@
 #!/bin/sh
 # feedback.sh — 记录人对某条发现的判断;审查时把相关的历史判断交给 verifier 参考。
 #
-# 用法: feedback.sh VERDICT TARGET [原因] [--repo DIR]
+# 用法: feedback.sh VERDICT TARGET [原因] [--repo DIR] [--review-dir DIR] [--no-store]
 #       feedback.sh history REVIEW_DIR OUT.json
 #
 #   VERDICT  invalid   不成立(误报)          必须给原因
@@ -11,7 +11,8 @@
 #   TARGET   发现的 id(报告和记录里都有);也可以写 file:line,但多条记录对得上时会要求改用 id
 #
 # 判断记在项目级的 ~/.crosscheck/reviews/<项目名>/feedback.jsonl,对这个项目的所有分支、MR 和范围
-# 都有效,不需要知道是哪一次审查。每条记录带着发现的身份:文件、维度、摘要、出问题的那一行,
+# 都有效。报告后反馈带 --review-dir 精确绑定该运行;temporary 只写 DIR/feedback.jsonl,不查询其他记录。
+# --no-store 必须同时指定 --review-dir。每条记录带着发现的身份:文件、维度、摘要、出问题的那一行,
 # 以及那一行上下各 2 行代码的哈希;还记着是谁判断的(邮箱的哈希,不存人名)。
 #
 # history 由 collect-diff.sh 在每次审查开始时调用:取出这次改动涉及的文件上的历史判断,并标明

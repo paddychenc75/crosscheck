@@ -58,6 +58,8 @@ def load(project_dir):
 
 
 def save(project_dir, repo_id, rule):
+    if crlib.storage_mode() == "temporary":
+        raise ValueError("--no-store 不保存项目对比基准规则;请使用仅本次的 --base 或 --base-target")
     crlib.makedirs(project_dir)
     marker = os.path.join(project_dir, ".repo")
     if not os.path.isfile(marker):

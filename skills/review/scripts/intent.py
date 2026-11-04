@@ -91,10 +91,9 @@ def user_material(meta, review_dir):
     docs = [x.strip() for x in (doc_arg or "").split("\n") if x.strip()]
     if not docs and meta.get("plan_file"):
         docs = [meta["plan_file"]]
-    path = srcmod.store_path(meta)
-    if not path or srcmod.current_skill() == "describe":
+    if not srcmod.store_path(meta) or meta.get("collection_skill") == "describe" or srcmod.current_skill() == "describe":
         return text, docs, "", ""
-    st = srcmod.load_store(path)
+    path, st = srcmod.material_store(meta, review_dir)
     before = dict(st)
     target = meta.get("target_key", "")
     mine = lambda key: st.get(key, {}).get("target") == target

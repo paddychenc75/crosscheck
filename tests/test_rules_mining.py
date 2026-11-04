@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
+import tempfile
 
 import fixture
 
@@ -173,8 +175,23 @@ class RulesMining(fixture.Base):
         return r.stdout, self.load(os.path.join(work, "candidates.json")), self.load(os.path.join(work, "dropped.json"))
 
     def run_write(self, work, *args):
-        return subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "rules-write.py"), work] + list(args),
-                              capture_output=True, text=True, env=self.env)
+        """内容/分流测试每次模拟一轮新的维护,apply 分支显式模拟确认刚预览的指纹。
+        草稿跨命令的版本、确认失效和并发边界由 test_rules_draft 直接测 CLI。
+        """
+        if len(args) != 1 or args[0] not in ("--check", "--apply"):
+            return self.run_py("rules-write.py", work, *args, check=False)
+        draft_work = tempfile.mkdtemp(prefix="draft-", dir=self.tmp)
+        for name in ("meta.txt", "candidates.json", "mined-candidates.md"):
+            if Path(work, name).exists():
+                shutil.copyfile(Path(work, name), Path(draft_work, name))
+        result = self.run_py("rules-write.py", draft_work, "--prepare", check=False)
+        if result.returncode:
+            return result
+        preview = self.run_py("rules-draft.py", draft_work, "--check", check=False)
+        if args[0] == "--check" or preview.returncode:
+            return preview
+        expected = preview.stdout.split("DIGEST: ")[-1].strip()
+        return self.run_py("rules-draft.py", draft_work, "--apply", "--expected-digest", expected, check=False)
 
     def write_rules(self, work, *args):
         r = self.run_write(work, *args)
@@ -354,7 +371,7 @@ class RulesMining(fixture.Base):
         self.assertIn("line 7", notes[602]["code"])                        # 只有 old_line 时按 base 那一版取代码
         self.assertIsNone(notes[602]["changed_after"])
 
-    # ---------- rule-candidates.md ----------
+    # ---------- mined-candidates.md ----------
 
     def sup(self, **kw):
         c = {"kind": "suppress", "topic": "api", "rule": "mock 数据里的硬编码金额不用提", "paths": ["src/api/**"],
@@ -370,10 +387,10 @@ class RulesMining(fixture.Base):
         return work, {c["rule"]: c["no"] for c in got}
 
     def md_text(self, work):
-        return Path(work, "rule-candidates.md").read_text(encoding="utf-8")
+        return Path(work, "mined-candidates.md").read_text(encoding="utf-8")
 
     def edit_block(self, work, n, field, value):
-        """改 rule-candidates.md 第 n 块的某个字段;value 为 None 时删掉这一行,没有这个字段时加上。"""
+        """改 mined-candidates.md 第 n 块的某个字段;value 为 None 时删掉这一行,没有这个字段时加上。"""
         lines = self.md_text(work).split("\n")
         start = next(i for i, x in enumerate(lines) if x.startswith("## %d. " % n))
         end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
@@ -388,19 +405,19 @@ class RulesMining(fixture.Base):
             if value is not None:
                 last = max(i for i in range(start, end) if lines[i].strip())
                 lines.insert(last + 1, "- **%s**:%s" % (field, value))
-        Path(work, "rule-candidates.md").write_text("\n".join(lines), encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text("\n".join(lines), encoding="utf-8")
 
     def write_all(self, work, nos, dest=None):
         for n in nos:
             self.edit_block(work, n, "动作", "写入")
 
     def set_hookup(self, work, value):
-        """改 rule-candidates.md 头部字段「接入 AGENTS.md」。"""
+        """改 mined-candidates.md 头部字段「接入 AGENTS.md」。"""
         text = self.md_text(work)
         lines = text.split("\n")
         i = next(i for i, x in enumerate(lines) if x.startswith("- **接入 AGENTS.md**:"))
         lines[i] = "- **接入 AGENTS.md**:" + value
-        Path(work, "rule-candidates.md").write_text("\n".join(lines), encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text("\n".join(lines), encoding="utf-8")
 
     def hookup_value(self, work):
         return next(x for x in self.md_text(work).split("\n") if x.startswith("- **接入 AGENTS.md**:")).split(":", 1)[1]
@@ -419,7 +436,7 @@ class RulesMining(fixture.Base):
         r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.rstrip("\n").split("\n")[-1], "RULE_CANDIDATES: " + os.path.join(work, "rule-candidates.md"))
+        self.assertEqual(r.stdout.rstrip("\n").split("\n")[-1], "RULES_DRAFT: " + os.path.join(work, "rules-draft.md"))
         self.assertIn("1. [", r.stdout)                                    # 原有的列表输出还在
         cands = {c["rule"]: c for c in self.load(os.path.join(work, "candidates.json"))}
         md = self.md_text(work)
@@ -445,11 +462,11 @@ class RulesMining(fixture.Base):
         self.assertNotIn("严重级别", sf)                                    # 不要报类没有这些字段
         self.assertNotIn("不要报", sf)
         self.assertNotIn("准入", md)
-        # 再运行 mine-check 不覆盖 rule-candidates.md
-        Path(work, "rule-candidates.md").write_text(md + "\n手改的\n", encoding="utf-8")
+        # 再运行 mine-check 不覆盖 mined-candidates.md
+        Path(work, "mined-candidates.md").write_text(md + "\n手改的\n", encoding="utf-8")
         r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
-        self.assertIn("rule-candidates.md 已存在,没有覆盖", r.stdout)
+        self.assertIn("mined-candidates.md 已存在,没有覆盖", r.stdout)
         self.assertTrue(self.md_text(work).endswith("手改的\n"))
 
     def test_suppress_must_say_whether_it_is_a_rule_exception(self):
@@ -470,7 +487,7 @@ class RulesMining(fixture.Base):
 
     def test_candidates_shows_evidence_and_parse_ignores_it(self):
         self.standard_mrs()
-        # MR 19 的评论里带 HTML 注释记号:写进 rule-candidates.md 后不能被当成注释,把后面的行吞掉
+        # MR 19 的评论里带 HTML 注释记号:写进 mined-candidates.md 后不能被当成注释,把后面的行吞掉
         self.mock_api(LIST, [self.mr(12, sha=self.sha1), self.mr(15, author="dev2"), self.mr(16, author="dev3"),
                              self.mr(17, author="dev4"), self.mr(18, author="dev5"), self.mr(19, author="dev6")])
         self.mock_api(disc(19), [{"id": "d8", "notes": [
@@ -505,7 +522,7 @@ class RulesMining(fixture.Base):
         changed_md = md.replace("[模型判断已采纳]", "[随便改]")
         self.assertNotEqual(changed_md, md)
         self.assertIn("[随便改]", changed_md)
-        Path(work, "rule-candidates.md").write_text(changed_md, encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(changed_md, encoding="utf-8")
         self.edit_block(work, 1, "动作", "写入")
         self.edit_block(work, 2, "动作", "跳过")
         out = self.write_rules(work, "--apply")
@@ -515,7 +532,7 @@ class RulesMining(fixture.Base):
         self.assertNotIn("再往下", written)
         self.assertNotIn("金额相关", written)
         after = self.md_text(work)
-        self.assertEqual(after.count("已写入"), 1)
+        self.assertEqual(after.count("已写入"), 0)
         self.assertEqual([x for x in after.split("\n") if x.startswith(">")],
                          [x for x in changed_md.split("\n") if x.startswith(">")])
 
@@ -552,7 +569,7 @@ class RulesMining(fixture.Base):
         import sys
         sys.path.insert(0, fixture.SCRIPTS)
         import rule_candidates
-        text = Path(os.path.dirname(fixture.SCRIPTS), "..", "improve", "templates", "rule-candidates.md").read_text(encoding="utf-8")
+        text = Path(os.path.dirname(fixture.SCRIPTS), "..", "improve", "templates", "mined-candidates.md").read_text(encoding="utf-8")
         blocks = self.parse_md(text)
         self.assertEqual([b["cand"] for b in blocks], [1, 2, 3])
         used = {name for b in blocks for name in b["fields"]}
@@ -572,7 +589,7 @@ class RulesMining(fixture.Base):
                  "- **严重级别**:重要\n- **范围**:src/**\n- **不要报**:无\n"
                  "\n## 10. 没有候选编号\n\n- **去向**:.agents/rules/x.md\n- **动作**:写入\n- **规则**:必须这样\n"
                  "\n## 新增的块\n\n- **动作**:写入\n")
-        Path(work, "rule-candidates.md").write_text(self.md_text(work) + extra, encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(self.md_text(work) + extra, encoding="utf-8")
         r = self.run_write(work, "--check")
         self.assertEqual(r.returncode, 2)
         self.assertIn("ERROR: 块 9 候选: 编号 9 不在 candidates.json 里", r.stdout)
@@ -591,9 +608,9 @@ class RulesMining(fixture.Base):
         self.assertEqual(lines[0].split(" ")[0], "WRITE:")                        # --check 前面不加别的前缀
         self.assertIn("WRITE: .agents/rules/api.md +", r.stdout)
         self.assertIn("WRITE: src/api/REVIEW.md +5行", r.stdout)                   # 新建:标题、空行、章节、空行、这一条
-        self.assertIn("PENDING: 1 块还是待定", r.stdout)
+        self.assertIn("尚未选入拟写内容", r.stdout)
         self.assertNotIn("NOTE: 只改了工作区", r.stdout)
-        self.assertEqual((self.md_text(work), self.repo_state()), before)        # 什么都没写,rule-candidates.md 也没动
+        self.assertEqual((self.md_text(work), self.repo_state()), before)        # 什么都没写,mined-candidates.md 也没动
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".agents")))
         self.assertFalse(os.path.exists(os.path.join(self.repo, "src/api/REVIEW.md")))
         # --check 和 --apply 打印的 WRITE 一致
@@ -605,7 +622,7 @@ class RulesMining(fixture.Base):
         good, bad = no[rule()["rule"]], no[self.sup()["rule"]]
         cases = [
             ("格式:未知字段", "优先级", "高", "块 %d 优先级: 未知字段" % bad),
-            ("格式:动作不是四个值之一", "动作", "也许", "块 %d 动作: 应为 待定、写入、跳过、已写入 之一" % bad),
+            ("格式:动作不是四个值之一", "动作", "也许", "块 %d 动作: 应为 待定、写入、跳过 之一" % bad),
             ("格式:缺必填字段", "范围", None, "块 %d 范围: 缺少这个字段" % bad),
             ("规则句不合格", "规则", "mock 数据" + "金额" * 120, "块 %d 规则: 规则应为一句话" % bad),
             ("去向:不是允许的位置", "去向", "docs/guide.md", "块 %d 去向: 应为 .agents/rules/<主题>.md" % bad),
@@ -637,8 +654,8 @@ class RulesMining(fixture.Base):
                 self.prepare_reset(work)
 
     def prepare_reset(self, work):
-        """把 rule-candidates.md 还原成 mine-check 刚生成的样子(删掉再生成)。"""
-        os.remove(os.path.join(work, "rule-candidates.md"))
+        """把 mined-candidates.md 还原成 mine-check 刚生成的样子(删掉再生成)。"""
+        os.remove(os.path.join(work, "mined-candidates.md"))
         r = subprocess.run(["python3", os.path.join(fixture.SCRIPTS, "mine-check.py"), work, os.path.join(work, "synthesis.json")],
                            capture_output=True, text=True, env=self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -671,7 +688,7 @@ class RulesMining(fixture.Base):
         r = self.run_write(work, "--check")
         self.assertIn("ERROR: 块 %d 严重级别: 不要报类不用这个字段" % n, r.stdout)
 
-    def test_apply_writes_only_marked_blocks_and_marks_them_written(self):
+    def test_apply_writes_selected_content_and_keeps_frozen_material(self):
         r2 = rule(title="金额用分", rule="在订单接口里,返回的金额必须统一用分", paths=["src/api/orders.ts"], bad_example="", good_example="")
         work, no = self.prepare(rule(), r2, self.sup())
         n1, n2, n3 = no[rule()["rule"]], no[r2["rule"]], no[self.sup()["rule"]]
@@ -681,7 +698,7 @@ class RulesMining(fixture.Base):
         before = self.md_text(work)
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md +", out)
-        self.assertIn("PENDING: 1 块还是待定", out)
+        self.assertIn("尚未选入拟写内容", out)
         self.assertNotIn("SUGGEST:", out)                                   # 仓库里没有 .claude/、.cursor/、AGENTS.md
         self.assertEqual(sorted(os.listdir(os.path.join(self.repo, ".agents/rules"))), ["api.md"])        # 跳过的、待定的都没写
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
@@ -689,13 +706,13 @@ class RulesMining(fixture.Base):
         self.assertIn("## 分页参数要有上限\n\n- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限(最多 100)\n"
                       "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:\n  ```ts\n  list(limit)\n  ```\n"
                       "- **正例**:\n  ```ts\n  list(Math.min(limit, 100))\n  ```\n- **不要报**:内部管理后台接口不限\n" + SRC, text)
-        # rule-candidates.md 只有写过的那块的动作变了
+        # 内部历史材料保持冻结;完成状态写在统一草稿
         after = self.md_text(work)
-        self.assertEqual(after, before.replace("- **动作**:写入", "- **动作**:已写入"))        # 只有这一处不同
-        self.assertEqual(after.count("已写入"), 1)
+        self.assertEqual(after, before)        # 历史材料不再承担完成状态
+        self.assertEqual(after.count("已写入"), 0)
         self.assertEqual(self.git(self.repo, "diff", "--cached", "--name-only"), "")                       # 没有 git add
         self.assertEqual(self.git(self.repo, "status", "--porcelain"), "?? .agents/")
-        # 再执行一次:已写入的忽略,不重复写
+        # 另起一轮维护:完整内容相同的规则不重复写
         out = self.write_rules(work, "--apply")
         self.assertNotIn("WRITE:", out)
         self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), text)
@@ -855,7 +872,7 @@ class RulesMining(fixture.Base):
         # meta.txt 里没有仓库地址:退回 !N,来源注释同样只写编号
         meta = Path(work, "meta.txt")
         meta.write_text("".join(x for x in meta.read_text().splitlines(True) if not x.startswith("repo_url=")))
-        for name in ("rule-candidates.md", "candidates.json", "dropped.json"):
+        for name in ("mined-candidates.md", "candidates.json", "dropped.json"):
             os.remove(os.path.join(work, name))
         _, cands, _ = self.check(work, [rule()])
         self.assertEqual({e["url"] for e in cands[0]["evidence"]}, {""})
@@ -922,8 +939,8 @@ class RulesMining(fixture.Base):
             "SUGGEST: mkdir -p .claude/rules && ln -s ../../.agents/rules/api.md .claude/rules/api.md",
             "SUGGEST: mkdir -p .cursor/rules && ln -s ../../.agents/rules/api.md .cursor/rules/api.mdc  # Cursor 官方未写明软链接和多余字段的处理,请自行确认",
         ])
-        self.assertIn("只打印、没有执行", out)
-        self.assertIn("NOTE: crosscheck 审查时会读 .agents/rules/,Claude Code、Cursor 写代码时不会自动读(AGENTS.md 由候选规则文件头部的「接入 AGENTS.md」负责)", out)
+        self.assertIn("仅为建议,没有执行", out)
+        self.assertIn("请在仓库根目录按需运行", out)
         self.assertFalse(os.path.lexists(os.path.join(self.repo, ".claude/rules")))      # 没执行
         self.assertFalse(os.path.lexists(os.path.join(self.repo, ".cursor/rules")))
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")    # 接入字段是待定,不写
@@ -986,8 +1003,7 @@ class RulesMining(fixture.Base):
         mined = [r for r in project_rules.mining_sources(self.repo) if os.path.realpath(r["source_path"]) == os.path.realpath(os.path.join(self.repo, ".agents/rules/api.md"))]
         self.assertEqual([(r["file"], r["patterns"], r.get("referenced_by")) for r in mined], [(".agents/rules/api.md", ["src/api/**"], None)])
 
-    AGENTS_INTRO = ("改动下面某一行写的路径之前,先打开那一行链接的规则文件读完并遵守"
-                    "(由 crosscheck 从 MR 评论沉淀,审查时也按它检查)。")
+    AGENTS_INTRO = "改动对应路径前先打开链接的规则文件读完并遵守。"
 
     def test_agents_md_hookup_creates_file_and_is_idempotent(self):
         work, no = self.prepare(rule())
@@ -1011,21 +1027,21 @@ class RulesMining(fixture.Base):
         self.assertEqual([x for x in out.split("\n") if x.startswith("WRITE:")][-1], "WRITE: AGENTS.md +5行")
         agents = Path(self.repo, "AGENTS.md").read_text(encoding="utf-8")
         self.assertEqual(agents, "## 代码约束\n\n" + self.AGENTS_INTRO + "\n\n- [api](.agents/rules/api.md):改 src/api/** 时先读这个文件并遵守\n")
-        self.assertEqual(self.hookup_value(work), "已写入")
-        self.assertEqual(self.md_text(work), before[0].replace("**:写入", "**:已写入"))     # 只改了动作和这个字段
+        self.assertEqual(self.hookup_value(work), "写入")
+        self.assertEqual(self.md_text(work), before[0])     # 不修改历史来源材料
         self.assertNotIn("SUGGEST:", out)
-        # 再跑一次:都已写入,什么都不动
+        # 新一轮维护识别相同内容,不重复写
         out = self.write_rules(work, "--apply")
         self.assertNotIn("WRITE:", out)
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), agents)
-        # 重新标写入:规则 SKIP,AGENTS.md 里已有链接,也 SKIP,不重复写;字段照样补成已写入
+        # 再选同样的内容:规则与索引都不重复写
         self.write_all(work, no.values())
         self.set_hookup(work, "写入")
         out = self.write_rules(work, "--apply")
-        self.assertIn("SKIP: AGENTS.md 里已有 .agents/rules/api.md 的链接", out)
+        self.assertNotIn("WRITE: AGENTS.md", out)
         self.assertNotIn("WRITE:", out)
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), agents)
-        self.assertEqual(self.hookup_value(work), "已写入")
+        self.assertEqual(self.hookup_value(work), "写入")
 
     def test_agents_md_hookup_only_appends_to_its_section(self):
         original = ("# Agents\n\n用 pnpm 跑测试。\n\n## 代码约束\n\n团队已有的说明。\n\n"
@@ -1040,18 +1056,18 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md", out)
         self.assertIn("WRITE: .agents/rules/api-2.md", out)                     # 同主题范围不同,另起文件
-        self.assertIn("SKIP: AGENTS.md 里已有 .agents/rules/api.md 的链接", out)  # ./ 写法也算同一个文件
+        self.assertIn("不能安全同步的手写或重复引用", out)  # ./ 写法也算同一个文件
         self.assertIn("WRITE: AGENTS.md +1行", out)
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), original.replace(
-            "手写的接入行\n", "手写的接入行\n- [api-2](.agents/rules/api-2.md):改 src/api/orders.ts 时先读这个文件并遵守\n"))
-        self.assertEqual(self.hookup_value(work), "已写入")
+            "\n## 其他", "\n- [api-2](.agents/rules/api-2.md):改 src/api/orders.ts 时先读这个文件并遵守\n## 其他"))
+        self.assertEqual(self.hookup_value(work), "写入")
         # 不要报类并进已有规则:那个文件也算本次确认的规则文件,已有链接,不重复写
         self.edit_block(work, n3, "去向", ".agents/rules/api.md#分页参数要有上限")
         self.write_all(work, [n3])
         self.set_hookup(work, "写入")
         after = Path(self.repo, "AGENTS.md").read_text(encoding="utf-8")
         out = self.write_rules(work, "--apply")
-        self.assertIn("SKIP: AGENTS.md 里已有 .agents/rules/api.md 的链接", out)
+        self.assertIn("不能安全同步的手写或重复引用", out)
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), after)
 
     def test_agents_md_hookup_section_created_at_end_of_existing_file(self):
@@ -1061,7 +1077,7 @@ class RulesMining(fixture.Base):
         self.set_hookup(work, "写入")
         self.write_rules(work, "--apply")
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"),
-                         "# Agents\n\n用 pnpm 跑测试。\n\n## 代码约束\n\n" + self.AGENTS_INTRO
+                         "# Agents\n\n用 pnpm 跑测试。\n\n\n\n## 代码约束\n\n" + self.AGENTS_INTRO
                          + "\n\n- [api](.agents/rules/api.md):改 所有文件 时先读这个文件并遵守\n")
 
     def test_agents_md_hookup_pending_or_skipped_writes_nothing(self):
@@ -1069,15 +1085,15 @@ class RulesMining(fixture.Base):
         work, no = self.prepare(rule())
         self.write_all(work, no.values())
         out = self.write_rules(work, "--check")                                  # 块都标了写入,只剩这个字段待定
-        self.assertIn("PENDING: 「接入 AGENTS.md」还是待定\n", out)
+        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定\n", out)
         self.assertNotIn("WRITE: AGENTS.md", out)
         out = self.write_rules(work, "--apply")
-        self.assertIn("PENDING: 「接入 AGENTS.md」还是待定", out)
+        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定", out)
         self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")
         self.assertEqual(self.hookup_value(work), "待定")
         # 块待定、字段也待定:两样都算上
         work, no = self.prepare(rule(rule="在 src/api/** 里,必须给外部调用设置超时"))
-        self.assertIn("PENDING: 1 块还是待定,「接入 AGENTS.md」还是待定\n", self.write_rules(work, "--check"))
+        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定\n", self.write_rules(work, "--check"))
         # 跳过:不写,也不再提示
         self.write_all(work, no.values())
         self.set_hookup(work, "跳过")
@@ -1091,8 +1107,8 @@ class RulesMining(fixture.Base):
         work, no = self.prepare(rule(), self.sup())
         n1, n2 = no[rule()["rule"]], no[self.sup()["rule"]]
         self.write_all(work, [n1, n2])
-        for value, expect in (("也许", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过、已写入 之一,现在是「也许」"),
-                              ("", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过、已写入 之一,现在是「」")):
+        for value, expect in (("也许", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过 之一,现在是「也许」"),
+                              ("", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过 之一,现在是「」")):
             with self.subTest(value=value):
                 self.set_hookup(work, value)
                 for mode in ("--check", "--apply"):
@@ -1106,7 +1122,7 @@ class RulesMining(fixture.Base):
                 self.assertNotIn("已写入", self.md_text(work))
         # 头部写了不认识的字段、或字段写了两遍
         self.set_hookup(work, "写入")
-        Path(work, "rule-candidates.md").write_text(self.md_text(work).replace("- **接入 AGENTS.md**:写入", "- **接入 AGENTS.md**:写入\n- **接入 CLAUDE.md**:写入\n- **接入 AGENTS.md**:跳过"), encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(self.md_text(work).replace("- **接入 AGENTS.md**:写入", "- **接入 AGENTS.md**:写入\n- **接入 CLAUDE.md**:写入\n- **接入 AGENTS.md**:跳过"), encoding="utf-8")
         r = self.run_write(work, "--check")
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("ERROR: 头部 接入 CLAUDE.md: 未知的头部字段", r.stdout)
@@ -1136,7 +1152,7 @@ class RulesMining(fixture.Base):
         self.write_all(work, [no[self.sup()["rule"]]])           # 只写去 REVIEW.md 的不要报
         self.set_hookup(work, "写入")
         out = self.write_rules(work, "--apply")
-        self.assertIn("NOTE: 「接入 AGENTS.md」标了写入,但这次没有写入或确认 .agents/rules 里的文件", out)
+        self.assertIn("PENDING: 接入 AGENTS.md 已选择,但还没有选入规则文件", out)
         self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
         self.assertEqual(self.hookup_value(work), "写入")                       # 没接上,不改成已写入
 
@@ -1165,7 +1181,7 @@ class RulesMining(fixture.Base):
         self.assertEqual(block["lang"], {"反例": "ts", "正例": "ts"})
         self.assertEqual(block["fields"]["不要报"], "内部管理后台接口不限")          # 代码块后面的字段照常解析
         # 用户把语言标记改成别的,写入时跟着变;例外并进规则块的「不要报」字段,不碰代码里的 ## 不要报
-        Path(work, "rule-candidates.md").write_text(md.replace("  ````ts\n", "  ````js\n"), encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(md.replace("  ````ts\n", "  ````js\n"), encoding="utf-8")
         self.write_all(work, [n])
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md", out)
@@ -1207,13 +1223,13 @@ class RulesMining(fixture.Base):
         self.assertIn("+- **反例**:\n+  ```\n+  list(limit)\n+  ```\n", out)
         # 围栏没有结束:报 ERROR,什么都不写
         md = self.md_text(work).replace("- **反例**:`list(limit)`", "- **反例**:\n  ```ts\n  list(limit)")
-        Path(work, "rule-candidates.md").write_text(md, encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(md, encoding="utf-8")
         res = self.run_write(work, "--check")
         self.assertEqual(res.returncode, 2, res.stdout)
         self.assertIn("ERROR: 块 %d 反例: 代码块没有结束的围栏" % n, res.stdout)
         # 代码块不跟在示例字段后面也是 ERROR
         md = self.md_text(work).replace("- **动作**:写入\n", "- **动作**:写入\n  ```\n  x\n  ```\n").replace("  list(limit)", "  list(limit)\n  ```")
-        Path(work, "rule-candidates.md").write_text(md, encoding="utf-8")
+        Path(work, "mined-candidates.md").write_text(md, encoding="utf-8")
         res = self.run_write(work, "--check")
         self.assertEqual(res.returncode, 2, res.stdout)
         self.assertIn("代码块只能紧跟在「反例」或「正例」字段行后面", res.stdout)
@@ -1225,11 +1241,11 @@ class RulesMining(fixture.Base):
         n1, n2 = no[rule()["rule"]], no[lone["rule"]]
         self.write_all(work, [n1, n2])
         out = self.write_rules(work, "--check")
-        self.assertIn("WARN: 块 %d 标了写入,仍有待确认:评审人仅 1 位;待确认:缺反例或正例\n" % n2, out)
-        self.assertNotIn("WARN: 块 %d " % n1, out)
+        self.assertIn("PENDING: 候选 %d:待确认:评审人仅 1 位\n" % n2, out)
+        self.assertNotIn("PENDING: 候选 %d:待确认" % n1, out)
         self.assertIn("WRITE: .agents/rules/api.md", out)                          # 只提醒,不拦
         out = self.write_rules(work, "--apply")
-        self.assertIn("WARN: 块 %d 标了写入,仍有待确认" % n2, out)
+        self.assertIn("PENDING: 候选 %d:待确认" % n2, out)
         self.assertIn("金额相关的计算禁止使用浮点数", Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
 
     def test_reason_must_not_carry_mr_numbers(self):
@@ -1341,7 +1357,7 @@ class RulesMining(fixture.Base):
     def test_candidates_freezes_candidates_and_rejects_tampering(self):
         first, second = rule(), rule(paths=["src/jobs/**"])
         work, _ = self.prepare(first, second)
-        original = {name: Path(work, name).read_bytes() for name in ("rule-candidates.md", "candidates.json", "dropped.json")}
+        original = {name: Path(work, name).read_bytes() for name in ("mined-candidates.md", "candidates.json", "dropped.json")}
         self.check(work, [second, first])
         self.assertEqual({name: Path(work, name).read_bytes() for name in original}, original)
         synthesis(work, [second])
@@ -1383,39 +1399,23 @@ class RulesMining(fixture.Base):
         self.assertEqual(self.run_write(work, "--apply").returncode, 2)
         self.assertEqual(target.read_text(), "unchanged")
 
-    def test_atomic_failure_and_recovery_at_each_write(self):
-        # 只拦截实际 replace,验证已落盘文件、候选规则文件及重跑行为。
-        import importlib.util
-        from unittest.mock import patch
-        sys.path.insert(0, fixture.SCRIPTS)
-        spec = importlib.util.spec_from_file_location("rules_writer_test", Path(fixture.SCRIPTS, "rules-write.py"))
-        writer = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(writer)
-        real_replace = os.replace
-        for failure in (1, 2, 3):
-            with self.subTest(failure=failure):
-                c1 = rule(topic="failure-%d-a" % failure)
-                c2 = rule(topic="failure-%d-b" % failure, rule="在接口中必须校验签名")
-                work, no = self.prepare(c1, c2)
-                self.write_all(work, no.values())
-                before = self.md_text(work)
-                calls = []
-                def replace(src, dst):
-                    calls.append(dst)
-                    if len(calls) == failure:
-                        raise PermissionError("injected denial")
-                    return real_replace(src, dst)
-                with patch.object(sys, "argv", ["rules-write.py", work, "--apply"]), patch.object(writer.os, "replace", side_effect=replace):
-                    self.assertEqual(writer.main(), 77 if failure == 3 else 1)
-                self.assertEqual(self.md_text(work), before)
-                for i, target in enumerate(calls):
-                    self.assertEqual(Path(target).exists(), i < failure - 1 or target.endswith("rule-candidates.md"))
-                self.write_rules(work, "--apply")
-                self.assertEqual(self.md_text(work).count("**动作**:已写入"), 2)
-                for c in (c1, c2):
-                    text = Path(self.repo, ".agents/rules", c["topic"] + ".md").read_text()
-                    self.assertEqual(text.count("- **规则**:" + c["rule"]), 1)
-                self.assertEqual(list(Path(self.repo).rglob(".crosscheck-*")), [])
+    def test_history_source_and_target_binding_survive_final_apply(self):
+        work, no = self.prepare(rule())
+        self.write_all(work, no.values())
+        self.run_py("rules-write.py", work, "--prepare")
+        preview = self.run_py("rules-draft.py", work, "--check").stdout
+        expected = preview.split("DIGEST: ")[-1].strip()
+        sources = Path(work, "candidates.json")
+        original = sources.read_bytes()
+        sources.write_text("[]")
+        failed = self.run_py("rules-draft.py", work, "--apply", "--expected-digest", expected, check=False)
+        self.assertIn("来源材料已变化", failed.stdout)
+        self.assertFalse(Path(self.repo, ".agents/rules/api.md").exists())
+        sources.write_bytes(original)
+        self.run_py("rules-draft.py", work, "--apply", "--expected-digest", expected)
+        content = Path(self.repo, ".agents/rules/api.md").read_text()
+        self.assertIn(SRC, content)
+        self.assertIn("APPLIED:", self.run_py("rules-draft.py", work, "--check").stdout)
 
     def test_same_sentence_different_exception_is_not_recovery_match(self):
         work, no = self.prepare(rule())

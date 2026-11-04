@@ -8,6 +8,7 @@
 #                        [--code-host-dir DIR] [--base-sha COMMIT] [--base-target | --base-rule RULE] [--ask-base]
 #
 #   --repo DIR   仓库所在的目录(默认:当前目录)
+#   --no-store   不写插件长期记录;保留临时材料,仍读取配置和历史。重跑用 --out DIR 继承模式
 #   --with-tests 测试文件也纳入审查(默认跳过测试、测试数据、日志和各类产物)
 #   --allow-large  改动较大时不再输出 LARGE 提示(用户已经确认要全部审查)
 #   --base REF   当次指定的对比基准分支,优先于项目规则和 PR/MR 的目标分支,不改项目记录
@@ -77,6 +78,7 @@ command -v python3 >/dev/null 2>&1 || die "审查需要 python3(3.8 或更新),�
 target=""
 platform="${CR_PLATFORM:-}"
 out=""
+storage_mode=${CR_STORAGE_MODE:-persistent}
 depth=""
 only=all
 full=no
@@ -114,6 +116,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --platform) [ $# -ge 2 ] || die "--platform 需要一个值"; platform=$2; shift 2 ;;
     --out) [ $# -ge 2 ] || die "--out 需要一个值"; out=$2; shift 2 ;;
+    --no-store) storage_mode=temporary; shift ;;
     --depth) [ $# -ge 2 ] || die "--depth 需要一个值"; depth=$2; shift 2 ;;
     --intent) [ $# -ge 2 ] || die "--intent 需要一个值"; intent_arg=$2; intent_set=yes; shift 2 ;;
     --plan|--doc) [ $# -ge 2 ] || die "$1 需要一个值"; doc_files="${doc_files}$2
@@ -141,7 +144,7 @@ while [ $# -gt 0 ]; do
     --base-target) base_target=yes; shift ;;
     --ask-base) ask_base=yes; shift ;;
     --allow-large) allow_large=yes; shift ;;
-    -h|--help) sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed '1d; /^#/!q; s/^# \{0,1\}//' "$0"; exit 0 ;;
     -*) die "未知选项: $1" ;;
     *) [ -z "$target" ] || die "只支持一个 target"; target=$1; shift ;;
   esac
@@ -155,13 +158,36 @@ esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
 config_sh="$script_dir/../../../scripts/config.sh"
-# 先试写一次记录目录:写不了就在这里说明怎么申请写入权限并退出,不等流程跑到一半
-sh "$config_sh" probe || exit $?
+# --out 相对 --repo(未给时为当前目录),读模式与实际写入必须解析成同一路径。
+case "$out" in ""|/*) ;; *)
+  output_base=$(cd "${repo_arg:-.}" 2>/dev/null && pwd) || die "--repo 指定的目录不存在: $repo_arg"
+  out="$output_base/$out" ;;
+esac
+# 问询/平台握手重跑从已有运行继承模式;不能因为漏传开关而回到长期保存。
+for previous in "$out" "$code_host_dir"; do
+  [ -n "$previous" ] || continue
+  previous_mode=$(sh "$config_sh" run-mode "$previous") || exit $?
+  [ "$previous_mode" != temporary ] || storage_mode=temporary
+done
+case "$storage_mode" in persistent|temporary) ;; *) die "未知 storage_mode: $storage_mode" ;; esac
+CR_STORAGE_MODE=$storage_mode; export CR_STORAGE_MODE
+if [ "$storage_mode" = temporary ]; then
+  [ -z "$base_rule_arg" ] || die "--no-store 不能与 --base-rule 同用:不保存项目记忆,请改用仅本次的 --base 或 --base-target"
+else
+  sh "$config_sh" probe || exit $?
+fi
+if [ -z "$out" ] && [ -n "$code_host_dir" ] && [ -f "$code_host_dir/meta.txt" ]; then
+  out=$(sed -n 's/^review_dir=//p' "$code_host_dir/meta.txt" | tail -n 1)
+fi
+[ "$storage_mode" != temporary ] || sh "$config_sh" check-temporary "${TMPDIR:-/tmp}" || exit $?
 if [ -n "$repo_arg" ]; then cd "$repo_arg" 2>/dev/null || die "--repo 指定的目录不存在: $repo_arg"; fi
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || die "$(pwd) 不是 git 仓库。审查需要本地仓库:请在仓库目录里运行,或用 --repo <目录> 指定。不知道仓库在哪里时问用户,不要在磁盘上到处找"
 prefix=$(git rev-parse --show-prefix)
 root=$(git rev-parse --show-toplevel)
+if [ "$storage_mode" = temporary ] && [ -n "$out" ]; then
+  sh "$config_sh" check-temporary "$out" || exit $?
+fi
 
 if [ -z "$out" ]; then
   out=$(mktemp -d "${TMPDIR:-/tmp}/cr.XXXXXX")
@@ -169,6 +195,7 @@ else
   mkdir -p "$out"   # 写记录目录的例外:--out 是调用方指定的审查目录
 fi
 out=$(cd "$out" && pwd)
+printf 'storage_mode=%s\ncollection_skill=%s\nrepo_root=%s\n' "$storage_mode" "${CR_ASK_SKILL:-review}" "$root" > "$out/meta.txt"
 raw="$out/raw.patch"
 : > "$raw"
 : > "$out/description.md"
@@ -613,6 +640,7 @@ collect_code_host() {
   mode=pr
   if [ -z "$code_host_dir" ]; then
     stage=$(python3 "$script_dir/code_host.py" request "$target" "$root") || exit 1
+    printf 'storage_mode=%s\nreview_dir=%s\n' "$storage_mode" "$out" > "$stage/meta.txt"
     printf 'NEED_CODE_HOST: %s\n' "$stage"
     exit 0
   fi
@@ -836,6 +864,7 @@ finder_model=$(sh "$script_dir/../../../scripts/config.sh" get model.finder)
   printf 'platform=%s\nnumber=%s\napi_project=%s\ngitlab_host=%s\npr_source=%s\n' "${platform:-none}" "$number" "$api_project" "$gitlab_host" "${pr_source:-api}"
   # 提前读取历史时,工作区目标也必须从工作区读取代码锚点。
   if [ "$code_ref" = WORKTREE ]; then printf 'head_checked_out=yes\n'; fi
+  printf 'storage_mode=%s\ncollection_skill=%s\n' "$storage_mode" "${CR_ASK_SKILL:-review}"
   printf 'depth=%s\nplan_file=%s\nstore_dir=%s\nrepo_id=%s\n' "$depth" "$plan_arg" "$store_dir" "$repo_id"
   printf 'depth_source=%s\ndepth_invalid=%s\n' "$depth_source" "$depth_invalid"
   printf 'finder_model=%s\nverifier_model=%s\n' "$finder_model" "${verifier_model:-host}"
@@ -942,6 +971,7 @@ skipped_count=$(wc -l < "$out/skipped.txt" | tr -d ' ')
 changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
 
 {
+  printf 'storage_mode=%s\ncollection_skill=%s\n' "$storage_mode" "${CR_ASK_SKILL:-review}"
   printf 'mode=%s\n' "$mode"
   printf 'platform=%s\n' "${platform:-none}"
   printf 'target=%s\n' "$target"
@@ -1001,7 +1031,8 @@ fi
 sh "$script_dir/check-state.sh" --save "$out"
 
 # 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
-if [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
+if [ "$storage_mode" = persistent ] && [ "${CR_ASK_SKILL:-review}" != describe ] \
+   && [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
    && ! printf '%s' "$context_out" | grep -q '^SOURCES_\(MISSING\|OPTIONAL\):'; then
   sh "$config_sh" mkdir "$store_dir" || exit $?
   printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
@@ -1077,4 +1108,5 @@ elif [ "$allow_large" = no ] && [ "$batch_count" -gt "${CR_LARGE_BATCHES:-4}" ];
   printf 'LARGE: 改动较大:%s 个文件、%s 行改动,分成 %s 批;查找和核实都要按批各跑一遍,耗时和 token 大约是一批的 %s 倍\n' \
     "$file_count" "$changed_lines" "$batch_count" "$batch_count"
 fi
+[ "$storage_mode" != temporary ] || printf 'NOTE: 本次不保存长期记录,临时材料保留在 %s;重跑请使用 --out 该目录并保留原参数。\n' "$out"
 printf '%s\n' "$out"

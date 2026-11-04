@@ -68,6 +68,39 @@ class ProjectRulesTests(fixture.Base):
         r = self.run_script('settings.sh', 'show', repo, 'f' * 40, check=False)
         self.assertNotEqual(r.returncode, 0)
 
+    def failing_git_env(self, command):
+        """只让 git 的 command 子命令失败,其余转发给原来的 git。"""
+        stub = Path(self.tmp, 'fail-' + command)
+        stub.mkdir()
+        real = subprocess.run(['sh', '-c', 'command -v git'], env=self.env, capture_output=True, text=True).stdout.strip()
+        (stub / 'git').write_text('#!/bin/sh\nfor a in "$@"; do [ "$a" = %s ] && { echo "stub: %s failed" >&2; exit 128; }; done\nexec "%s" "$@"\n'
+                                  % (command, command, real))
+        (stub / 'git').chmod(0o755)
+        return dict(self.env, PATH=str(stub) + ':' + self.env['PATH'])
+
+    def test_rule_enumeration_failure_is_not_no_rules(self):
+        repo = self.repo_with_changes({'REVIEW.md': '- working tree rule\n'})
+        rd = self.review_dir(self.run_script('collect-diff.sh', cwd=repo).stdout)
+        r = self.run_script('collect-rules.sh', rd, check=False, env=self.failing_git_env('ls-files'))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('无法列出规则来源文件', r.stderr)
+        self.assertNotIn('blocks=', r.stdout)
+        self.assertFalse(Path(rd, 'rules-meta.txt').exists())
+        # base 那一版同样不能把枚举失败当作没有规则
+        base = self.kv(Path(rd, 'meta.txt'))['base_sha']
+        meta = Path(rd, 'meta.txt').read_text().replace('mode=local', 'mode=range')
+        Path(rd, 'meta.txt').write_text(meta)
+        self.assertEqual(self.kv(Path(rd, 'meta.txt'))['base_sha'], base)
+        r = self.run_script('collect-rules.sh', rd, check=False, env=self.failing_git_env('ls-tree'))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('无法列出规则来源文件(base:', r.stderr)
+        self.assertFalse(Path(rd, 'rules-meta.txt').exists())
+
+    def test_repository_without_rules_still_succeeds(self):
+        rd = self.collect(self.repo_with_changes())
+        self.assertEqual(self.kv(Path(rd, 'rules-meta.txt'))['blocks'], '0')
+        self.assertEqual(self.load(Path(rd, 'rules-index.json')), [])
+
     def test_unclosed_root_review_frontmatter_is_reported(self):
         repo = self.repo_with_changes({'REVIEW.md': '---\nskip: ["src/**"]\n\n- Python rule\n'})
         r = self.run_script('settings.sh', 'show', repo)

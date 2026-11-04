@@ -24,7 +24,11 @@ def history(rdir, out):
     meta = crlib.read_kv(os.path.join(rdir, "meta.txt"))
     pdir = os.path.dirname(meta["store_dir"]) if meta.get("store_dir") else ""
     files = changed_files(rdir)
-    entries = [e for e in crlib.feedback_entries(pdir).values() if e.get("file") in files] if pdir else []
+    combined = crlib.feedback_entries(pdir) if pdir else {}
+    if crlib.storage_mode(meta) == "temporary":
+        crlib.check_temporary_path(out)
+        combined.update(crlib.feedback_entries(rdir))
+    entries = [e for e in combined.values() if e.get("file") in files]
     if not entries:
         return
     src = crlib.code_source(meta)

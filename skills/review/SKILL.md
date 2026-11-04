@@ -43,7 +43,10 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 | `--verifier-model <模型>` | 「核实换成某某模型」。没说就用配置里的 `model.verifier`,再没有就用当前宿主的模型 |
 | `--with-tests` | 「测试也一起看」 |
 | `--full` | 「重新审」「全量」「忽略之前的」 |
+| `--no-store` | 「本次不保存」「这次不需要留记录」:关闭本次插件长期写入。仅说「测试一下」「只看报告」不关闭保存 |
 | `--fix` | 「修掉」「帮我改」。「review 一下」「这个该怎么修」都不是修改的请求 |
+
+默认保存。仅用户明确要求本次不保存时,首次收集就传 `--no-store`,不能等出报告再跳过保存。它仍读取原位置的个人配置、历史与缓存,允许必要临时文件,不等于 `--full`、禁缓存或禁止用户已授权的工作区修改。`meta.txt` 的 `storage_mode=temporary` 是后续步骤的依据(无字段按 persistent,未知值报错)。问询后重跑保留 `--no-store` 并用 `--out <review_dir>` 复用本轮临时材料;平台握手保留 `--code-host-dir`。临时目录跨命令保留,交付时给出路径,不自动清理或承诺永久可用。该选项不承诺 Git fetch、项目测试或宿主聊天不落盘。`--no-store` 与 `--base-rule` 冲突时脚本拒绝,改用仅本次的 `--base` / `--base-target`,不暗中保存记忆。
 
 审查之外的要求:
 
@@ -83,7 +86,7 @@ CR 报告只报告一位严谨的资深 reviewer 愿意为之负责的问题。�
 sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|standard|deep] [--only <list>] [--full] [--with-tests]
    [--base <分支>] [--intent "<一句话>"] [--doc <文件>]... [--source <类别>=<值>]... [--source-dir <目录>]
    [--verifier-model <模型>] [--repo <目录>] [--base-sha <提交>] [--code-host-dir <目录>]
-   [--base-target | --base-rule target|branch:<分支>] [--ask-base] [--non-interactive]
+   [--base-target | --base-rule target|branch:<分支>] [--ask-base] [--non-interactive] [--no-store] [--out <review_dir>]
 ```
 
 深度:用户这次说了快速、标准或仔细才传(`--depth quick|standard|deep`);没说就不传,由脚本按根 `REVIEW.md` 头部的 `depth`(读的版本和 `skip` 一样,PR/MR 读 base)决定,没写或写错时为 standard。实际深度和来源以 `meta.txt` 的 `depth`、`depth_source` 为准,后面各步都按它走。全量(`--full`)和全部改动(`--allow-large`)只决定范围,不能据此升级为 deep。其余选项照用户的要求传。
@@ -118,7 +121,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|standard|deep] [-
 sh <skill_dir>/scripts/collect-rules.sh <review_dir>
 ```
 
-它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`(只调整审查器自己的行为:严重程度、审查重点,以及「不要报」或 `Do not report` 一节里不想再被提醒的情况),以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/`、`.agents/rules/`(代码约束,审查和写代码共用,按 frontmatter 的 `paths` / `globs` 生效;`.claude/rules/`、`.cursor/rules/` 里链接到同一文件的只读一份)这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区。输出的 `blocks=0` 表示没有适用的规则。
+它把这次适用的项目规则写进 `rules.txt`:目录级和根目录的 `REVIEW.md`(只调整审查器自己的行为:严重程度、审查重点,以及「不要报」或 `Do not report` 一节里不想再被提醒的情况),以及 `CLAUDE.md`、`AGENTS.md`、`.cursor/rules/`、`.agents/rules/`(代码约束,审查和写代码共用,按 frontmatter 的 `paths` / `globs` 生效;`.claude/rules/`、`.cursor/rules/` 里链接到同一文件的只读一份)这类约定文件,各按自己的路径范围生效。规则就是普通的 Markdown,不需要编号。PR/MR 和其他分支读 base 那一版的规则,本地审查自己的分支读工作区;base 不可读时停止,不回退工作区;git 列不出规则来源文件时也停止,不当作没有规则。输出的 `blocks=0` 表示没有适用的规则。
 
 ### 3. 查找候选
 
@@ -138,13 +141,15 @@ reviewer 先读一遍材料和改动的代码,再在同一个上下文里逐遍�
 
 **如果你能启动子代理**(standard 和 deep):每个角色启动一个,全部同时启动。给每个子代理的任务就是下面这段,不要多加,也不要贴 diff 或你自己的印象 —— 每个角色自己读材料:
 
-> 阅读 `<skill_dir>/roles/<role>.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。[`batch=<n>`。] 只回复 JSON。
+> 阅读 `<skill_dir>/roles/<role>.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。[`batch=<n>`。] 将你实际产出的完整原始 JSON 写入 `<review_dir>/finders/<角色>[-<批次>].json`,同时只回复该 JSON;没有文件写入工具时只回复 JSON,由编排者保存实际回复。
+
+输出路径由编排者按角色和批次唯一指定。角色完成后先读取该文件;宿主仅返回完成通知、正文通过另一条消息交回时,也以角色已写的原始文件继续。文件不存在且没有实际 JSON 回复时,仍是未收到结果,不能补写或据此跳过角色。
 
 **模型。** `meta.txt` 里 `finder_model` 有值时(配置里的 `model.finder`),启动查找角色时使用那个模型。没有值就用宿主当前的模型。模型名是用户按当前宿主写的;宿主不认识这个名字,或不支持为子代理指定模型时,照常用宿主的模型运行。
 
 **流程不能省。** standard 和 deep 必须按上面启动子代理:只要宿主有启动子代理的工具(如 Agent、Task),就一定用,不能因为改动小(哪怕只有一两行)、看起来简单或想省时间就自己读一遍 diff 出结论;用户想要快,改用 quick。独立查找和独立核实是这个审查的价值所在,省掉它们就不是 crosscheck 的审查。在子代理全部返回之前,不要写报告或保存记录。
 
-`collect-diff.sh` 开始真正审查时会在记录目录里留下「进行中」标记;如果输出里有 `NOTE: 上一次对这个目标的审查…没有保存`,照原话转告用户,说明这是重新审查。
+`collect-diff.sh` 在默认保存模式开始真正审查时会在记录目录里留下「进行中」标记;临时模式不写该标记;如果输出里有 `NOTE: 上一次对这个目标的审查…没有保存`,照原话转告用户,说明这是重新审查。
 
 **只有宿主根本没有启动子代理的工具时**,或者是 quick:按上表本轮适用的角色说明自己执行,一次一个角色,结果存进 `finders/` 后再开始下一个。quick 全程由主线程执行:不启动任何子代理,也不把整个流程或其中某一步交给子代理;用户想要独立查找和核实,改用 standard。
 
@@ -167,7 +172,9 @@ sh <skill_dir>/scripts/prepare-verify.sh <review_dir>
 
 **有子代理时**(standard 和 deep):每批启动一个 verifier,全部同时启动:
 
-> 阅读 `<skill_dir>/roles/verifier.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。`may_run_checks` 是 `<meta.txt 的 may_run_checks>`。`candidates` 在 `<review_dir>/verify/batch-<n>.json`。只回复 JSON 数组。
+> 阅读 `<skill_dir>/roles/verifier.md` 并严格照做。`review_dir` 是 `<path>`。`skill_dir` 是 `<path>`。`may_run_checks` 是 `<meta.txt 的 may_run_checks>`。`candidates` 在 `<review_dir>/verify/batch-<n>.json`。将你实际产出的完整原始 JSON 数组写入 `<review_dir>/verify/result-<n>.json`,同时只回复该数组;没有文件写入工具时只回复 JSON,由编排者保存实际回复。
+
+每批结果只由该批 verifier 写入。角色结束后读取对应文件,不依赖完成通知是否附带回复正文;没有文件或实际回复时继续按缺失核实处理。
 
 **模型。** `meta.txt` 的 `verifier_model` 不是 `host` 时(用户这次指定的,或配置里的 `model.verifier`),启动 verifier 时使用那个模型。能用另一家的模型核实效果更好,两者的盲区不同;宿主不支持指定模型时照常运行,并在报告里说明。
 
@@ -207,7 +214,7 @@ sh <skill_dir>/scripts/report-lines.sh <review_dir>
 
 然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,按 report-format 的标签表原样写。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,标题和首句明确写「审查未完成」及「已检查部分确认 <N> 条发现」(N 沿用展示计数),并说明具体缺项或覆盖限制。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
 
-**保存记录是流程的一部分**,不能跳过;只有用户明确说只测试、只报告或不保存记录时例外。
+**完成报告是流程的一部分**,两种模式都执行 `save-review.sh <review_dir>`。默认归档;明确 `--no-store` 的运行仅完成临时报告与用量,脚本自行阻止长期归档,不能靠 agent 跳过命令实现。
 
 按 `references/report-format.md` 的「保存记录」完成 `report.md` 和 `save-review.sh`。保存失败也展示报告并披露原因。照抄实际 `cost`、`incomplete`、`model_note`、`subagent_note`,token 未统计不得估算,不得省略模型回退或流程限制。保存返回 `incomplete` 时同步更正标题和首句;仅 `subagent_note` 不等于覆盖未完成。`WEAKEN` 统一放在「测试与检查变更」,原样使用它给出的位置和片段,不当作确认缺陷。仅有 `FEEDBACK` 输出时展示反馈提示,无输出不补编号示例。
 
@@ -218,7 +225,7 @@ sh <skill_dir>/scripts/report-lines.sh <review_dir>
 仅在用户要求时执行。先检查 `meta.txt`:目标是提交范围(`mode=range`)时一律不修,即使范围的 head 正好是当前 HEAD、`head_checked_out=yes` 也只给修复建议;`merged=yes`(这个 MR / PR 已合入)时也不改代码,告诉用户从目标分支另开分支来修。满足任一条件就结束修复步骤。
 
 - 只应用通过核实的发现。每条用能解决问题的最小改动;不要顺手重构周围的代码。
-- 每修好一条,记为成立:`sh <skill_dir>/scripts/feedback.sh valid <id> "已用 --fix 修复"`。
+- 每修好一条,记为成立:`sh <skill_dir>/scripts/feedback.sh valid <id> "已用 --fix 修复" --review-dir <review_dir>`。
 - 只编辑工作区里的文件。不要 `git add`、`commit`、`stash` 或 `push`。
 - 修复方式不明确,或会改变缺陷之外的行为,则跳过并说明。
 - 如果 `head_checked_out=no`,只给修复建议;说明已核实的目标分支和 `head_sha`,请用户自行处理未提交改动并切到该目标后重新执行 fix。不要替用户 switch、checkout 或 stash,也不调用 gh/glab checkout。重新收集后确认 `HEAD` 与目标提交一致才修改。
