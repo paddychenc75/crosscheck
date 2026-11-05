@@ -730,6 +730,23 @@ class RulesMining(fixture.Base):
         self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), text)
         self.assertEqual(self.md_text(work), after)
 
+    def test_each_file_cites_only_the_candidates_written_into_it(self):
+        money = rule(topic="money", title="金额不用浮点", rule="在 src/money/** 里,金额相关的计算禁止使用浮点数",
+                     paths=["src/money/**"], evidence=[{"mr": 18, "note": 401, "quote": "别用浮点"}])
+        work, no = self.prepare(rule(), money, self.sup())
+        n1, n2, n3 = no[rule()["rule"]], no[money["rule"]], no[self.sup()["rule"]]
+        self.write_all(work, [n1, n2, n3])
+        self.run_py("rules-write.py", work, "--prepare")
+        changes = {c["path"]: c for c in self.load(os.path.join(work, "rules-draft.json"))["changes"] if c["operation"] == "write"}
+        self.assertEqual({".agents/rules/api.md": [n1], ".agents/rules/money.md": [n2], "src/api/REVIEW.md": [n3]},
+                         {p: c["source"]["candidates"] for p, c in changes.items()})
+        self.assertEqual("新增规则「金额不用浮点」(重要)", changes[".agents/rules/money.md"]["reason"])
+        self.assertTrue(changes["src/api/REVIEW.md"]["reason"].startswith("新增不要报「"))
+        self.assertRegex(changes[".agents/rules/money.md"]["source"]["basis"], r"^候选 %d「金额不用浮点」:1 个 MR" % n2)
+        self.assertNotIn("根据已核对材料整理", json.dumps(changes, ensure_ascii=False))
+        view = Path(work, "rules-draft.md").read_text(encoding="utf-8")
+        self.assertIn("| .agents/rules/money.md | 新增 | 新增规则「金额不用浮点」(重要) | 材料推断 |", view)
+
     def test_same_rule_already_in_file_is_skipped(self):
         work, no = self.prepare(rule(), self.sup())
         n1, n2 = no[rule()["rule"]], no[self.sup()["rule"]]
@@ -1122,11 +1139,12 @@ class RulesMining(fixture.Base):
         n1, n2 = no[rule()["rule"]], no[lone["rule"]]
         self.write_all(work, [n1, n2])
         out = self.write_rules(work, "--check")
-        self.assertIn("PENDING: 候选 %d:待确认:缺反例或正例\n" % n2, out)
-        self.assertNotIn("PENDING: 候选 %d:待确认" % n1, out)
+        self.assertRegex(out, r"PENDING: 候选 %d「[^」]+」:缺反例或正例\n" % n2)
+        self.assertNotIn("PENDING: 候选 %d「" % n1, out)
+        self.assertNotIn(":待确认:", out)                                         # 已在待确认里,不重复前缀
         self.assertIn("WRITE: .agents/rules/api.md", out)                          # 只提醒,不拦
         out = self.write_rules(work, "--apply")
-        self.assertIn("PENDING: 候选 %d:待确认" % n2, out)
+        self.assertIn("PENDING: 候选 %d「" % n2, out)
         self.assertIn("金额相关的计算禁止使用浮点数", Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
 
     def test_reason_must_not_carry_mr_numbers(self):

@@ -51,7 +51,7 @@ python3 "<cr_dir>/scripts/crlib.py" init-work "<仓库根目录>" [--no-store]
 
 ## 形成统一草稿
 
-`rules-draft.json` 保存机器清单,`rules-draft.md` 是生成的人读视图,包含目标、理由、来源类别、真实 diff 和待确认项,不堆完整历史证据。先捕获基线,再基于其原文组织拟写内容:
+`rules-draft.json` 保存机器清单,`rules-draft.md` 是生成的人读视图,顺序固定:变更一览表、待确认、各文件的理由/来源/真实 diff、接入(AGENTS.md 提示和全部链接合在一处)、核对说明、参考材料;不堆完整历史证据。先捕获基线,再基于其原文组织拟写内容:
 
 ```sh
 python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --capture --path ".agents/rules/api.md" --path "REVIEW.md"
@@ -76,7 +76,7 @@ python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --capture --path ".agents
 }
 ```
 
-本地检查推断的 source 使用 `{"type":"inferred","basis":"具体文件原文与判断依据"}`。删除/迁移的理由必须说明价值和范围,不能只写“清理”。
+本地检查推断的 source 使用 `{"type":"inferred","basis":"具体文件原文与判断依据"}`。删除/迁移的理由必须说明价值和范围,不能只写“清理”。每个文件的 reason、basis 只写落进这个文件的内容,不同文件不共用一句套话。notes 只写读者确认时需要知道的结论,每条一句,例如核对了哪些规范、哪条取舍还没定;处理过程、重新校验经过、材料文件名不写进 notes。
 
 写代码一侧的接入由脚本按本轮规则变更自动生成,提案里不写接入字段(旧的 `agents_links`、`instruction_files`、`agents_source` 会报错),也不要在 changes 里写 AGENTS.md、CLAUDE.md 或 `.claude/rules/` 的正文:
 
@@ -103,15 +103,15 @@ sh "<cr_dir>/scripts/mine-mrs.sh" [--days <n>] [--limit <n>] [--repo "<仓库根
 
 1. 以 `snapshot.json` 固定本次材料。按 `roles/miner.md`“观察”读取完整批次,把回复原样存 `result-<n>.json`,运行 `mine-check.py "<work_dir>" --observations`。需要代理且宿主支持时按配置 `model.finder` 执行,任务中指定由该角色将原始 JSON 写入 `<work_dir>/result-<n>.json`;否则顺序完成相同契约。
 2. 按 miner“全局归并”按约束的条件、行为、范围和例外汇合观察,不要求评论文字相同。回查最终代码判断采纳,作者回复只作辅助;仓库惯例按采集时固定 head 核对,保留相反实现,不与历史落实混算。单 MR 也可待确认,无足够依据的经验进入 watch,已有规范冲突进入 maintain。保存 `synthesis.json`,运行 `mine-check.py "<work_dir>" "<work_dir>/synthesis.json"`。委托子代理时指定由该角色把原始 JSON 写入 `<work_dir>/synthesis.json`。角色完成后读取约定文件,不依赖完成通知是否附带正文;没有文件写入工具时保存实际 JSON 回复。两者都缺失时说明未收到结果,不补造、不进入下一步。
-3. 输出冻结的 `candidates.json`、内部材料 `mined-candidates.md`、去向材料 `dropped.json`,以及统一 `rules-draft.md`。watch 和 maintain 会显示为待观察/维护已有规范及来源,即使零新增候选也不能略过这些有价值的建议。初始仅摘要的草稿是材料中间态,不能当作完成的维护草稿交付。确实没有值得改动的内容时说明依据。
+3. 输出冻结的 `candidates.json`、内部材料 `mined-candidates.md`、去向材料 `dropped.json`,以及统一 `rules-draft.md`。watch 和 maintain 在草稿末尾「参考材料」里每个主题一行(标题、理由、典型 MR;维护项带现有规范原文),不进待确认;观察编号、全部引文和仓库核对写在本轮 `rules-materials.md`。即使零新增候选也要展示这些建议。初始仅摘要的草稿是材料中间态,不能当作完成的维护草稿交付。确实没有值得改动的内容时说明依据。
 4. 你按用户维护目标和证据复核,主动把值得提出的候选整理优化并在内部标“写入”,使它进入具体文件 diff;不要求用户先逐项操作候选选单。待定只留未能判断的事项,跳过的说明原因。内部“写入”只是选择进草稿,不是最终写入授权。来源按候选编号从绑定机器材料取,不能靠改证据文字伪造。改变约束或扩大范围必须重新复核,新增用户要求走 user 提案,不能借旧 MR 当依据。
-5. 运行 `rules-write.py "<work_dir>" --prepare` 把选定候选和历史去向编译成统一清单;它不写仓库。维护建议的冲突双方与待观察项一起进入 notes/pending。需要修改现有规则或 REVIEW.md 时,先 capture 相关目标,基于清单的 changes 组织具体 proposal,来源用 inferred 并引用对应观察和规范原文,保留已有材料绑定,再 propose/check。取舍未定只留待确认,不能静默改为任选一边。
+5. 运行 `rules-write.py "<work_dir>" --prepare` 把选定候选和历史去向编译成统一清单;它不写仓库。每个文件的理由和来源只列实际写进它的候选。历史去向存在清单的 `history` 里,之后的 `--propose` 自动沿用,不要抄进 notes/pending,提案里也不写 history。需要修改现有规则或 REVIEW.md 时,先 capture 相关目标,基于清单的 changes 组织具体 proposal,来源用 inferred 并引用对应观察和规范原文,保留已有材料绑定,再 propose/check。取舍未定只留待确认,不能静默改为任选一边。
 
-历史材料全文留在机器文件供追问,人读草稿只放简短来源与待确认。候选与去向一起冻结;最终 apply 核对 candidates.json、mined-candidates.md、dropped.json、snapshot.json、rules-sources.json 的绑定。代码引文核对不能证明语义正确。待观察复用本轮材料,没有永久观察库或自动晋升;要重用旧记录需明确选择并重新核验,`--no-store` 不承诺跨轮留存。
+历史材料全文留在机器文件和 `rules-materials.md` 供追问,人读草稿只放简短来源与待确认。候选与去向一起冻结;最终 apply 核对 candidates.json、mined-candidates.md、dropped.json、snapshot.json、rules-sources.json 的绑定。代码引文核对不能证明语义正确。待观察复用本轮材料,没有永久观察库或自动晋升;要重用旧记录需明确选择并重新核验,`--no-store` 不承诺跨轮留存。
 
 ## 唯一确认与写入出口
 
-预演 `--check` 不改仓库,逐项给出 WRITE/DELETE/LINK/UNLINK 和实际 diff、PENDING/NOTE,最后给 `DIGEST: <指纹>`。用户必须先看本次具体 diff 与未解决事项,明确同意后才执行:
+预演 `--check` 不改仓库,逐项给出 WRITE/DELETE/LINK/UNLINK 和实际 diff、PENDING/NOTE,再给一行 `SUMMARY:` 统计,最后给 `DIGEST: <指纹>`。用户必须先看本次具体 diff 与未解决事项,明确同意后才执行:
 
 ```sh
 python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --apply --expected-digest "<用户刚确认的预演指纹>"

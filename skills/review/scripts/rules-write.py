@@ -286,10 +286,12 @@ def check_block(b, c, root):
 
 # ---------- 要写的内容 ----------
 
-def build(root, todo, originals=None):
+def build(root, todo, originals=None, placed=None):
     """todo: [(块, 候选字典)]。返回 (SKIP 提示, 要写的文件 {绝对路径: 行}, 每个文件原来的行数, 要改的文件, 写过的块, 警告,
-    本次写入或确认已在其中的 .agents/rules 文件)。"""
+    本次写入或确认已在其中的 .agents/rules 文件)。placed 给了就记下每个文件实际新写进的候选:{绝对路径: [(候选字典, 写法)]},
+    写法是 rule(新规则块)、exception(并进某条规则的不要报)或 review(REVIEW.md 的条目)。"""
     touched, before, changed, skips, wrote, warns, rule_files = {}, {}, [], [], [], [], []
+    placed = {} if placed is None else placed
 
     def load(p, new_text=None):
         """读进 touched;文件不存在时用 new_text 起头(None 表示必须已存在)。"""
@@ -316,6 +318,7 @@ def build(root, todo, originals=None):
                 wrote.append(b)
                 continue
             insert_review(lines, section, item)
+            how = "review"
         elif c["kind"] == "suppress":
             path = os.path.join(root, rel_dest)
             lines = load(path)
@@ -326,6 +329,7 @@ def build(root, todo, originals=None):
                 skips.append("SKIP: 块 %s 已在 %s 里" % (b["n"], rel_dest))
                 wrote.append(b)
                 continue
+            how = "exception"
         else:
             rules_dir = os.path.join(root, os.path.dirname(rel_dest))
             topic = os.path.basename(rel_dest)[:-3]
@@ -341,8 +345,10 @@ def build(root, todo, originals=None):
             while lines and not lines[-1].strip():
                 lines.pop()
             lines += [""] + block_of(c)
+            how = "rule"
         if path not in changed:
             changed.append(path)
+        placed.setdefault(path, []).append((c, how))
         wrote.append(b)
     for path in changed:
         lines, rel = touched[path], os.path.relpath(path, root)
@@ -357,56 +363,105 @@ def build(root, todo, originals=None):
     return skips, touched, before, changed, wrote, warns, rule_files
 
 
-def maintenance_notes(work):
-    """未成为新增规则的历史主题也进入草稿;只展示,不据此自动修改规则。"""
+MATERIALS = "rules-materials.md"
+
+
+def history(work):
+    """未成为新增规则的历史主题:草稿只放每个主题一行(rules_draft 渲染到「参考材料」),不进待确认;
+    来源编号、全部引文、规范原文和仓库核对写到本轮材料 rules-materials.md。只展示,不据此自动修改规则。
+    返回 (草稿里的 history, 材料全文)。"""
     path = os.path.join(work, "dropped.json")
     if not os.path.isfile(path):
-        return [], []
+        return None, ""
     rows = json.loads(rules_draft.read(path))
     if not isinstance(rows, list):
         raise ValueError("历史去向材料应为数组")
-    notes, pending = [], []
-    excluded = 0
+    topics, detail, excluded = [], [], []
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError("历史去向条目应为对象")
         disposition = row.get("disposition", "exclude")
         if disposition not in ("watch", "maintain", "exclude"):
             raise ValueError("未知的历史主题去向")
-        if disposition == "exclude":
-            excluded += 1
-            continue
-        label = "待观察" if disposition == "watch" else "维护已有规范"
         title = rule_candidates.one(row.get("pattern") or row.get("rule"))
         reason = rule_candidates.one(row.get("reason"))
+        if disposition == "exclude":
+            excluded.append("- %s — %s" % (title or "(无标题)", reason or "(无理由)"))
+            continue
         if not title or not reason:
             raise ValueError("历史主题缺少标题或理由")
-        refs = list(row.get("observations", [])) + ["feedback:" + str(x) for x in row.get("feedback", [])]
-        pending.append("%s:%s — %s" % (label, title, reason))
-        if refs:
-            notes.append("%s「%s」来源:%s" % (label, title, ", ".join(refs)))
         picked, rest = rule_candidates.typical(row)
-        for evidence in picked:
-            notes.append("%s「%s」讨论:%s「%s」" % (
-                label, title, rule_candidates.mr_ref(evidence["mr"], evidence["url"]),
-                rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
-        if rest:
-            notes.append("另有 %d 个 MR,完整证据保留在本轮材料中" % len(rest))
-        for evidence in rule_candidates.feedback_rows(row)[:rule_candidates.TYPICAL]:
-            notes.append("%s「%s」判断记录:%s「%s」" % (
-                label, title, rule_candidates.feedback_ref(evidence),
-                rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
-        for source in row.get("coverage", {}).get("sources", []):
-            notes.append("%s「%s」依据:%s「%s」" % (label, title, rule_candidates.one(source["file"]), rule_candidates.one(source["quote"])))
-        practice = row.get("practice") or {}
-        if practice:
-            notes.append("%s「%s」仓库核对:%s" % (label, title, rule_candidates.one(practice.get("reason"))))
-            for key, kind in (("examples", "惯例"), ("counterexamples", "相反实现")):
-                for source in practice.get(key, []):
-                    notes.append("%s:%s:%s @ %s — %s" % (kind, rule_candidates.one(source["file"]), source["line"], source["ref"], rule_candidates.one(source["reason"])))
+        topics.append(dict(kind=disposition, title=title, reason=reason,
+                           links=[rule_candidates.mr_ref(e["mr"], e["url"]) for e in picked], more=len(rest),
+                           feedback=len(rule_candidates.feedback_rows(row)),
+                           sources=["%s「%s」" % (rule_candidates.one(s["file"]), rule_candidates.one(s["quote"]))
+                                    for s in row.get("coverage", {}).get("sources", [])]))
+        detail += topic_detail(row, rules_draft.HISTORY_LABELS[disposition], title, reason, picked, rest)
+    if not topics and not excluded:
+        return None, ""
+    text = ["# 本轮历史材料", "",
+            "rules-write.py --prepare 按 dropped.json 生成,供追问和核对;草稿 rules-draft.md 只放每个主题一行。"] + detail
     if excluded:
-        notes.append("另有 %d 个主题已排除,理由与完整来源保留在本轮材料中" % excluded)
-    return notes, pending
+        text += ["", "## 已排除(%d)" % len(excluded), ""] + excluded
+    return dict(topics=topics, excluded=len(excluded), materials=MATERIALS), "\n".join(text) + "\n"
+
+
+def topic_detail(row, label, title, reason, picked, rest):
+    """一个待观察 / 维护主题在材料文件里的完整记录。"""
+    out = ["", "## %s:%s" % (label, title), "", "- 理由:" + reason]
+    refs = list(row.get("observations", [])) + ["feedback:" + str(x) for x in row.get("feedback", [])]
+    if refs:
+        out.append("- 观察:" + ", ".join(refs))
+    for evidence in picked:
+        out.append("- 讨论:%s「%s」" % (rule_candidates.mr_ref(evidence["mr"], evidence["url"]),
+                                     rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
+    if rest:
+        out.append("- 另有 %d 个 MR:%s" % (len(rest), ", ".join("!%s" % x for x in rest)))
+    for evidence in rule_candidates.feedback_rows(row):
+        out.append("- 判断记录:%s「%s」" % (rule_candidates.feedback_ref(evidence),
+                                         rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
+    for source in row.get("coverage", {}).get("sources", []):
+        out.append("- 现有规范:%s「%s」" % (rule_candidates.one(source["file"]), rule_candidates.one(source["quote"])))
+    practice = row.get("practice") or {}
+    if practice:
+        out.append("- 仓库核对:" + rule_candidates.one(practice.get("reason")))
+        for key, kind in (("examples", "惯例"), ("counterexamples", "相反实现")):
+            for source in practice.get(key, []):
+                out.append("  - %s:%s:%s @ %s — %s" % (kind, rule_candidates.one(source["file"]), source["line"], source["ref"],
+                                                     rule_candidates.one(source["reason"])))
+    return out
+
+
+def support(c):
+    """候选的支持情况,写进依据:几个 MR、模型判断各几个,判断记录几条。"""
+    rows, _ = rule_candidates.typical(c, n=len(c.get("evidence", [])) + 1)
+    states = {}
+    for r in rows:
+        states[r["state"]] = states.get(r["state"], 0) + 1
+    parts = ["%d 个 MR" % len(rows)] if rows else []
+    if rows:
+        parts[0] += "(" + "、".join("%s %d" % (rule_candidates.MR_STATE.get(s, s), n) for s, n in
+                                    sorted(states.items(), key=lambda x: rule_candidates.STATE_RANK.get(x[0], 1))) + ")"
+    fb = len(rule_candidates.feedback_rows(c))
+    if fb:
+        parts.append("判断记录 %d 条" % fb)
+    return ",".join(parts) or "无历史引用"
+
+
+def file_source(items):
+    """一个文件的理由和来源:只列实际写进这个文件的候选。"""
+    verbs = {"rule": "新增规则", "exception": "给规则补充例外", "review": "新增不要报"}
+    reason = ";".join("%s「%s」%s" % (verbs[how], c["title"], "(%s)" % c["severity"] if how == "rule" and c.get("severity") else "")
+                      for c, how in items)
+    nos = list(dict.fromkeys(c["no"] for c, _ in items))
+    basis = ";".join("候选 %s「%s」:%s" % (c["no"], c["title"], support(c)) for c, _ in
+                     dict((c["no"], (c, how)) for c, how in items).values())
+    return reason, dict(type="inferred", basis=basis, candidates=nos)
+
+
+def unmet_text(text):
+    """mine-check 的未满足项以「待确认:」开头;它会放在「待确认」节里,不重复这个前缀。"""
+    return text[len("待确认:"):] if text.startswith("待确认:") else text
 
 
 def prepare(work, root=""):
@@ -437,34 +492,43 @@ def prepare(work, root=""):
             continue
         errs, merged = check_block(b, cands[b["cand"]], root)
         # 初次展示允许未完善的待定候选;选入拟写内容才要求所有字段可用。
+        who = "候选 %s「%s」" % (b["label"], b["title"])
         if action == "待定":
-            pending.append("候选 %s:%s;尚未选入拟写内容" % (b["label"], b["title"]))
-            unmet += ["候选 %s:%s" % (b["label"], x) for x in cands[b["cand"]].get("unmet", [])]
-            unmet += ["候选 %s %s:%s" % (b["label"], name, why) for name, why in errs]
+            pending.append(who + ":尚未选入拟写内容")
+            unmet += ["%s:%s" % (who, unmet_text(x)) for x in cands[b["cand"]].get("unmet", [])]
+            unmet += ["%s 的%s:%s" % (who, name, why) for name, why in errs]
         else:
             errors += [(b["label"], name, why) for name, why in errs]
             if not errs:
                 todo.append((b, merged))
-                unmet += ["候选 %s:%s" % (b["label"], x) for x in cands[b["cand"]].get("unmet", [])]
+                unmet += ["%s:%s" % (who, unmet_text(x)) for x in cands[b["cand"]].get("unmet", [])]
     if errors:
         raise ValueError("\nERROR: ".join(("块 %s %s: %s" % row) if row[0] is not None else "头部 %s: %s" % row[1:] for row in errors))
-    originals = {}
-    skips, touched, before, changed, wrote, warns, rule_files = build(root, todo, originals)
+    originals, placed = {}, {}
+    skips, touched, before, changed, wrote, warns, rule_files = build(root, todo, originals, placed)
     rels = [os.path.relpath(p, root) for p in touched]
     # 新材料只刷新来源绑定,已冻结的目标基线永不悄悄重置。
     rules_draft.capture(work, root, rels, refresh_bindings=True, expected=originals)
-    refs = sorted({b["cand"] for b, _ in todo})
-    source = dict(type="inferred", basis="历史候选 " + ", ".join(map(str, refs)), candidates=refs)
-    changes = [dict(path=os.path.relpath(p, root), operation="write", content="\n".join(touched[p]).rstrip("\n") + "\n",
-                    reason="根据已核对材料整理项目约束或误报边界", source=source) for p in changed]
-    history_notes, history_pending = maintenance_notes(work)
+    changes = []
+    for p in changed:
+        reason, source = file_source(placed[p])   # 每个文件只写实际落到它里面的候选
+        changes.append(dict(path=os.path.relpath(p, root), operation="write", content="\n".join(touched[p]).rstrip("\n") + "\n",
+                            reason=reason, source=source))
+    past, materials = history(work)
+    path = os.path.join(work, MATERIALS)
+    if past:
+        with crlib.record_write(path):
+            rules_draft.atomic(path, materials)
+    elif os.path.isfile(path):
+        with crlib.record_write(path):
+            os.unlink(path)   # 上一次 prepare 留下的材料不再对应本轮去向
     bindings = {name: rules_draft.content_hash(rules_draft.read(os.path.join(work, name)))
                 for name in ("candidates.json", rule_candidates.FILE, "dropped.json", "snapshot.json", "rules-sources.json")
                 if os.path.isfile(os.path.join(work, name))}
     # AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,这里不再传接入字段。
     request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes,
                    rule_targets=[os.path.relpath(p, root) for p in rule_files],
-                   pending=pending + unmet + history_pending, notes=skips + warns + history_notes)
+                   pending=pending + unmet, notes=skips + warns, history=past)
     data = rules_draft.propose(work, request, bindings=bindings)
     print("RULES_DRAFT: " + os.path.join(work, rules_draft.VIEW))
     return data

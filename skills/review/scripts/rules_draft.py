@@ -37,6 +37,7 @@ LEGACY_INDEX = re.compile(r"- \[[^\]\r\n]+\]\(\.agents/rules/[^)\r\n]+\.md\):改
 HINT_SOURCE = dict(type="inferred", basis="规则写入 .agents/rules,读 AGENTS.md 的宿主需要知道去哪里找")
 LINK_SOURCE = dict(type="inferred", basis="Claude Code 按 .claude/rules 的 paths 原生加载规则")
 LINK_KINDS = ("missing", "symlink", "file", "other")
+HISTORY_LABELS = {"watch": "待观察", "maintain": "维护已有规范"}
 
 
 def require(ok, message):
@@ -143,34 +144,105 @@ def file_diff(change, base):
     return "".join(x if x.endswith("\n") else x + "\n\\ No newline at end of file\n" for x in rows)
 
 
+def cell(text):
+    return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
+def source_label(source):
+    return "用户要求" if source["type"] == "user" else "材料推断(不因确认而变成历史共识)"
+
+
+def operation(c, base):
+    if c.get("operation") in ("link", "unlink"):
+        return "新增链接" if c["operation"] == "link" else "删除链接"
+    return "删除" if c["content"] is None else ("新增" if base["content"] is None else "修改")
+
+
+def counts(data):
+    """预演和视图共用的一句统计。"""
+    links = [c for c in data["changes"] if c.get("operation") in ("link", "unlink")]
+    files = len(data["changes"]) - len(links)
+    added = sum(1 for c in links if c["operation"] == "link")
+    parts = ["%d 个文件变更" % files]
+    if added:
+        parts.append("新增 %d 个链接" % added)
+    if len(links) - added:
+        parts.append("删除 %d 个链接" % (len(links) - added))
+    return "、".join(parts) + ";待确认 %d 项" % len(data.get("pending", []))
+
+
 def render(data):
+    """读者顺序:一览 → 待确认 → 规则与 REVIEW.md 的 diff → 接入(AGENTS.md 提示、全部链接合在一处)→ 核对说明 → 参考材料。"""
+    base = data["base"]
+    links = [c for c in data["changes"] if c.get("operation") in ("link", "unlink")]
+    hint = [c for c in data["changes"] if c["path"] == AGENTS]
+    files = [c for c in data["changes"] if c not in links and c not in hint]
     lines = ["# 规则维护草稿", "", "- 目标:" + data.get("goal", "待整理"),
              "- 版本:%s" % data["revision"], "- 指纹:`%s`" % digest(data), "",
              "确认这份具体 diff 后才写工作区,不提交。补充要求或内容变化后重新预演、确认。",
-             "此文件由脚本生成;对话修改由 agent 更新提案,不要直接改此视图。"]
-    for item in data.get("notes", []):
-        lines += ["", "- 复核:" + item]
+             "此文件由脚本生成;对话修改由 agent 更新提案,不要直接改此视图。",
+             "", "## 本次变更一览", ""]
+    if data["changes"]:
+        lines += ["| 文件 | 操作 | 写什么 | 来源 |", "| --- | --- | --- | --- |"]
+        for c in files + hint:
+            lines.append("| %s | %s | %s | %s |" % (cell(c["path"]), operation(c, base[c["path"]]), cell(c["reason"]),
+                                                   "用户要求" if c["source"]["type"] == "user" else "材料推断"))
+        for op in ("link", "unlink"):
+            group = [c for c in links if c["operation"] == op]
+            if group:
+                lines.append("| %s | %s %d 个 | %s | 材料推断 |" % (
+                    LINKS, "新增链接" if op == "link" else "删除链接", len(group),
+                    "让 Claude Code 按 paths 加载规则" if op == "link" else "去掉指向已删除规则的链接"))
+        lines += ["", counts(data) + "。"]
+    else:
+        lines += ["没有选定的文件变更。"]
     lines += ["", "## 待确认", ""]
     lines += ["- " + x for x in data.get("pending", [])] or ["- 无;仍需确认下面的具体改动。"]
-    for c in data["changes"]:
+    for c in files:
         source = c["source"]
-        label = "用户要求" if source["type"] == "user" else "材料推断(不因确认而变成历史共识)"
-        if c.get("operation") in ("link", "unlink"):
-            op = "新增链接" if c["operation"] == "link" else "删除链接"
-        else:
-            op = "删除" if c["content"] is None else ("新增" if data["base"][c["path"]]["content"] is None else "修改")
-        lines += ["", "## %s %s" % (op, c["path"]), "", "- 理由:" + c["reason"], "- 来源:" + label]
-        if source["type"] == "user":
-            lines += ["- 要求:" + source["request"]]
-        else:
-            lines += ["- 依据:" + source["basis"]]
-        if c.get("operation") in ("link", "unlink"):
-            lines += ["", fence(change_label(c, data["base"][c["path"]]))]
-        else:
-            lines += ["", fence(file_diff(c, data["base"][c["path"]]), "diff")]
-    if not data["changes"]:
-        lines += ["", "没有选定的文件变更。"]
+        lines += ["", "## %s %s" % (operation(c, base[c["path"]]), c["path"]), "", "- 理由:" + c["reason"],
+                  "- 来源:" + source_label(source)]
+        lines += ["- 要求:" + source["request"]] if source["type"] == "user" else ["- 依据:" + source["basis"]]
+        lines += ["", fence(file_diff(c, base[c["path"]]), "diff")]
+    if hint or links:
+        lines += ["", "## 接入", "", "- 来源:材料推断(不因确认而变成历史共识)"]
+        for c in hint:
+            lines += ["", "%s %s:%s" % (operation(c, base[c["path"]]), c["path"], c["reason"]), "",
+                      fence(file_diff(c, base[c["path"]]), "diff")]
+        if links:
+            lines += ["", "Claude Code 按 .claude/rules 的 paths 原生加载规则,下面的链接都指向对应的 .agents/rules 文件:", "",
+                      fence("\n".join(change_label(c, base[c["path"]]) for c in links))]
+    if data.get("notes"):
+        lines += ["", "## 核对说明", ""] + ["- " + x for x in data["notes"]]
+    lines += history_lines(data.get("history"))
     return "\n".join(lines) + "\n"
+
+
+def history_lines(past):
+    """历史归纳中没有成为规则改动的主题:每个一行,完整来源在本轮材料文件里。"""
+    if not past:
+        return []
+    topics = past.get("topics", [])
+    kinds = [(k, [t for t in topics if t["kind"] == k]) for k in ("maintain", "watch")]
+    summary = "、".join("%s %d 个" % (HISTORY_LABELS[k], len(group)) for k, group in kinds if group)
+    if past.get("excluded"):
+        summary += ("、" if summary else "") + "已排除 %d 个" % past["excluded"]
+    out = ["", "## 参考材料", "", "历史归纳里没有成为本次改动的主题:%s。只供参考,不需要逐条确认;观察编号、全部引文、"
+           "规范原文和仓库核对见本轮材料 %s。" % (summary, past.get("materials", ""))]
+    for kind, group in kinds:
+        if not group:
+            continue
+        out += ["", "### %s" % HISTORY_LABELS[kind], ""]
+        for t in group:
+            refs = list(t.get("links", []))
+            if t.get("more"):
+                refs.append("另有 %d 个 MR" % t["more"])
+            if t.get("feedback"):
+                refs.append("判断记录 %d 条" % t["feedback"])
+            if kind == "maintain" and t.get("sources"):
+                refs.append("现有规范:" + ";".join(t["sources"]))
+            out.append("- %s — %s%s" % (t["title"], t["reason"], "(%s)" % ";".join(refs) if refs else ""))
+    return out
 
 
 def atomic(path, text, before=None, verify=None):
@@ -340,7 +412,10 @@ def hookup(data):
             current = base[AGENTS] if AGENTS in base else snapshot(repo, AGENTS)
         except ValueError as error:   # 例如 AGENTS.md 是指向其他入口的符号链接
             current = None
-            pending.append("%s 不能由脚本维护(%s);如需让 Codex、Cursor 找到规则,请手动加一句:%s" % (AGENTS, error, AGENTS_HINT))
+            why = ("是符号链接,脚本不改它指向的文件" if os.path.islink(os.path.join(root, AGENTS))
+                   else "脚本不能安全修改(%s)" % error)
+            pending.append("%s %s;如需让 Codex、Cursor 找到规则,请在它实际所在的文件里「## %s」下手动加一句:%s"
+                           % (AGENTS, why, AGENTS_SECTION, AGENTS_HINT))
         if current is not None:
             content = hint_content(current["content"] or "")
             if content != (current["content"] or ""):
@@ -426,12 +501,22 @@ def source_valid(source):
     require(isinstance(source.get(field), str) and source[field].strip(), "来源缺少 " + field)
 
 
+def history_valid(past):
+    if past is None:
+        return
+    require(isinstance(past, dict) and isinstance(past.get("topics"), list), "历史材料格式不合法")
+    for t in past["topics"]:
+        require(isinstance(t, dict) and t.get("kind") in HISTORY_LABELS
+                and all(isinstance(t.get(k), str) and t[k] for k in ("title", "reason")), "历史主题格式不合法")
+
+
 def validate(work, data, view=False, materials=True):
     require(isinstance(data.get("revision"), int) and data["revision"] > 0, "草稿版本不合法")
     require(identity(data["repo"]["root"]) == data["repo"], "仓库身份已变化,请重新起草")
     require(isinstance(data.get("base"), dict) and isinstance(data.get("changes"), list), "草稿缺少基线/变更清单")
     for name in ("pending", "notes"):
         require(isinstance(data.get(name), list) and all(isinstance(s, str) for s in data[name]), name + " 应为文字数组")
+    history_valid(data.get("history"))
     root = data["repo"]["root"]
     for rel, base in data["base"].items():
         require(isinstance(base, dict) and (base.get("content") is None or isinstance(base["content"], str)), "基线格式不合法: " + rel)
@@ -506,6 +591,7 @@ def propose(work, request, bindings=None):
     retired = [k for k in ("agents_links", "instruction_files", "agents_source") if k in request]
     require(not retired, "提案不再接受 %s:0.3.13 起写代码一侧的接入改为 AGENTS.md 一句提示加 .claude/rules 链接,"
                          "由脚本按规则变更自动生成" % "、".join(retired))
+    require(bindings is not None or "history" not in request, "history 由 rules-write.py --prepare 按历史材料生成,提案里不写")
     changes = copy.deepcopy(request["changes"])
     for c in changes:
         require(isinstance(c, dict), "文件变更格式不合法")
@@ -515,6 +601,10 @@ def propose(work, request, bindings=None):
     data.update(goal=request["goal"], changes=changes, pending=list(request.get("pending", [])), notes=request.get("notes", []),
                 bindings=bindings if bindings is not None else data.get("bindings", {}), revision=data["revision"] + 1,
                 rule_targets=request.get("rule_targets", []))
+    if bindings is not None:   # 历史编译重新生成;agent 的后续提案沿用,不需要抄回
+        data["history"] = request.get("history")
+    if data.get("history") is None:
+        data.pop("history", None)
     require(isinstance(data["rule_targets"], list) and all(
         isinstance(p, str) and p.startswith(RULES) and p in data["base"] for p in data["rule_targets"]), "确认的规则目标没有捕获基线")
     for c in changes:
@@ -581,6 +671,7 @@ def check(work):
     notices(data)
     if not data["changes"]:
         print("NOTE: 没有选定的文件变更。")
+    print("SUMMARY: " + counts(data))
     print("DIGEST: " + digest(data))
     return data
 

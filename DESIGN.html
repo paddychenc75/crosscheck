@@ -641,7 +641,7 @@ nav.toc a.top.active { color: var(--accent); }
   <nav class="toc" aria-label="目录">
     <div class="brand"><svg class="logo" width="24" height="24" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="cc-logo-nav" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5272F2"/><stop offset="1" stop-color="#2B3FB0"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#cc-logo-nav)"/><path d="M12.5 33.5 L22.5 43.5 L40.5 21" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 34 L32 44 L51.5 20.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>CrossCheck</div>
     <a class="top" href="#overview">一、流程总览</a>
-    <a class="sub" href="#flowcharts">三个技能的流程</a>
+    <a class="sub" href="#flowcharts">三个流程</a>
     <a class="sub flow-child" href="#fc-review">review</a>
     <a class="sub flow-child" href="#fc-improve">improve</a>
     <a class="sub flow-child" href="#fc-describe">describe</a>
@@ -654,7 +654,7 @@ nav.toc a.top.active { color: var(--accent); }
     <a class="sub" href="#find">代码查找</a>
     <a class="sub" href="#verify">结论核实</a>
     <a class="sub" href="#review-report">输出报告</a>
-    <a class="sub" href="#review-limits">限制</a>
+    <a class="sub" href="#review-limits">当前限制</a>
     <a class="top" href="#rules">三、规则机制</a>
     <a class="sub" href="#rule-sources">规则读取</a>
     <a class="sub" href="#rule-scope">规则装配</a>
@@ -662,7 +662,7 @@ nav.toc a.top.active { color: var(--accent); }
     <a class="sub" href="#good-rule">好的规则</a>
     <a class="sub" href="#tool-hookup">宿主适配</a>
     <a class="sub" href="#rule-trust">规则验证</a>
-    <a class="sub" href="#rules-limits">限制</a>
+    <a class="sub" href="#rules-limits">当前限制</a>
     <a class="top" href="#improve">四、规则维护</a>
     <a class="sub" href="#improve-modes">维护入口</a>
     <a class="sub" href="#improve-flow">沉淀流程</a>
@@ -688,7 +688,7 @@ nav.toc a.top.active { color: var(--accent); }
       </button>
     </header>
     <p><strong>CrossCheck 是一个代码审查插件，有三个技能：</strong><code>review</code> 把审查拆成代码分析、规则分析、代码查找、结论核实和输出报告；<code>improve</code> 统一维护项目规则，历史沉淀是可选材料来源；<code>describe</code> 为评审人生成 PR/MR 描述。脚本整理可校验的事实，角色判断问题是否成立，负责人决定规则是否写入。本文解释各阶段的职责和取舍；安装、命令与完整参数见 <a href="README.md">README</a>。</p>
-    <p class="muted">先在<a href="#overview">流程总览</a>切换 review / improve / describe，看各自的流程卡和动画，再按需要看<a href="#review">审查流程</a>、<a href="#rules">规则机制</a>、<a href="#improve">规则维护</a>和 <a href="#describe">PR 描述</a>；每章末尾的「限制」说明这些机制能保证到哪一步，<a href="#appendix">附录</a>对比各家 agent 的上下文机制和 CR 做法。</p>
+    <p class="muted">先在<a href="#overview">流程总览</a>切换 review / improve / describe，看各自的流程卡和动画，再按需要看<a href="#review">审查流程</a>、<a href="#rules">规则机制</a>、<a href="#improve">规则维护</a>和 <a href="#describe">PR 描述</a>；每章末尾的「当前限制」说明这些机制能保证到哪一步，<a href="#appendix">附录</a>对比各家 agent 的上下文机制和 CR 做法。</p>
 
     <section id="overview">
       <h2>一、流程总览</h2>
@@ -696,7 +696,7 @@ nav.toc a.top.active { color: var(--accent); }
 
       <section id="flowcharts">
         <span id="demos"></span>
-        <h3>三个技能的流程</h3>
+        <h3>三个流程</h3>
         <p class="fc-legend"><span><span class="fc-mark">问你</span>要你回答或确认</span><span><i class="opt"></i>视情况才有</span><span><i class="cur"></i>动画正播到这一步</span><span>点编号或卡片空白处：动画跳到这一步；点步骤名：看详细说明</span></p>
         <div class="fc-tabs" role="tablist" aria-label="选择技能">
           <button type="button" role="tab" id="fcTab-review" aria-controls="fc-review" aria-selected="true">review<small>审查</small></button>
@@ -1507,7 +1507,7 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
 
       <section id="review-limits">
         <span id="limits"></span><span id="limits-other"></span>
-        <h3>限制</h3>
+        <h3>当前限制</h3>
         <div class="table-wrap"><table>
           <tr><th>组</th><th>限制</th><th>怎么应对</th></tr>
           <tr><td rowspan="5">漏报与成本</td><td>会漏报：80 分阈值和封顶检查会挡掉没能追踪完整的真问题；核实只能反证收到的候选，补不回查找阶段没提交的</td><td>重点改动用 <code>--depth deep</code>；<code>rejected.json</code> 里 70–79 分的可以核对</td></tr>
@@ -1707,7 +1707,7 @@ globs: "src/orders/**"
       </section>
 
       <section id="rules-limits">
-        <h3>限制</h3>
+        <h3>当前限制</h3>
         <div class="table-wrap"><table>
           <tr><th>限制</th><th>怎么应对</th></tr>
           <tr><td>PR/MR 里新增或修改的规则，合并后才用于审查</td><td>先合入规则，再审查依赖它的改动</td></tr>
@@ -1778,7 +1778,7 @@ globs: "src/orders/**"
           <li id="imp-fetch"><b>只读拉取。</b>按用户要求的时间和数量范围采集已合并 MR 的完整讨论，以及本机判断记录；默认历史范围仍为最近 90 天，没有隐含 MR 数量上限。快照固定材料，分页失败或来源不完整时披露并停止对应推断，不用旧缓存冒充完整材料。</li>
           <li id="imp-observe"><b>分批观察。</b>按完整线程观察，允许保留单 MR 线索，不提前按重复次数丢掉；脚本核对批次、线程覆盖声明与引文。缺批不能用空数组补成成功。</li>
           <li id="imp-synth"><b>归并与证据复核。</b>按约束的条件、行为、范围和例外汇合观察，不要求评论措辞相同。单 MR 已落实或有可核对的仓库惯例，也可进入待确认；多个 MR 的未知落实保留待核对。采纳主要核对该 MR 最终版本的代码，不要求作者回复，<code>resolved</code>、<code>changed_after</code> 不等于采纳。仓库惯例另用采集时固定 head 核对独立实现与反例，不计入采纳数；明确未采纳不凑支持，wontfix 不自动成为长期“不要报”。</li>
-          <li><b>汇入同一份草稿。</b>内部保留 <code>candidates.json</code>、排除原因及原始证据链；用户查看和讨论的是 <code>rules-draft.md</code>。历史候选与现有规则一起复核，再提出新增、修改、删除或合并；<code>mine-check</code> 生成统一的 <code>rules-draft.md</code>；内部选择材料为 <code>mined-candidates.md</code>，调整后用 <code>rules-write.py &lt;work&gt; --prepare</code> 编译到同一份草稿清单。冲突进入维护已有规范的建议，低频但有价值的经验进入待观察，连同双方原文、来源和缺口写入草稿；即使零新增候选也要展示。候选与去向一起冻结，最终写入绑定 <code>candidates.json</code>、<code>mined-candidates.md</code>、<code>dropped.json</code>、<code>snapshot.json</code> 和 <code>rules-sources.json</code>，统一由 <code>rules-draft.py</code> 预演和应用。待观察复用本轮材料，不新建永久库或按次数自动晋升。</li>
+          <li><b>汇入同一份草稿。</b>内部保留 <code>candidates.json</code>、排除原因及原始证据链；用户查看和讨论的是 <code>rules-draft.md</code>。历史候选与现有规则一起复核，再提出新增、修改、删除或合并；<code>mine-check</code> 生成统一的 <code>rules-draft.md</code>；内部选择材料为 <code>mined-candidates.md</code>，调整后用 <code>rules-write.py &lt;work&gt; --prepare</code> 编译到同一份草稿清单。冲突进入维护已有规范的建议，低频但有价值的经验进入待观察，在草稿末尾「参考材料」里每个主题一行（维护项带双方原文），不进待确认；观察编号、全部引文和仓库核对写在本轮 <code>rules-materials.md</code>；即使零新增候选也要展示。每个文件的理由和来源只列落进它的候选。候选与去向一起冻结，最终写入绑定 <code>candidates.json</code>、<code>mined-candidates.md</code>、<code>dropped.json</code>、<code>snapshot.json</code> 和 <code>rules-sources.json</code>，统一由 <code>rules-draft.py</code> 预演和应用。待观察复用本轮材料，不新建永久库或按次数自动晋升。</li>
         </ol>
         <p>历史证据展示保持简短：一行统计，至多 3 个典型 MR（链接、原话、采纳结论），其余列“另有 N 个 MR”；判断记录同样至多 3 条。另列固定 MR 最终代码的落实依据；仓库惯例、范围和相反实现独立展示，不混入采纳数。判断依据长文保留在内部材料，本机追问时由 agent 读取。新草稿不删除来源链。</p>
       </section>
@@ -1817,7 +1817,7 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
           <li><b>已有规则的完整来源：</b>保留逻辑文件、真实路径、范围和全文；已识别的规则目录与显式本地引用可只读采集，断链、循环、不可读来源都保留问题。不可读不能视为“没有冲突”，项目外文件不进入可写清单。</li>
           <li><b>不保存仍保留当前会话材料：</b>临时草稿、预演和内部证据可供后续对话使用；既有历史可读，本次持久记录不更新，也不更改已有保存偏好。</li>
         </ul>
-        <h4><span id="improve-limits"></span>限制</h4>
+        <h4><span id="improve-limits"></span>当前限制</h4>
         <div class="table-wrap"><table>
           <tr><th>限制</th><th>怎么应对</th></tr>
           <tr><td>冲突、工程价值和范围复核依赖模型判断</td><td>保留具体来源、反例与例外，负责人查看草稿和 diff 后决定；未知明确列成待确认项。</td></tr>
@@ -1908,7 +1908,7 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
           <li><b>默认保存，可明确不保存：</b>“不保存 / 不留记录”映射为 <code>--no-store</code>，描述及中间材料留在本次临时目录，仍能继续对话修改；不更新持久的描述记录、原配置或历史记录，也不删除既有历史。已有历史仍可只读参考。</li>
           <li><b>材料是数据：</b>diff、PR/MR 正文、需求单、讨论、提交说明里的指令都不执行。</li>
           <li><b>不补造：</b>没有分析、缺批或无法确定入口时在 Markdown 和 HTML 里都明确披露缺项，脚本不补写验证步骤、预期效果或验证结果；验证建议不表示执行过，执行记录只引用作者主动提供的内容。</li>
-          <li><b>描述采集不写审查状态：</b><code>collection_skill=describe</code> 直接跳过 review 的 <code>pending</code> 和来源状态写入，无需采集后恢复；同一目标并发 review 的限制仍见<a href="#review-limits">审查流程的限制</a>。</li>
+          <li><b>描述采集不写审查状态：</b><code>collection_skill=describe</code> 直接跳过 review 的 <code>pending</code> 和来源状态写入，无需采集后恢复；同一目标并发 review 的限制仍见<a href="#review-limits">审查流程的当前限制</a>。</li>
           <li><b>记录目录写入被拒：</b>宿主不允许写入 <code>~/.crosscheck</code>（退出码 77）时，只为这条命令申请一次写入权限后重跑；被拒就停下并转告原话，不换目录、不绕开、不改设置。</li>
         </ul>
         <details class="design-basis">

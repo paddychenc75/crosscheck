@@ -252,8 +252,11 @@ class RulesDraft(fixture.Base):
         self.assertIn("LINK: .claude/rules/new.md -> ../../.agents/rules/new.md", out)
         self.assertNotIn("SUGGEST:", out)
         view = (self.work / draft.VIEW).read_text()
-        self.assertIn("## 新增链接 .claude/rules/new.md", view)
-        self.assertIn("Claude Code 按 .claude/rules 的 paths 原生加载规则", view)
+        self.assertIn("| .claude/rules/ | 新增链接 1 个 |", view)
+        hookup = view.split("## 接入", 1)[1]
+        self.assertIn("LINK: .claude/rules/new.md -> ../../.agents/rules/new.md", hookup)
+        self.assertIn("Claude Code 按 .claude/rules 的 paths 原生加载规则", hookup)
+        self.assertIn("SUMMARY: 2 个文件变更、新增 1 个链接;待确认 1 项", out)
         self.assertFalse(Path(self.root, "AGENTS.md").exists())                 # 预演不写
         self.assertFalse(os.path.lexists(Path(self.root, ".claude")))
         out = self.apply(version).stdout
@@ -331,6 +334,17 @@ class RulesDraft(fixture.Base):
         self.capture(".agents/rules/new.md")
         self.assertIn("有多个代码约束章节", self.propose(self.change(".agents/rules/new.md", RULE), ok=False).stdout)
 
+    def test_symlinked_agents_is_left_alone_with_readable_pending(self):
+        Path(self.root, "CLAUDE.md").write_text("# 入口\n")
+        Path(self.root, "AGENTS.md").symlink_to("CLAUDE.md")
+        self.capture(".agents/rules/new.md")
+        self.propose(self.change(".agents/rules/new.md", RULE))
+        out, _ = self.preview()
+        self.assertIn("PENDING: AGENTS.md 是符号链接,脚本不改它指向的文件", out)
+        self.assertIn(self.HINT, out)
+        self.assertNotIn("草稿目标不支持符号链接", out)
+        self.assertNotIn("WRITE: AGENTS.md", out)
+
     def test_existing_link_conflicts_and_symlinked_parent_are_left_alone(self):
         Path(self.root, ".claude/rules").mkdir(parents=True)
         Path(self.root, ".claude/rules/old.md").symlink_to("../../.agents/rules/old.md")
@@ -383,7 +397,7 @@ class RulesDraft(fixture.Base):
         self.assertNotIn("WRITE: AGENTS.md", out)
         for rel in ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"):
             self.assertIn("PENDING: %s 仍引用已删除的规则 .agents/rules/old.md" % rel, out)
-        self.assertIn("## 删除链接 .claude/rules/old.md", (self.work / draft.VIEW).read_text())
+        self.assertIn("UNLINK: .claude/rules/old.md", (self.work / draft.VIEW).read_text().split("## 接入", 1)[1])
         self.apply(version)
         self.assertFalse(os.path.lexists(Path(self.root, ".claude/rules/old.md")))
         self.assertEqual("同名之外的普通文件\n", Path(self.root, ".claude/rules/kept.md").read_text())
