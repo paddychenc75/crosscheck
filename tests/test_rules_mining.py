@@ -434,17 +434,6 @@ class RulesMining(fixture.Base):
         for n in nos:
             self.edit_block(work, n, "动作", "写入")
 
-    def set_hookup(self, work, value):
-        """改 mined-candidates.md 头部字段「接入 AGENTS.md」。"""
-        text = self.md_text(work)
-        lines = text.split("\n")
-        i = next(i for i, x in enumerate(lines) if x.startswith("- **接入 AGENTS.md**:"))
-        lines[i] = "- **接入 AGENTS.md**:" + value
-        Path(work, "mined-candidates.md").write_text("\n".join(lines), encoding="utf-8")
-
-    def hookup_value(self, work):
-        return next(x for x in self.md_text(work).split("\n") if x.startswith("- **接入 AGENTS.md**:")).split(":", 1)[1]
-
     def repo_state(self):
         return (self.git(self.repo, "status", "--porcelain"), Path(self.repo, "REVIEW.md").read_text(encoding="utf-8"))
 
@@ -464,7 +453,7 @@ class RulesMining(fixture.Base):
         cands = {c["rule"]: c for c in self.load(os.path.join(work, "candidates.json"))}
         md = self.md_text(work)
         self.assertTrue(md.startswith("# 候选规则\n\n- 项目:shop\n- 扫描:最近 90 天,5 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)\n- 生成:"))
-        self.assertEqual(md.split("\n")[5], "- **接入 AGENTS.md**:待定")          # 有规则类候选:头部问要不要接入 AGENTS.md
+        self.assertNotIn("接入 AGENTS.md", md)                                    # 0.3.13 起接入由脚本自动生成,头部不再问
         blocks = {b["cand"]: b for b in self.parse_md(md)}
         self.assertEqual(len(blocks), 5)
         self.assertEqual({b["fields"]["动作"] for b in blocks.values()}, {"待定"})
@@ -602,9 +591,8 @@ class RulesMining(fixture.Base):
         for b in blocks:
             rule_candidates.parse_dest(b["fields"]["去向"])
         fields, errors = rule_candidates.head_fields(text)                             # 头部字段也是同一写法
-        self.assertEqual((errors, list(fields)), ([], list(rule_candidates.HEAD_FIELDS)))
-        self.assertIn(fields[rule_candidates.HOOKUP][0], rule_candidates.ACTIONS)
-        self.assertIn("「## %s」" % rule_candidates.AGENTS_SECTION, text)
+        self.assertEqual((errors, fields), ([], {}))
+        self.assertNotIn("接入 AGENTS.md", text)
 
     def test_candidates_rejects_unknown_candidate_and_new_blocks(self):
         work, no = self.prepare(rule())
@@ -723,7 +711,7 @@ class RulesMining(fixture.Base):
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md +", out)
         self.assertIn("尚未选入拟写内容", out)
-        self.assertNotIn("SUGGEST:", out)                                   # 仓库里没有 .claude/、.cursor/、AGENTS.md
+        self.assertNotIn("SUGGEST:", out)                                   # 不再打印软链接建议
         self.assertEqual(sorted(os.listdir(os.path.join(self.repo, ".agents/rules"))), ["api.md"])        # 跳过的、待定的都没写
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
         self.assertTrue(text.startswith('---\npaths: "src/api/**"\nglobs: "src/api/**"\n---\n# api\n'))   # Claude 读 paths,Cursor 读 globs
@@ -735,7 +723,7 @@ class RulesMining(fixture.Base):
         self.assertEqual(after, before)        # 历史材料不再承担完成状态
         self.assertEqual(after.count("已写入"), 0)
         self.assertEqual(self.git(self.repo, "diff", "--cached", "--name-only"), "")                       # 没有 git add
-        self.assertEqual(self.git(self.repo, "status", "--porcelain"), "?? .agents/")
+        self.assertEqual(self.git(self.repo, "status", "--porcelain"), "?? .agents/\n?? .claude/\n?? AGENTS.md")   # 规则、Claude 链接和 AGENTS.md 提示
         # 另起一轮维护:完整内容相同的规则不重复写
         out = self.write_rules(work, "--apply")
         self.assertNotIn("WRITE:", out)
@@ -952,43 +940,45 @@ class RulesMining(fixture.Base):
                 self.assertEqual(Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"), "# api\n\n" + text)
                 self.assertNotIn("已写入", self.md_text(work))
 
-    def test_apply_prints_hookup_suggestions_without_running_them(self):
-        self.write(self.repo, {".claude/settings.json": "{}\n", ".cursor/x": "\n", "AGENTS.md": "# Agents\n"})
+    HINT = "改代码前先查看 .agents/rules/ 下的规则文件:按文件头的 paths 判断是否适用于要改的文件,适用的读完并遵守。"
+
+    def test_apply_hooks_up_agents_hint_and_claude_link(self):
+        self.write(self.repo, {".cursor/x": "\n", "AGENTS.md": "# Agents\n"})
         work, no = self.prepare(rule())
         self.write_all(work, no.values())
-        self.assertNotIn("SUGGEST:", self.write_rules(work, "--check"))     # 预演不给建议
+        before = (self.md_text(work), self.repo_state())
+        r = self.run_write(work, "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("WRITE: AGENTS.md +4行\n", r.stdout)
+        self.assertIn("+## 代码约束\n+\n+" + self.HINT + "\n", r.stdout)
+        self.assertIn("LINK: .claude/rules/api.md -> ../../.agents/rules/api.md\n", r.stdout)
+        self.assertNotIn("SUGGEST:", r.stdout)
+        self.assertNotIn("PENDING:", r.stdout)
+        self.assertEqual((self.md_text(work), self.repo_state()), before)          # 预演不写
         out = self.write_rules(work, "--apply")
-        tips = [x for x in out.split("\n") if x.startswith("SUGGEST: ")]
-        self.assertEqual(tips, [                                              # AGENTS.md 不再给建议,由头部字段负责
-            "SUGGEST: mkdir -p .claude/rules && ln -s ../../.agents/rules/api.md .claude/rules/api.md",
-            "SUGGEST: mkdir -p .cursor/rules && ln -s ../../.agents/rules/api.md .cursor/rules/api.mdc  # Cursor 官方未写明软链接和多余字段的处理,请自行确认",
-        ])
-        self.assertIn("仅为建议,没有执行", out)
-        self.assertIn("请在仓库根目录按需运行", out)
-        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".claude/rules")))      # 没执行
-        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".cursor/rules")))
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")    # 接入字段是待定,不写
-        # 已经接上的不再提示:按建议建好软链接,再写一条同文件的规则
-        for link in (".claude/rules/api.md", ".cursor/rules/api.mdc"):
-            os.makedirs(os.path.dirname(os.path.join(self.repo, link)), exist_ok=True)
-            os.symlink("../../.agents/rules/api.md", os.path.join(self.repo, link))
+        self.assertNotIn("SUGGEST:", out)
+        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n\n## 代码约束\n\n" + self.HINT + "\n")
+        self.assertEqual(os.readlink(os.path.join(self.repo, ".claude/rules/api.md")), "../../.agents/rules/api.md")
+        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".cursor/rules")))   # 不再给 Cursor 建 .mdc
+        self.assertFalse(os.path.lexists(os.path.join(self.repo, "CLAUDE.md")))
+        agents = Path(self.repo, "AGENTS.md").read_text(encoding="utf-8")
+        # 同文件再沉淀一条规则:提示和链接都已在,不重复写
         work, no = self.prepare(rule(rule="在 src/api/** 里,必须给外部调用设置超时"))
         self.write_all(work, no.values())
         out = self.write_rules(work, "--apply")
         self.assertIn("WRITE: .agents/rules/api.md", out)
-        self.assertNotIn("SUGGEST:", out)
+        self.assertNotIn("WRITE: AGENTS.md", out)
+        self.assertNotIn("LINK:", out)
+        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), agents)
 
     def test_written_rules_reach_review_once_after_hookup(self):
-        # 整条链路:沉淀规则并接入 AGENTS.md → 按建议建软链接 → 沉淀例外和通用不要报 → 提交后 review 采集
-        self.write(self.repo, {".claude/settings.json": "{}\n", ".cursor/x": "\n",
-                               "REVIEW.md": "# Review 约定\n\n## 严重程度\n\n只有出错才算重要。\n"})
+        # 整条链路:沉淀规则(自动接入 AGENTS.md 提示和 .claude/rules 链接)→ 沉淀例外和通用不要报 → 提交后 review 采集
+        self.write(self.repo, {"REVIEW.md": "# Review 约定\n\n## 严重程度\n\n只有出错才算重要。\n"})
         work, no = self.prepare(rule())
         self.write_all(work, no.values())
-        self.set_hookup(work, "写入")
         out = self.write_rules(work, "--apply")
-        self.assertIn("WRITE: AGENTS.md +5行", out)
-        for tip in [x[len("SUGGEST: "):] for x in out.split("\n") if x.startswith("SUGGEST: ")]:
-            subprocess.run(["sh", "-c", tip], cwd=self.repo, check=True)
+        self.assertIn("WRITE: AGENTS.md +3行", out)
+        self.assertIn("LINK: .claude/rules/api.md", out)
         exception = self.sup(rule="测试夹具里的分页参数不用校验上限",
                              exception_of={"file": ".agents/rules/api.md", "title": "分页参数要有上限"})
         generic = self.sup()
@@ -1002,183 +992,50 @@ class RulesMining(fixture.Base):
         self.git(self.repo, "commit", "-qm", "rules")
         tracked = self.git(self.repo, "ls-files", "-s", ".claude/rules", ".cursor/rules").split("\n")
         self.assertEqual(sorted(x.split()[0] + " " + x.split("\t")[1] for x in tracked),
-                         ["120000 .claude/rules/api.md", "120000 .cursor/rules/api.mdc"])          # 两个软链接已提交
+                         ["120000 .claude/rules/api.md"])                                  # 只有 Claude 的软链接
         self.commit(self.repo, {"src/api/orders.ts": "changed\n"}, "change")
         rd = self.review_dir(self.run_script("collect-diff.sh", "HEAD~1..HEAD", cwd=self.repo).stdout)
         self.run_script("collect-rules.sh", rd)
         units = self.load(os.path.join(rd, "rules-index.json"))
         files = [u["file"] for u in units]
         self.assertIn(".agents/rules/api.md", files)
-        self.assertFalse([f for f in files if f.startswith((".claude/rules/", ".cursor/rules/"))], files)   # 软链接那两份不重复读
+        self.assertFalse([f for f in files if f.startswith(".claude/rules/")], files)   # 软链接那份不重复读
         api = next(u for u in units if u["file"] == ".agents/rules/api.md")
         self.assertIn("内部管理后台接口不限；测试夹具里的分页参数不用校验上限", api["text"])   # 例外随规则一起交给角色
         sub = next(u for u in units if u["file"] == "src/api/REVIEW.md")
         self.assertIn("mock 数据里的硬编码金额不用提", "\n".join(sub["suppress"]) if isinstance(sub["suppress"], list) else sub["suppress"])
         self.assertNotIn("mock 数据里的硬编码金额不用提", sub["text"])            # 不要报不当作要检查的规则
-        # AGENTS.md 里的链接不让同一条规则读两次、也不改变它的范围
         self.assertEqual(files.count(".agents/rules/api.md"), 1, files)
         self.assertEqual(api["scope"], "src/api/**")
         self.assertEqual(sum("分页参数要有上限" in u["text"] for u in units), 1)
-        agents = next(u for u in units if u["file"] == "AGENTS.md")
-        self.assertEqual(agents["text"].count("](.agents/rules/api.md)"), 1)
-        self.assertNotIn("- **规则**:", agents["text"])                         # 只有链接行,没有把规则正文并进来
+        agents = [u for u in units if u["file"] == "AGENTS.md"]
+        self.assertFalse([u for u in agents if "- **规则**:" in u["text"]])         # 只有一句提示,没有把规则正文并进来
         sys.path.insert(0, fixture.SCRIPTS)
         import project_rules
         mined = [r for r in project_rules.mining_sources(self.repo) if os.path.realpath(r["source_path"]) == os.path.realpath(os.path.join(self.repo, ".agents/rules/api.md"))]
         self.assertEqual([(r["file"], r["patterns"], r.get("referenced_by")) for r in mined], [(".agents/rules/api.md", ["src/api/**"], None)])
 
-    AGENTS_INTRO = "改动对应路径前先打开链接的规则文件读完并遵守。"
-
-    def test_agents_md_hookup_creates_file_and_is_idempotent(self):
+    def test_legacy_hookup_head_field_is_rejected(self):
         work, no = self.prepare(rule())
-        md = self.md_text(work)
-        head = md.split("\n## ")[0]
-        self.assertIn("\n- 生成:", head)
-        self.assertIn("\n- **接入 AGENTS.md**:待定\n", head)                     # 头部字段在头部,不进候选块
-        self.assertNotIn("接入 AGENTS.md", md.split("\n## ", 1)[1].split("\n>")[0])
+        self.assertNotIn("接入 AGENTS.md", self.md_text(work))                    # 0.3.13 起不再生成头部字段
         self.write_all(work, no.values())
-        self.set_hookup(work, "写入")
-        before = (self.md_text(work), self.repo_state())
-        r = self.run_write(work, "--check")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("WRITE: AGENTS.md +5行\n", r.stdout)
-        self.assertIn("+++ AGENTS.md\n", r.stdout)
-        self.assertIn("+## 代码约束\n+\n+" + self.AGENTS_INTRO + "\n+\n+- [api](.agents/rules/api.md):改 src/api/** 时先读这个文件并遵守\n", r.stdout)
-        self.assertNotIn("PENDING:", r.stdout)
-        self.assertEqual((self.md_text(work), self.repo_state()), before)          # 预演不写
-        self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
-        out = self.write_rules(work, "--apply")
-        self.assertEqual([x for x in out.split("\n") if x.startswith("WRITE:")][-1], "WRITE: AGENTS.md +5行")
-        agents = Path(self.repo, "AGENTS.md").read_text(encoding="utf-8")
-        self.assertEqual(agents, "## 代码约束\n\n" + self.AGENTS_INTRO + "\n\n- [api](.agents/rules/api.md):改 src/api/** 时先读这个文件并遵守\n")
-        self.assertEqual(self.hookup_value(work), "写入")
-        self.assertEqual(self.md_text(work), before[0])     # 不修改历史来源材料
-        self.assertNotIn("SUGGEST:", out)
-        # 新一轮维护识别相同内容,不重复写
-        out = self.write_rules(work, "--apply")
-        self.assertNotIn("WRITE:", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), agents)
-        # 再选同样的内容:规则与索引都不重复写
-        self.write_all(work, no.values())
-        self.set_hookup(work, "写入")
-        out = self.write_rules(work, "--apply")
-        self.assertNotIn("WRITE: AGENTS.md", out)
-        self.assertNotIn("WRITE:", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), agents)
-        self.assertEqual(self.hookup_value(work), "写入")
-
-    def test_agents_md_hookup_only_appends_to_its_section(self):
-        original = ("# Agents\n\n用 pnpm 跑测试。\n\n## 代码约束\n\n团队已有的说明。\n\n"
-                    "- [api](./.agents/rules/api.md):手写的接入行\n\n## 其他\n\n结尾 [文档](docs/a.md)\n")
-        self.write(self.repo, {"AGENTS.md": original})
-        r2 = rule(title="金额用分", rule="在订单接口里,返回的金额必须统一用分", paths=["src/api/orders.ts"], bad_example="", good_example="")
-        exc = self.sup(rule="测试夹具里的分页参数不用校验上限")
-        work, no = self.prepare(rule(), r2, exc)
-        n1, n2, n3 = no[rule()["rule"]], no[r2["rule"]], no[exc["rule"]]
-        self.write_all(work, [n1, n2])
-        self.set_hookup(work, "写入")
-        out = self.write_rules(work, "--apply")
-        self.assertIn("WRITE: .agents/rules/api.md", out)
-        self.assertIn("WRITE: .agents/rules/api-2.md", out)                     # 同主题范围不同,另起文件
-        self.assertIn("不能安全同步的手写或重复引用", out)  # ./ 写法也算同一个文件
-        self.assertIn("WRITE: AGENTS.md +1行", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), original.replace(
-            "\n## 其他", "\n- [api-2](.agents/rules/api-2.md):改 src/api/orders.ts 时先读这个文件并遵守\n## 其他"))
-        self.assertEqual(self.hookup_value(work), "写入")
-        # 不要报类并进已有规则:那个文件也算本次确认的规则文件,已有链接,不重复写
-        self.edit_block(work, n3, "去向", ".agents/rules/api.md#分页参数要有上限")
-        self.write_all(work, [n3])
-        self.set_hookup(work, "写入")
-        after = Path(self.repo, "AGENTS.md").read_text(encoding="utf-8")
-        out = self.write_rules(work, "--apply")
-        self.assertIn("不能安全同步的手写或重复引用", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), after)
-
-    def test_agents_md_hookup_section_created_at_end_of_existing_file(self):
-        self.write(self.repo, {"AGENTS.md": "# Agents\n\n用 pnpm 跑测试。\n\n\n"})
-        work, no = self.prepare(rule(paths=["**"], rule="在所有接口里,必须校验分页参数的上限"))
-        self.write_all(work, no.values())
-        self.set_hookup(work, "写入")
-        self.write_rules(work, "--apply")
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"),
-                         "# Agents\n\n用 pnpm 跑测试。\n\n\n\n## 代码约束\n\n" + self.AGENTS_INTRO
-                         + "\n\n- [api](.agents/rules/api.md):改 所有文件 时先读这个文件并遵守\n")
-
-    def test_agents_md_hookup_pending_or_skipped_writes_nothing(self):
-        self.write(self.repo, {"AGENTS.md": "# Agents\n"})
-        work, no = self.prepare(rule())
-        self.write_all(work, no.values())
-        out = self.write_rules(work, "--check")                                  # 块都标了写入,只剩这个字段待定
-        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定\n", out)
-        self.assertNotIn("WRITE: AGENTS.md", out)
-        out = self.write_rules(work, "--apply")
-        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")
-        self.assertEqual(self.hookup_value(work), "待定")
-        # 块待定、字段也待定:两样都算上
-        work, no = self.prepare(rule(rule="在 src/api/** 里,必须给外部调用设置超时"))
-        self.assertIn("PENDING: 接入 AGENTS.md 尚未决定\n", self.write_rules(work, "--check"))
-        # 跳过:不写,也不再提示
-        self.write_all(work, no.values())
-        self.set_hookup(work, "跳过")
-        out = self.write_rules(work, "--apply")
-        self.assertNotIn("PENDING:", out)
-        self.assertNotIn("WRITE: AGENTS.md", out)
-        self.assertEqual(Path(self.repo, "AGENTS.md").read_text(encoding="utf-8"), "# Agents\n")
-        self.assertEqual(self.hookup_value(work), "跳过")
-
-    def test_agents_md_hookup_invalid_value_or_block_error_writes_nothing(self):
-        work, no = self.prepare(rule(), self.sup())
-        n1, n2 = no[rule()["rule"]], no[self.sup()["rule"]]
-        self.write_all(work, [n1, n2])
-        for value, expect in (("也许", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过 之一,现在是「也许」"),
-                              ("", "ERROR: 头部 接入 AGENTS.md: 应为 待定、写入、跳过 之一,现在是「」")):
-            with self.subTest(value=value):
-                self.set_hookup(work, value)
-                for mode in ("--check", "--apply"):
-                    r = self.run_write(work, mode)
-                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-                    self.assertIn(expect, r.stdout)
-                    self.assertNotIn("WRITE:", r.stdout)
-                self.assertFalse(os.path.exists(os.path.join(self.repo, ".agents")))     # 整批不写
-                self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
-                self.assertFalse(os.path.exists(os.path.join(self.repo, "src/api/REVIEW.md")))
-                self.assertNotIn("已写入", self.md_text(work))
-        # 头部写了不认识的字段、或字段写了两遍
-        self.set_hookup(work, "写入")
-        Path(work, "mined-candidates.md").write_text(self.md_text(work).replace("- **接入 AGENTS.md**:写入", "- **接入 AGENTS.md**:写入\n- **接入 CLAUDE.md**:写入\n- **接入 AGENTS.md**:跳过"), encoding="utf-8")
-        r = self.run_write(work, "--check")
-        self.assertEqual(r.returncode, 2, r.stdout)
-        self.assertIn("ERROR: 头部 接入 CLAUDE.md: 未知的头部字段", r.stdout)
-        self.assertIn("ERROR: 头部 接入 AGENTS.md: 字段重复", r.stdout)
-        # 字段合法,但块有 ERROR:AGENTS.md 也不写
-        self.prepare_reset(work)
-        self.write_all(work, [n1])
-        self.set_hookup(work, "写入")
-        self.edit_block(work, n1, "严重级别", "很严重")
+        Path(work, "mined-candidates.md").write_text(self.md_text(work).replace("\n- 生成:", "\n- **接入 AGENTS.md**:写入\n- 生成:", 1), encoding="utf-8")
         for mode in ("--check", "--apply"):
             r = self.run_write(work, mode)
-            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("ERROR: 头部 接入 AGENTS.md: 0.3.13 起", r.stdout)
             self.assertNotIn("WRITE:", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".agents")))
         self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
-        self.assertEqual(self.hookup_value(work), "写入")
 
-    def test_candidates_without_rule_candidates_has_no_hookup_field(self):
+    def test_suppress_only_batch_adds_no_hint_or_link(self):
         work, no = self.prepare(self.sup())
-        self.assertNotIn("接入 AGENTS.md", self.md_text(work))
         self.write_all(work, no.values())
         out = self.write_rules(work, "--apply")
         self.assertNotIn("PENDING:", out)
+        self.assertNotIn("LINK:", out)
         self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
-
-    def test_agents_md_hookup_marked_but_no_rule_file_this_run(self):
-        work, no = self.prepare(rule(), self.sup())
-        self.write_all(work, [no[self.sup()["rule"]]])           # 只写去 REVIEW.md 的不要报
-        self.set_hookup(work, "写入")
-        out = self.write_rules(work, "--apply")
-        self.assertIn("PENDING: 接入 AGENTS.md 已选择,但还没有选入规则文件", out)
-        self.assertFalse(os.path.exists(os.path.join(self.repo, "AGENTS.md")))
-        self.assertEqual(self.hookup_value(work), "写入")                       # 没接上,不改成已写入
+        self.assertFalse(os.path.lexists(os.path.join(self.repo, ".claude")))
 
     def test_long_rule_file_warns(self):
         import hashlib

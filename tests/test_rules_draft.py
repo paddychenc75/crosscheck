@@ -25,7 +25,7 @@ class RulesDraft(fixture.Base):
         self.work = Path(self.tmp, "work")
         self.work.mkdir()
         (self.work / "meta.txt").write_text("repo_root=%s\nstorage_mode=temporary\n" % self.root)
-        self.request = dict(goal="维护项目规则", changes=[], pending=["是否同时接入索引"], notes=["范围仍限于 src/**"])
+        self.request = dict(goal="维护项目规则", changes=[], pending=["是否同时调整范围"], notes=["范围仍限于 src/**"])
 
     def cli(self, *args, ok=True):
         return self.run_py("rules-draft.py", str(self.work), *args, check=ok)
@@ -60,7 +60,7 @@ class RulesDraft(fixture.Base):
         self.propose(self.change(rel, RULE), self.change("REVIEW.md", original + "\n## 不要报\n\n- 离线导出不要求分页\n"))
         before = {p: p.read_bytes() for p in self.work.iterdir() if p.is_file()}
         out, version = self.preview()
-        self.assertIn("PENDING: 是否同时接入索引", out)
+        self.assertIn("PENDING: 是否同时调整范围", out)
         self.assertFalse(Path(self.root, rel).exists())
         self.assertEqual(original, Path(self.root, "REVIEW.md").read_text())
         self.assertEqual(before, {p: p.read_bytes() for p in before})
@@ -161,30 +161,6 @@ class RulesDraft(fixture.Base):
         self.assertNotIn("WRITE:", result.stdout)
         self.assertIn("用户原有内容", Path(self.root, "REVIEW.md").read_text())
 
-    def test_agents_index_is_generated_and_cannot_overwrite_body(self):
-        original = "# 用户说明\n\n## 测试\n\n运行用户自己的命令\n"
-        Path(self.root, "AGENTS.md").write_text(original)
-        self.capture("AGENTS.md", ".agents/rules/new.md")
-        rejected = self.propose(self.change("AGENTS.md", "全部替换\n"), ok=False)
-        self.assertIn("不接受正文提案", rejected.stdout)
-        self.propose(self.change(".agents/rules/new.md", RULE), agents_links=[".agents/rules/new.md"], agents_source=USER)
-        out, version = self.preview()
-        self.assertIn("WRITE: AGENTS.md", out)
-        self.apply(version)
-        text = Path(self.root, "AGENTS.md").read_text()
-        self.assertTrue(text.startswith(original))
-        self.assertIn("改 src/** 时先读这个文件并遵守", text)
-
-    def test_agents_tampered_machine_content_is_rejected(self):
-        self.capture("AGENTS.md", ".agents/rules/old.md")
-        self.propose(agents_links=[".agents/rules/old.md"], agents_source=USER)
-        data = json.loads((self.work / draft.STATE).read_text())
-        data["changes"][-1]["content"] = "任意正文\n"
-        (self.work / draft.STATE).write_text(json.dumps(data))
-        (self.work / draft.VIEW).write_text(draft.render(data))
-        self.assertIn("超出受限索引变化", self.apply(draft.digest(data), ok=False).stdout)
-        self.assertFalse(Path(self.root, "AGENTS.md").exists())
-
     def test_path_and_symlink_escapes(self):
         outside = Path(self.tmp, "outside")
         outside.mkdir()
@@ -244,44 +220,6 @@ class RulesDraft(fixture.Base):
         self.assertIn("来源材料已变化", self.apply(version, ok=False).stdout)
         self.assertIn("不因确认而变成历史共识", (self.work / draft.VIEW).read_text())
 
-    def test_agents_managed_scope_update_and_merge_removes_only_selected_link(self):
-        old_link = "- [old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守\n"
-        unrelated = "- [other](.agents/rules/other.md):改 other/** 时先读这个文件并遵守\n"
-        body = "# 用户说明\n\n## 代码约束\n\n手写说明必须保留\n" + old_link + unrelated + "\n## 测试\n\n用户命令\n"
-        Path(self.root, "AGENTS.md").write_text(body)
-        self.capture("AGENTS.md", ".agents/rules/old.md")
-        narrower = RULE.replace("src/**", "src/api/**")
-        self.propose(self.change(".agents/rules/old.md", narrower), agents_links=[".agents/rules/old.md"], agents_source=USER)
-        _, version = self.preview()
-        data = draft.load(str(self.work))
-        proposed = next(c["content"] for c in data["changes"] if c["path"] == "AGENTS.md")
-        self.assertEqual(body.replace("改 src/**", "改 src/api/**"), proposed)
-        self.apply(version)
-        # 第二轮把旧规则合并到新文件,明确同步两端索引。
-        self.work = Path(self.tmp, "merge-work")
-        self.work.mkdir()
-        (self.work / "meta.txt").write_text("repo_root=%s\n" % self.root)
-        self.capture("AGENTS.md", ".agents/rules/old.md", ".agents/rules/merged.md")
-        self.propose(self.change(".agents/rules/old.md", None), self.change(".agents/rules/merged.md", narrower),
-                     agents_links=[".agents/rules/old.md", ".agents/rules/merged.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        actual = Path(self.root, "AGENTS.md").read_text()
-        self.assertNotIn(".agents/rules/old.md", actual)
-        self.assertIn(".agents/rules/merged.md", actual)
-        self.assertIn(unrelated, actual)
-        self.assertIn("手写说明必须保留", actual)
-        self.assertIn("## 测试\n\n用户命令", actual)
-
-    def test_agents_unmanaged_reference_is_preserved_and_pending(self):
-        original = "# 说明\n\n## 代码约束\n\n- [自己的描述](.agents/rules/old.md) 后面还有手写要求\n"
-        Path(self.root, "AGENTS.md").write_text(original)
-        self.capture("AGENTS.md", ".agents/rules/old.md")
-        self.propose(self.change(".agents/rules/old.md", None), agents_links=[".agents/rules/old.md"], agents_source=USER)
-        out, version = self.preview()
-        self.assertIn("不能安全同步的手写或重复引用", out)
-        self.apply(version)
-        self.assertEqual(original, Path(self.root, "AGENTS.md").read_text())
-
     def test_success_receipt_distinguishes_applied_from_pending(self):
         self.capture("REVIEW.md")
         self.propose(self.change("REVIEW.md", "# 已维护\n"))
@@ -293,197 +231,233 @@ class RulesDraft(fixture.Base):
         Path(self.root, "REVIEW.md").write_text("后来用户又改了\n")
         self.assertIn("后来又变化", self.apply(version, ok=False).stdout)
 
-    def test_host_hookup_suggestions_are_only_printed_for_live_rules(self):
-        Path(self.root, ".claude").mkdir()
-        Path(self.root, ".cursor/rules").mkdir(parents=True)
-        Path(self.root, ".cursor/rules/old.mdc").symlink_to("../../.agents/rules/old.md")
-        self.capture(".agents/rules/old.md", ".agents/rules/new.md")
-        self.propose(self.change(".agents/rules/old.md", None), self.change(".agents/rules/new.md", RULE))
-        preview, version = self.preview()
-        self.assertNotIn("SUGGEST:", preview)
-        out = self.apply(version).stdout
-        self.assertIn("SUGGEST: mkdir -p .claude/rules", out)
-        self.assertIn(".cursor/rules/new.mdc", out)
-        self.assertNotIn("SUGGEST: mkdir -p .claude/rules && ln -s ../../.agents/rules/old.md", out)
-        self.assertFalse(Path(self.root, ".claude/rules").exists())
-        self.assertFalse(Path(self.root, ".cursor/rules/new.mdc").exists())
-
-    def test_host_hookup_preserves_nested_rule_paths(self):
-        Path(self.root, ".claude").mkdir()
-        self.capture(".agents/rules/a/foo.md", ".agents/rules/b/foo.md")
-        self.propose(self.change(".agents/rules/a/foo.md", RULE), self.change(".agents/rules/b/foo.md", RULE))
-        out = self.apply(self.preview()[1]).stdout
-        self.assertIn("mkdir -p .claude/rules/a && ln -s ../../../.agents/rules/a/foo.md .claude/rules/a/foo.md", out)
-        self.assertIn("mkdir -p .claude/rules/b && ln -s ../../../.agents/rules/b/foo.md .claude/rules/b/foo.md", out)
-        self.assertFalse(Path(self.root, ".claude/rules").exists())
-
-    def test_agents_frontmatter_comment_is_not_an_index_section(self):
-        original = "---\n## 代码约束\nname: example\n---\n# 用户说明\n\n## 测试\n\n命令\n"
-        Path(self.root, "AGENTS.md").write_text(original)
-        self.capture("AGENTS.md", ".agents/rules/old.md")
-        self.propose(agents_links=[".agents/rules/old.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        actual = Path(self.root, "AGENTS.md").read_text()
-        self.assertTrue(actual.startswith(original))
-        self.assertEqual(2, actual.count("## 代码约束"))
-
     def next_round(self, name):
         self.work = Path(self.tmp, name)
         self.work.mkdir()
         (self.work / "meta.txt").write_text("repo_root=%s\n" % self.root)
         self.request = dict(goal="维护原生指令入口", changes=[], pending=[], notes=[])
 
-    def test_joint_instruction_files_preserve_body_and_are_idempotent(self):
-        agents = "# AGENTS 用户正文\n\n## 测试\n\n用户自己的命令\n"
-        claude = "# Claude 用户正文\n\n## 代码约束\n\n手写说明必须保留\n\n## 测试\n\n用户命令\n"
-        Path(self.root, "AGENTS.md").write_text(agents)
-        Path(self.root, "CLAUDE.md").write_text(claude)
-        self.capture("AGENTS.md", "CLAUDE.md", ".agents/rules/old.md")
-        self.propose(instruction_files=["AGENTS.md", "CLAUDE.md"],
-                     agents_links=[".agents/rules/old.md"], agents_source=USER)
-        before = {p: Path(self.root, p).read_bytes() for p in ("AGENTS.md", "CLAUDE.md")}
+    HINT = draft.AGENTS_HINT
+
+    def link_at(self, rel):
+        path = Path(self.root, rel)
+        return os.readlink(path) if path.is_symlink() else None
+
+    def test_rule_write_adds_agents_hint_and_claude_link_after_confirmation(self):
+        self.capture(".agents/rules/new.md")
+        self.propose(self.change(".agents/rules/new.md", RULE))
         out, version = self.preview()
-        self.assertIn("WRITE: AGENTS.md", out)
-        self.assertIn("WRITE: CLAUDE.md", out)
-        self.assertEqual(before, {p: Path(self.root, p).read_bytes() for p in before})
-        self.apply(version)
-        actual = {p: Path(self.root, p).read_text() for p in before}
-        self.assertTrue(actual["AGENTS.md"].startswith(agents))
-        self.assertIn("手写说明必须保留", actual["CLAUDE.md"])
-        self.assertIn("## 测试\n\n用户命令", actual["CLAUDE.md"])
-        for text in actual.values():
-            self.assertIn("[old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守", text)
+        self.assertIn("WRITE: AGENTS.md +3行", out)
+        self.assertIn("+## 代码约束\n+\n+" + self.HINT + "\n", out)
+        self.assertIn("LINK: .claude/rules/new.md -> ../../.agents/rules/new.md", out)
+        self.assertNotIn("SUGGEST:", out)
+        view = (self.work / draft.VIEW).read_text()
+        self.assertIn("## 新增链接 .claude/rules/new.md", view)
+        self.assertIn("Claude Code 按 .claude/rules 的 paths 原生加载规则", view)
+        self.assertFalse(Path(self.root, "AGENTS.md").exists())                 # 预演不写
+        self.assertFalse(os.path.lexists(Path(self.root, ".claude")))
+        out = self.apply(version).stdout
+        self.assertIn("LINK: .claude/rules/new.md -> ../../.agents/rules/new.md", out)
+        self.assertNotIn("SUGGEST:", out)
+        self.assertEqual("## 代码约束\n\n" + self.HINT + "\n", Path(self.root, "AGENTS.md").read_text())
+        self.assertEqual("../../.agents/rules/new.md", self.link_at(".claude/rules/new.md"))
+        self.assertEqual(RULE, Path(self.root, ".claude/rules/new.md").read_text())   # 链接可读到规则
+        for rel in ("CLAUDE.md", ".claude/CLAUDE.md"):
+            self.assertFalse(os.path.lexists(Path(self.root, rel)))
         self.assertIn("APPLIED:", self.apply(version).stdout)
-        self.next_round("idempotent")
-        self.capture("AGENTS.md", "CLAUDE.md", ".agents/rules/old.md")
-        self.propose(instruction_files=["AGENTS.md", "CLAUDE.md"],
-                     agents_links=[".agents/rules/old.md"], agents_source=USER)
-        self.assertEqual([], draft.load(str(self.work))["changes"])
+        self.assertIn("APPLIED:", self.cli("--check").stdout)
+        # 链接后来被换掉:重复 apply 不能当成已应用
+        os.unlink(Path(self.root, ".claude/rules/new.md"))
+        os.symlink("../../.agents/rules/old.md", Path(self.root, ".claude/rules/new.md"))
+        self.assertIn("后来又变化", self.apply(version, ok=False).stdout)
+
+    def test_nested_rule_links_use_relative_targets(self):
+        self.capture(".agents/rules/a/foo.md", ".agents/rules/b/foo.md")
+        self.propose(self.change(".agents/rules/a/foo.md", RULE), self.change(".agents/rules/b/foo.md", RULE))
         self.apply(self.preview()[1])
-        self.assertEqual(actual, {p: Path(self.root, p).read_text() for p in actual})
+        for sub in ("a", "b"):
+            self.assertEqual("../../../.agents/rules/%s/foo.md" % sub, self.link_at(".claude/rules/%s/foo.md" % sub))
 
-    def test_joint_index_scope_merge_and_removal_sync_existing_references(self):
-        files = ["AGENTS.md", "CLAUDE.md"]
-        body = "# 手写正文\n\n## 代码约束\n\n- [old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守\n"
-        for rel in files:
-            Path(self.root, rel).write_text(body)
-        self.capture(*files, ".agents/rules/old.md")
-        narrowed = RULE.replace("src/**", "src/api/**")
-        # 只选择入口,也会同步本轮变更规则的既有引用。
-        self.propose(self.change(".agents/rules/old.md", narrowed), instruction_files=files, agents_source=USER)
-        self.apply(self.preview()[1])
-        for rel in files:
-            self.assertIn("改 src/api/**", Path(self.root, rel).read_text())
-        self.next_round("joint-merge")
-        self.capture(*files, ".agents/rules/old.md", ".agents/rules/merged.md")
-        self.propose(self.change(".agents/rules/old.md", None), self.change(".agents/rules/merged.md", narrowed),
-                     instruction_files=files, agents_links=[".agents/rules/merged.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        for rel in files:
-            actual = Path(self.root, rel).read_text()
-            self.assertNotIn(".agents/rules/old.md", actual)
-            self.assertIn(".agents/rules/merged.md", actual)
-            self.assertTrue(actual.startswith("# 手写正文\n"))
-        self.next_round("joint-delete")
-        self.capture(*files, ".agents/rules/merged.md")
-        self.propose(self.change(".agents/rules/merged.md", None), instruction_files=files, agents_source=USER)
-        self.apply(self.preview()[1])
-        for rel in files:
-            self.assertNotIn(".agents/rules/", Path(self.root, rel).read_text())
-
-    def test_existing_nested_claude_entry_has_relative_links_and_preserves_body(self):
-        Path(self.root, ".claude").mkdir()
-        original = "# 已有 Claude 入口\n\n手写命令\n"
-        Path(self.root, ".claude/CLAUDE.md").write_text(original)
-        self.capture("CLAUDE.md", ".claude/CLAUDE.md", ".agents/rules/old.md")
-        result = self.propose(instruction_files=["CLAUDE.md"], agents_links=[".agents/rules/old.md"],
-                              agents_source=USER, ok=False)
-        self.assertIn("显式选择现有入口", result.stdout)
-        self.propose(instruction_files=[".claude/CLAUDE.md"], agents_links=[".agents/rules/old.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        actual = Path(self.root, ".claude/CLAUDE.md").read_text()
-        self.assertTrue(actual.startswith(original))
-        self.assertIn("[old](../.agents/rules/old.md)", actual)
-        self.assertFalse(Path(self.root, "CLAUDE.md").exists())
-        self.next_round("nested-update")
-        self.capture(".claude/CLAUDE.md", ".agents/rules/old.md")
-        self.propose(self.change(".agents/rules/old.md", RULE.replace("src/**", "src/api/**")),
-                     instruction_files=[".claude/CLAUDE.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        self.assertIn("改 src/api/**", Path(self.root, ".claude/CLAUDE.md").read_text())
-
-    def test_existing_root_claude_respects_explicit_selection_when_both_exist(self):
-        Path(self.root, ".claude").mkdir()
-        Path(self.root, "CLAUDE.md").write_text("# 根入口\n")
-        nested = Path(self.root, ".claude/CLAUDE.md")
-        nested.write_text("# 既有嵌套入口\n")
-        self.capture("CLAUDE.md", ".agents/rules/old.md")
-        self.propose(instruction_files=["CLAUDE.md"], agents_links=[".agents/rules/old.md"], agents_source=USER)
-        self.apply(self.preview()[1])
-        self.assertIn(".agents/rules/old.md", Path(self.root, "CLAUDE.md").read_text())
-        self.assertEqual("# 既有嵌套入口\n", nested.read_text())
-
-    def test_claude_handwritten_or_duplicate_references_are_pending_and_untouched(self):
-        body = "# 用户正文\n\n## 代码约束\n\n- [自己的规则](.agents/rules/old.md) 手写要求\n"
-        Path(self.root, "CLAUDE.md").write_text(body)
-        self.capture("CLAUDE.md", ".agents/rules/old.md")
-        self.propose(self.change(".agents/rules/old.md", None), instruction_files=["CLAUDE.md"], agents_source=USER)
-        out, version = self.preview()
-        self.assertIn("CLAUDE.md 对 .agents/rules/old.md 有不能安全同步的手写或重复引用", out)
-        self.apply(version)
-        self.assertEqual(body, Path(self.root, "CLAUDE.md").read_text())
-
-    def test_instruction_selection_changes_digest_and_concurrent_entry_blocks_batch(self):
-        self.capture("AGENTS.md", "CLAUDE.md", ".agents/rules/new.md")
-        self.propose(self.change(".agents/rules/new.md", RULE), instruction_files=["AGENTS.md"],
-                     agents_links=[".agents/rules/new.md"], agents_source=USER)
-        old = self.preview()[1]
-        self.propose(self.change(".agents/rules/new.md", RULE), instruction_files=["AGENTS.md", "CLAUDE.md"],
-                     agents_links=[".agents/rules/new.md"], agents_source=USER)
-        self.assertIn("版本/内容已变化", self.apply(old, ok=False).stdout)
-        version = self.preview()[1]
-        Path(self.root, "CLAUDE.md").write_text("用户并发创建\n")
-        self.assertIn("目标在起草后变化", self.apply(version, ok=False).stdout)
-        self.assertFalse(Path(self.root, "AGENTS.md").exists())
-        self.assertFalse(Path(self.root, ".agents/rules/new.md").exists())
-
-    def test_new_nested_entry_after_preview_rejects_new_root_entry(self):
-        self.capture("CLAUDE.md", ".agents/rules/new.md")
-        self.propose(self.change(".agents/rules/new.md", RULE), instruction_files=["CLAUDE.md"],
-                     agents_links=[".agents/rules/new.md"], agents_source=USER)
-        version = self.preview()[1]
-        Path(self.root, ".claude").mkdir()
-        Path(self.root, ".claude/CLAUDE.md").write_text("并发出现的既有入口\n")
-        self.assertIn("显式选择现有入口", self.apply(version, ok=False).stdout)
-        self.assertFalse(Path(self.root, ".agents/rules/new.md").exists())
-        self.assertFalse(Path(self.root, "CLAUDE.md").exists())
-
-    def test_illegal_instruction_files_and_body_proposals_are_rejected(self):
-        self.capture("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md", ".agents/rules/old.md")
-        for value in ("CLAUDE.md", None, ["../CLAUDE.md"], ["src/CLAUDE.md"], [".git/CLAUDE.md"],
-                      [".claude/settings.json"], ["AGENTS.md", "AGENTS.md"], [123],
-                      ["CLAUDE.md", ".claude/CLAUDE.md"], [".claude/CLAUDE.md"], []):
-            with self.subTest(value=value):
-                result = self.propose(instruction_files=value, agents_links=[".agents/rules/old.md"], agents_source=USER, ok=False)
-                self.assertNotEqual(0, result.returncode, result.stdout)
-        for rel in ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"):
-            with self.subTest(rel=rel):
-                self.assertIn("不接受正文提案", self.propose(self.change(rel, "任意正文\n"),
-                                                            instruction_files=[], ok=False).stdout)
-        self.assertNotEqual(0, self.cli("--capture", "--path", "src/CLAUDE.md", ok=False).returncode)
-
-    def test_claude_requires_captured_baseline_and_rejects_tampered_machine_body(self):
+    def test_agents_hint_goes_into_section_and_is_idempotent(self):
+        body = "# 用户说明\n\n## 代码约束\n\n手写说明必须保留\n\n## 测试\n\n用户命令\n"
+        Path(self.root, "AGENTS.md").write_text(body)
         self.capture(".agents/rules/old.md")
-        result = self.propose(instruction_files=["CLAUDE.md"], agents_links=[".agents/rules/old.md"], agents_source=USER, ok=False)
-        self.assertIn("--capture --path CLAUDE.md", result.stdout)
-        self.capture("CLAUDE.md")
-        self.propose(instruction_files=["CLAUDE.md"], agents_links=[".agents/rules/old.md"], agents_source=USER)
+        self.propose(self.change(".agents/rules/old.md", RULE + "\n补充\n"))
+        self.apply(self.preview()[1])
+        expected = body.replace("手写说明必须保留\n", "手写说明必须保留\n\n" + self.HINT + "\n")
+        self.assertEqual(expected, Path(self.root, "AGENTS.md").read_text())
+        self.assertEqual("../../.agents/rules/old.md", self.link_at(".claude/rules/old.md"))
+        self.next_round("idempotent")
+        self.capture(".agents/rules/old.md")
+        self.propose(self.change(".agents/rules/old.md", RULE + "\n再补充\n"))
+        self.assertEqual([".agents/rules/old.md"], [c["path"] for c in draft.load(str(self.work))["changes"]])
+        self.apply(self.preview()[1])
+        self.assertEqual(expected, Path(self.root, "AGENTS.md").read_text())
+
+    def test_review_only_change_adds_no_hint_or_link(self):
+        self.capture("REVIEW.md")
+        self.propose(self.change("REVIEW.md", "# 审查\n"))
+        self.assertEqual(["REVIEW.md"], [c["path"] for c in draft.load(str(self.work))["changes"]])
+
+    def test_legacy_index_migrates_to_hint_and_keeps_handwritten_lines(self):
+        body = ("# 用户说明\n\n## 代码约束\n\n改动对应路径前先打开链接的规则文件读完并遵守。\n\n"
+                "- [old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守\n"
+                "- [other](.agents/rules/other.md):改 other/** 时先读这个文件并遵守\n"
+                "- [自己的描述](.agents/rules/old.md) 手写要求\n\n## 测试\n\n用户命令\n")
+        Path(self.root, "AGENTS.md").write_text(body)
+        self.capture(".agents/rules/old.md")
+        self.propose(self.change(".agents/rules/old.md", RULE + "\n补充\n"))
+        out, version = self.preview()
+        self.assertIn("-- [old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守", out)
+        self.apply(version)
+        self.assertEqual("# 用户说明\n\n## 代码约束\n\n" + self.HINT + "\n\n- [自己的描述](.agents/rules/old.md) 手写要求\n\n## 测试\n\n用户命令\n",
+                         Path(self.root, "AGENTS.md").read_text())
+        # 0.3.12 新建的 AGENTS.md:旧索引在文件末尾,迁移后不留多余空行
+        legacy = "## 代码约束\n\n改动对应路径前先打开链接的规则文件读完并遵守。\n\n- [old](.agents/rules/old.md):改 src/** 时先读这个文件并遵守\n"
+        self.assertEqual("## 代码约束\n\n" + self.HINT + "\n", draft.hint_content(legacy))
+        self.assertEqual(draft.hint_content(legacy), draft.hint_content(draft.hint_content(legacy)))   # 迁移后幂等
+
+    def test_agents_hint_respects_crlf_frontmatter_and_fence(self):
+        original = "---\n## 代码约束\nname: example\n---\r\n# 说明\r\n\r\n```\r\n" + self.HINT + "\r\n```\r\n"
+        Path(self.root, "AGENTS.md").write_bytes(original.encode())
+        self.capture(".agents/rules/new.md")
+        self.propose(self.change(".agents/rules/new.md", RULE))
+        self.apply(self.preview()[1])
+        actual = Path(self.root, "AGENTS.md").read_bytes().decode()
+        self.assertEqual(original + "\r\n## 代码约束\r\n\r\n" + self.HINT + "\r\n", actual)   # 头部和代码块里的都不算
+
+    def test_multiple_code_sections_refuse(self):
+        Path(self.root, "AGENTS.md").write_text("## 代码约束\n\n甲\n\n## 代码约束\n\n乙\n")
+        self.capture(".agents/rules/new.md")
+        self.assertIn("有多个代码约束章节", self.propose(self.change(".agents/rules/new.md", RULE), ok=False).stdout)
+
+    def test_existing_link_conflicts_and_symlinked_parent_are_left_alone(self):
+        Path(self.root, ".claude/rules").mkdir(parents=True)
+        Path(self.root, ".claude/rules/old.md").symlink_to("../../.agents/rules/old.md")
+        Path(self.root, ".claude/rules/conflict.md").write_text("用户自己的规则\n")
+        self.capture(".agents/rules/old.md", ".agents/rules/conflict.md")
+        self.propose(self.change(".agents/rules/old.md", RULE + "\n补充\n"), self.change(".agents/rules/conflict.md", RULE))
+        out, version = self.preview()
+        self.assertNotIn("LINK:", out)
+        self.assertIn("PENDING: .claude/rules/conflict.md 已存在且不是指向 .agents/rules/conflict.md 的链接", out)
+        self.apply(version)
+        self.assertEqual("用户自己的规则\n", Path(self.root, ".claude/rules/conflict.md").read_text())
+        # 共享规则目录:上级是符号链接时不替用户改
+        shared = Path(self.tmp, "shared")
+        shared.mkdir()
+        self.next_round("shared-round")
+        os.unlink(Path(self.root, ".claude/rules/old.md"))
+        os.unlink(Path(self.root, ".claude/rules/conflict.md"))
+        Path(self.root, ".claude/rules").rmdir()
+        Path(self.root, ".claude/rules").symlink_to(shared, target_is_directory=True)
+        self.capture(".agents/rules/new.md")
+        self.propose(self.change(".agents/rules/new.md", RULE))
+        out, version = self.preview()
+        self.assertNotIn("LINK:", out)
+        self.assertIn("PENDING: .claude/rules/new.md 的上级 .claude/rules 是符号链接", out)
+        self.apply(version)
+        self.assertEqual([], os.listdir(shared))
+
+    def test_rule_targets_get_links_for_existing_rules(self):
+        self.capture(".agents/rules/old.md", "REVIEW.md")
+        self.propose(self.change("REVIEW.md", "# 审查\n"), rule_targets=[".agents/rules/old.md"])
+        out, version = self.preview()
+        self.assertIn("LINK: .claude/rules/old.md", out)
+        self.assertNotIn("AGENTS.md", out)                                       # 只确认已有规则,不改 AGENTS.md
+        self.apply(version)
+        self.assertEqual("../../.agents/rules/old.md", self.link_at(".claude/rules/old.md"))
+
+    def test_delete_rule_unlinks_and_lists_stale_references(self):
+        Path(self.root, ".claude/rules").mkdir(parents=True)
+        Path(self.root, ".claude/rules/old.md").symlink_to("../../.agents/rules/old.md")
+        Path(self.root, ".claude/rules/kept.md").write_text("同名之外的普通文件\n")
+        agents = "# 说明\n\n- [旧规则](.agents/rules/old.md) 手写要求\n"
+        claude = "# Claude\n\n@.agents/rules/old.md\n"
+        nested = "# 嵌套\n\n[旧](../.agents/rules/old.md)\n"
+        for rel, text in (("AGENTS.md", agents), ("CLAUDE.md", claude), (".claude/CLAUDE.md", nested)):
+            Path(self.root, rel).write_text(text)
+        self.capture(".agents/rules/old.md")
+        self.propose(self.change(".agents/rules/old.md", None))
+        out, version = self.preview()
+        self.assertIn("UNLINK: .claude/rules/old.md", out)
+        self.assertNotIn("WRITE: AGENTS.md", out)
+        for rel in ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"):
+            self.assertIn("PENDING: %s 仍引用已删除的规则 .agents/rules/old.md" % rel, out)
+        self.assertIn("## 删除链接 .claude/rules/old.md", (self.work / draft.VIEW).read_text())
+        self.apply(version)
+        self.assertFalse(os.path.lexists(Path(self.root, ".claude/rules/old.md")))
+        self.assertEqual("同名之外的普通文件\n", Path(self.root, ".claude/rules/kept.md").read_text())
+        for rel, text in (("AGENTS.md", agents), ("CLAUDE.md", claude), (".claude/CLAUDE.md", nested)):
+            self.assertEqual(text, Path(self.root, rel).read_text())
+        self.assertIn("APPLIED:", self.apply(version).stdout)
+
+    def test_delete_rule_with_foreign_link_is_pending(self):
+        Path(self.root, ".claude/rules").mkdir(parents=True)
+        Path(self.root, ".claude/rules/old.md").symlink_to("../../docs/old.md")
+        self.capture(".agents/rules/old.md")
+        self.propose(self.change(".agents/rules/old.md", None))
+        out, version = self.preview()
+        self.assertNotIn("UNLINK:", out)
+        self.assertIn("PENDING: .claude/rules/old.md 仍存在且不是指向已删除规则", out)
+        self.apply(version)
+        self.assertEqual("../../docs/old.md", self.link_at(".claude/rules/old.md"))
+
+    def tamper(self, edit):
+        self.propose(self.change(".agents/rules/new.md", RULE))   # 每次从干净提案开始,篡改互不叠加
         data = draft.load(str(self.work))
-        data["changes"][-1]["content"] = "任意正文\n"
+        edit(data)
         with patch.dict(os.environ, self.env):
             draft.save(str(self.work), data)
-        self.assertIn("CLAUDE.md 超出受限索引变化", self.apply(draft.digest(data), ok=False).stdout)
+        return self.apply(draft.digest(data), ok=False).stdout
+
+    def test_tampered_link_hint_or_baseline_is_rejected(self):
+        self.capture(".agents/rules/new.md")
+        def find(data, op):
+            return next(c for c in data["changes"] if c["operation"] == op)
+        self.assertIn("链接只能指向对应的", self.tamper(lambda d: find(d, "link").update(link="../../../outside.md")))
+        self.assertIn("超出受限提示变化", self.tamper(lambda d: find(d, "hint").update(content="任意正文\n")))
+        self.assertIn("链接变更只写 link 字段", self.tamper(lambda d: find(d, "link").update(content="正文\n")))
+        def add_claude(d):
+            d["base"]["CLAUDE.md"] = dict(content=None, sha256=None)
+            d["changes"].append(dict(path="CLAUDE.md", operation="hint", content=self.HINT + "\n", reason="x", source=USER))
+        self.assertNotEqual("", self.tamper(add_claude))
+        self.assertFalse(os.path.lexists(Path(self.root, ".claude")))
+        self.assertFalse(Path(self.root, "AGENTS.md").exists())
         self.assertFalse(Path(self.root, "CLAUDE.md").exists())
+        self.assertFalse(Path(self.root, ".agents/rules/new.md").exists())
+
+    def test_link_location_change_after_preview_blocks_batch(self):
+        self.capture(".agents/rules/new.md")
+        self.propose(self.change(".agents/rules/new.md", RULE))
+        _, version = self.preview()
+        Path(self.root, ".claude/rules").mkdir(parents=True)
+        Path(self.root, ".claude/rules/new.md").write_text("用户并发创建\n")
+        self.assertIn("目标在起草后变化", self.apply(version, ok=False).stdout)
+        self.assertEqual("用户并发创建\n", Path(self.root, ".claude/rules/new.md").read_text())
+        self.assertFalse(Path(self.root, ".agents/rules/new.md").exists())
+        self.assertFalse(Path(self.root, "AGENTS.md").exists())
+
+    def test_retired_fields_and_instruction_bodies_are_rejected(self):
+        self.capture(".agents/rules/old.md")
+        for key, value in (("agents_links", [".agents/rules/old.md"]), ("instruction_files", ["AGENTS.md"]), ("agents_source", USER)):
+            with self.subTest(key=key):
+                result = self.propose(ok=False, **{key: value})
+                self.assertIn("0.3.13 起", result.stdout)
+                self.assertIn(key, result.stdout)
+                self.request.pop(key)
+        for rel in ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md", ".claude/rules/old.md"):
+            with self.subTest(rel=rel):
+                self.assertIn("不接受正文提案", self.propose(self.change(rel, "任意正文\n"), ok=False).stdout)
+        for rel in ("CLAUDE.md", ".claude/rules/old.md", "src/CLAUDE.md"):
+            with self.subTest(rel=rel):
+                self.assertNotEqual(0, self.cli("--capture", "--path", rel, ok=False).returncode)
+
+    def test_old_draft_format_is_rejected(self):
+        self.capture("REVIEW.md")
+        data = json.loads((self.work / draft.STATE).read_text())
+        data["version"] = 1
+        (self.work / draft.STATE).write_text(json.dumps(data))
+        self.assertIn("草稿格式不受支持", self.cli("--check", ok=False).stdout)
 
     def test_history_material_bindings_are_explicit_and_changes_reject_apply(self):
         for name in ("dropped.json", "snapshot.json", "rules-sources.json"):

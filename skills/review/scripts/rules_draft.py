@@ -2,6 +2,8 @@
 
 只用标准库。rules-draft.md 是机器清单的人读视图,由 propose/历史编译生成;
 确认发生在对话中,expected_digest 仅防止写入未经预览的新版本。
+写代码一侧的接入由脚本按规则变更生成:AGENTS.md 一句固定提示(Codex、Cursor 读),
+.claude/rules/<相对路径>.md 指向规则文件的符号链接(Claude Code 按 paths 原生加载);同样进 diff 和确认指纹。
 """
 import argparse
 import copy
@@ -10,7 +12,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import stat
 import subprocess
 import tempfile
@@ -21,22 +22,21 @@ import project_rules
 
 STATE = "rules-draft.json"
 VIEW = "rules-draft.md"
-VERSION = 1
-INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md")
-
-
-def instruction_files_valid(repo, files):
-    require(isinstance(files, list) and all(isinstance(p, str) and p in INSTRUCTION_FILES for p in files),
-            "instruction_files 只允许 AGENTS.md、CLAUDE.md 或既有 .claude/CLAUDE.md 的明确列表")
-    require(len(files) == len(set(files)), "instruction_files 不能重复")
-    require(not {"CLAUDE.md", ".claude/CLAUDE.md"}.issubset(files), "只选择一个 Claude 指令入口")
-    if "CLAUDE.md" in files:
-        require(os.path.lexists(os.path.join(repo["root"], "CLAUDE.md")) or
-                not os.path.lexists(os.path.join(repo["root"], ".claude/CLAUDE.md")),
-                "已有 .claude/CLAUDE.md,请捕获并显式选择现有入口")
-    if ".claude/CLAUDE.md" in files:
-        require(os.path.isfile(target(repo, ".claude/CLAUDE.md", allow_agents=True)),
-                ".claude/CLAUDE.md 仅允许维护既有入口;新入口请选择根 CLAUDE.md")
+VERSION = 2   # 0.3.13 起 AGENTS.md 只写提示、Claude 走 .claude/rules 链接;旧草稿须重新起草
+RULES = ".agents/rules/"
+LINKS = ".claude/rules/"
+AGENTS = "AGENTS.md"
+# 只在删除规则时扫描其中的手写引用,不再是可写目标
+INSTRUCTION_FILES = (AGENTS, "CLAUDE.md", ".claude/CLAUDE.md")
+AGENTS_SECTION = "代码约束"
+AGENTS_HINT = "改代码前先查看 .agents/rules/ 下的规则文件:按文件头的 paths 判断是否适用于要改的文件,适用的读完并遵守。"
+# 0.3.12 及更早写进「## 代码约束」的引导句和逐条受管索引;迁移时换成 AGENTS_HINT
+LEGACY_INTROS = ("改动对应路径前先打开链接的规则文件读完并遵守。",
+                 "改动下面某一行写的路径之前,先打开那一行链接的规则文件读完并遵守(由 crosscheck 从 MR 评论沉淀,审查时也按它检查)。")
+LEGACY_INDEX = re.compile(r"- \[[^\]\r\n]+\]\(\.agents/rules/[^)\r\n]+\.md\):改 [^\r\n]* 时先读这个文件并遵守")
+HINT_SOURCE = dict(type="inferred", basis="规则写入 .agents/rules,读 AGENTS.md 的宿主需要知道去哪里找")
+LINK_SOURCE = dict(type="inferred", basis="Claude Code 按 .claude/rules 的 paths 原生加载规则")
+LINK_KINDS = ("missing", "symlink", "file", "other")
 
 
 def require(ok, message):
@@ -70,28 +70,51 @@ def identity(root):
     return dict(root=root, git_dir=git(root, "--absolute-git-dir"), common_dir=git(root, "--git-common-dir"))
 
 
-def target(repo, rel, allow_agents=False):
+def is_link(rel):
+    return isinstance(rel, str) and rel.startswith(LINKS)
+
+
+def target(repo, rel, allow_agents=False, link=False):
+    """普通目标及上级都不能是符号链接;link=True 只给 .claude/rules 链接用,仅最后一段允许是符号链接。"""
     require(isinstance(rel, str) and rel and "\\" not in rel and not any(c in rel for c in "\x00\r\n"), "目标路径不合法")
     parts = rel.split("/")
     require(not os.path.isabs(rel) and all(p not in ("", ".", "..") for p in parts), "目标必须是仓库内相对路径,不含 . 或 ..")
     require(not any(p.lower() == ".git" for p in parts), "目标不能指向 Git 元数据")
-    permitted = (rel.startswith(".agents/rules/") and rel.endswith(".md")) or parts[-1] == "REVIEW.md"
-    require(permitted or (allow_agents and rel in INSTRUCTION_FILES), "只维护 .agents/rules/**/*.md、REVIEW.md;AGENTS.md/CLAUDE.md 仅允许脚本接入规则索引")
+    if link:
+        require(is_link(rel) and rel.endswith(".md"), "链接只允许 .claude/rules/**/*.md: " + rel)
+    else:
+        permitted = not is_link(rel) and ((rel.startswith(RULES) and rel.endswith(".md")) or parts[-1] == "REVIEW.md")
+        require(permitted or (allow_agents and rel == AGENTS),
+                "只维护 .agents/rules/**/*.md、REVIEW.md;AGENTS.md 只允许脚本加规则提示,.claude/rules 只允许脚本建链接")
     path = os.path.join(repo["root"], rel)
     current = repo["root"]
     for i, part in enumerate(parts):
         current = os.path.join(current, part)
+        last = i == len(parts) - 1
+        if link and last:
+            break   # 链接本身的状态由 link_snapshot 记录
         require(not os.path.islink(current), "草稿目标不支持符号链接: " + rel)
         if os.path.lexists(current):
-            require(os.path.isdir(current) if i < len(parts) - 1 else os.path.isfile(current), "目标或上级不是普通文件/目录: " + rel)
-    real = os.path.realpath(path)
+            require(os.path.isfile(current) if last else os.path.isdir(current), "目标或上级不是普通文件/目录: " + rel)
+    # 链接的最后一段不跟随,只核对它所在目录
+    real = os.path.join(os.path.realpath(os.path.dirname(path)), parts[-1]) if link else os.path.realpath(path)
     require(os.path.commonpath([repo["root"], real]) == repo["root"], "目标逃出仓库: " + rel)
     for metadata in (repo["git_dir"], repo["common_dir"]):
         require(os.path.commonpath([metadata, real]) != metadata, "目标指向 Git 元数据: " + rel)
     return path
 
 
+def link_snapshot(repo, rel):
+    path = target(repo, rel, link=True)
+    if os.path.islink(path):
+        return dict(content=None, sha256=None, link=os.readlink(path), kind="symlink")
+    kind = "missing" if not os.path.lexists(path) else ("file" if os.path.isfile(path) else "other")
+    return dict(content=None, sha256=None, link=None, kind=kind)
+
+
 def snapshot(repo, rel):
+    if is_link(rel):
+        return link_snapshot(repo, rel)
     path = target(repo, rel, allow_agents=True)
     text = read(path) if os.path.exists(path) else None
     return dict(content=text, sha256=content_hash(text))
@@ -110,6 +133,8 @@ def fence(text, language=""):
 
 
 def file_diff(change, base):
+    if change.get("operation") in ("link", "unlink"):
+        return ""   # 链接没有正文,由 change_label 显示指向
     old, new = base["content"], change.get("content")
     rows = difflib.unified_diff((old or "").splitlines(True), (new or "").splitlines(True),
                                fromfile=change["path"] if old is not None else "/dev/null",
@@ -130,13 +155,19 @@ def render(data):
     for c in data["changes"]:
         source = c["source"]
         label = "用户要求" if source["type"] == "user" else "材料推断(不因确认而变成历史共识)"
-        op = "删除" if c["content"] is None else ("新增" if data["base"][c["path"]]["content"] is None else "修改")
+        if c.get("operation") in ("link", "unlink"):
+            op = "新增链接" if c["operation"] == "link" else "删除链接"
+        else:
+            op = "删除" if c["content"] is None else ("新增" if data["base"][c["path"]]["content"] is None else "修改")
         lines += ["", "## %s %s" % (op, c["path"]), "", "- 理由:" + c["reason"], "- 来源:" + label]
         if source["type"] == "user":
             lines += ["- 要求:" + source["request"]]
         else:
             lines += ["- 依据:" + source["basis"]]
-        lines += ["", fence(file_diff(c, data["base"][c["path"]]), "diff")]
+        if c.get("operation") in ("link", "unlink"):
+            lines += ["", fence(change_label(c, data["base"][c["path"]]))]
+        else:
+            lines += ["", fence(file_diff(c, data["base"][c["path"]]), "diff")]
     if not data["changes"]:
         lines += ["", "没有选定的文件变更。"]
     return "\n".join(lines) + "\n"
@@ -176,6 +207,7 @@ def capture(work, root, paths, refresh_bindings=False, expected=None):
     else:
         data = dict(version=VERSION, revision=0, repo=repo, base={}, goal="待整理", changes=[], pending=[], notes=[], bindings={})
     for rel in paths:
+        require(not is_link(rel), ".claude/rules 链接由脚本按规则变更自动生成,不用 --capture: " + str(rel))
         current = snapshot(repo, rel)
         if expected is not None and rel in expected:
             require(current["content"] == expected[rel], "构建时目标变化: " + rel)
@@ -192,76 +224,158 @@ def scope(rel, text):
     return rule["patterns"]
 
 
-def index_content(data, links, warnings=None, instruction_file="AGENTS.md"):
-    """只同步明确列出的规则索引;识别不了的手写引用保留并列待确认。"""
-    require(instruction_file in INSTRUCTION_FILES, "不支持的指令入口")
-    require(instruction_file in data["base"], "接入索引前须 --capture --path " + instruction_file)
-    original = data["base"][instruction_file]["content"] or ""
-    after = {c["path"]: c["content"] for c in data["changes"] if c["path"] not in INSTRUCTION_FILES}
+def hint_content(original):
+    """AGENTS.md 只保证有一句通用提示;0.3.12 的受管索引行和引导句换成这一句,手写内容原样保留。"""
     rows = original.splitlines(True)
-    fenced = crlib.fence_mask([x.rstrip("\r\n") for x in rows])
+    bare = [x.rstrip("\r\n") for x in rows]
+    fenced = crlib.fence_mask(bare)
     _, body = crlib.parse_frontmatter(original)
     body_start = len(original.split("\n")) - len(body.split("\n"))
-    heads = [i for i, row in enumerate(rows) if i >= body_start and not fenced[i] and row.startswith("## ")]
-    matches = [i for i in heads if rows[i][3:].strip().rstrip(":：") == "代码约束"]
-    require(len(matches) <= 1, instruction_file + " 有多个代码约束章节,请先明确接入位置")
-    start = matches[0] if matches else -1
-    end = next((i for i in heads if i > start), len(rows)) if matches else len(rows)
-    managed = re.compile(r"^- \[[^\]\r\n]+\]\(((?:\.\./)?\.agents/rules/[^)\r\n]+\.md)\):改 [^\r\n]* 时先读这个文件并遵守(?:\r?\n)?$")
-    directory = os.path.dirname(instruction_file)
-    def reference(path):
-        return os.path.normpath(os.path.join(directory, path)).replace(os.sep, "/")
+    live = {i for i in range(len(rows)) if i >= body_start and not fenced[i]}
+    present = any(bare[i].strip() == AGENTS_HINT for i in live)
+    heads = sorted(i for i in live if rows[i].startswith("## "))
+    matches = [i for i in heads if rows[i][3:].strip().rstrip(":：") == AGENTS_SECTION]
+    require(len(matches) <= 1 or present, AGENTS + " 有多个代码约束章节,请先明确提示位置")
     newline = "\r\n" if "\r\n" in original else "\n"
-    require(isinstance(links, list), "agents_links 应为数组")
-    existing_refs = {reference(x) for x in project_rules._local_references(original)}
-    # 已受管或手写的既有引用也随本轮规则变更复核,无需调用方重复列旧路径。
-    links = links + [rel for rel in after if rel.startswith(".agents/rules/") and rel in existing_refs]
-    items, replacements = [], {}
-    for rel in dict.fromkeys(links):
-        require(isinstance(rel, str) and rel.startswith(".agents/rules/") and rel.endswith(".md"), "指令索引只允许 .agents/rules 下的 Markdown")
-        require(rel in data["base"], "接入索引前须捕获规则文件基线: " + rel)
-        target(data["repo"], rel)
-        content = after.get(rel, data["base"][rel]["content"])
-        require(isinstance(content, str) or (rel in after and content is None), "不能接入不存在的规则: " + rel)
-        known, other = [], []
-        for i, row in enumerate(rows):
-            if fenced[i]:
+    if not matches:
+        if present:
+            return original
+        return (original + (newline if original and not original.endswith("\n") else "") + (newline if original else "")
+                + "## " + AGENTS_SECTION + newline * 2 + AGENTS_HINT + newline)
+    if len(matches) > 1:
+        return original   # 已有提示,不猜要迁移哪一节
+    start = matches[0]
+    end = next((i for i in heads if i > start), len(rows))
+    legacy = [i for i in range(start + 1, end) if i in live and
+              (LEGACY_INDEX.fullmatch(bare[i]) or bare[i].strip() in LEGACY_INTROS)]
+    if not legacy:
+        if present:
+            return original
+        last = max(i for i in range(start, end) if bare[i].strip())
+        head = rows[:last + 1]
+        if not head[-1].endswith("\n"):
+            head[-1] += newline
+        return "".join(head + [newline, AGENTS_HINT + newline] + rows[last + 1:])
+    replace = {} if present else {legacy[0]: AGENTS_HINT + rows[legacy[0]][len(bare[legacy[0]]):]}
+    drop = set(legacy) - set(replace)
+    out, dropped = [], False
+    for i, row in enumerate(rows):
+        if i in replace:
+            out.append(replace[i])
+            dropped = False
+        elif i in drop:
+            dropped = True
+        elif dropped and not row.strip() and out and not out[-1].strip():
+            continue   # 删掉旧索引后留下的连续空行只保留一个
+        else:
+            out.append(row)
+            dropped = dropped and not row.strip()
+    while dropped and len(out) > 1 and not out[-1].strip():
+        out.pop()   # 旧索引在文件末尾时,不留下原来没有的结尾空行
+    return "".join(out)
+
+
+def rule_link(rel):
+    """.agents/rules/<p>.md -> (.claude/rules/<p>.md, 相对链接目标)。"""
+    link = LINKS + rel[len(RULES):]
+    return link, os.path.relpath(rel, os.path.dirname(link)).replace(os.sep, "/")
+
+
+def linked_rule(link):
+    return RULES + link[len(LINKS):]
+
+
+def resolves_to(root, link, dest, rel):
+    """链接 link(仓库相对)的目标 dest 是否就是规则 rel;相对目标按字面解析,不要求规则已存在。"""
+    path = os.path.join(root, link)
+    if dest is None:
+        return False
+    if os.path.normpath(os.path.join(os.path.dirname(path), dest)) == os.path.join(root, rel):
+        return True
+    return os.path.realpath(path) == os.path.realpath(os.path.join(root, rel))
+
+
+def link_blocker(root, link):
+    """链接上级是符号链接(例如共享规则目录)或不是目录时返回原因;这种情况不替用户改。"""
+    current = root
+    for part in link.split("/")[:-1]:
+        current = os.path.join(current, part)
+        if os.path.islink(current):
+            return "上级 %s 是符号链接" % os.path.relpath(current, root)
+        if os.path.lexists(current) and not os.path.isdir(current):
+            return "上级 %s 不是目录" % os.path.relpath(current, root)
+    return None
+
+
+def stale_references(repo, deleted, after):
+    """指令文件里仍引用已删除规则的行只列待确认,不自动改这些文件。"""
+    root, warnings = repo["root"], []
+    for rel in INSTRUCTION_FILES:
+        if rel in after:
+            text = after[rel]
+        else:
+            path = os.path.join(root, rel)
+            parts = rel.split("/")
+            if any(os.path.islink(os.path.join(root, *parts[:i + 1])) for i in range(len(parts))) or not os.path.isfile(path):
                 continue
-            refs = {reference(x) for x in project_rules._local_references(row)}
-            if rel not in refs:
-                continue
-            match = managed.fullmatch(row)
-            if matches and start < i < end and match and reference(match.group(1)) == rel:
-                known.append(i)
-            else:
-                other.append(i)
-        if other or len(known) > 1:
-            if warnings is not None:
-                warnings.append("%s 对 %s 有不能安全同步的手写或重复引用;已保留,请确认其范围/删除后的链接" % (instruction_file, rel))
-        if len(known) > 1:
+            text = read(path)
+        refs = {os.path.normpath(os.path.join(os.path.dirname(rel), x)).replace(os.sep, "/")
+                for x in project_rules._local_references(text or "")}
+        for gone in deleted:
+            if gone in refs:
+                warnings.append("%s 仍引用已删除的规则 %s,请确认是否改掉这处引用" % (rel, gone))
+    return warnings
+
+
+def hookup(data):
+    """按本草稿的规则变更生成 AGENTS.md 提示和 .claude/rules 链接;不能安全处理的只列待确认。"""
+    repo, root, base = data["repo"], data["repo"]["root"], data["base"]
+    rules = {c["path"]: c["content"] for c in data["changes"] if c["path"].startswith(RULES)}
+    written = [p for p, text in rules.items() if text is not None]
+    deleted = [p for p, text in rules.items() if text is None]
+    live = written + [p for p in data.get("rule_targets", []) if p not in rules and base[p]["content"] is not None]
+    changes, pending, after = [], [], {}
+    if written:
+        try:
+            current = base[AGENTS] if AGENTS in base else snapshot(repo, AGENTS)
+        except ValueError as error:   # 例如 AGENTS.md 是指向其他入口的符号链接
+            current = None
+            pending.append("%s 不能由脚本维护(%s);如需让 Codex、Cursor 找到规则,请手动加一句:%s" % (AGENTS, error, AGENTS_HINT))
+        if current is not None:
+            content = hint_content(current["content"] or "")
+            if content != (current["content"] or ""):
+                base.setdefault(AGENTS, current)
+                after[AGENTS] = content
+                changes.append(dict(path=AGENTS, operation="hint", content=content,
+                                    reason="提示读 AGENTS.md 的宿主去 .agents/rules 按 paths 找适用规则", source=HINT_SOURCE))
+    for rel in dict.fromkeys(live):
+        link, dest = rule_link(rel)
+        path = os.path.join(root, link)
+        blocked = link_blocker(root, link)
+        if blocked:
+            pending.append("%s 的%s,没有建 Claude Code 规则链接;请确认是否需要另行接入 %s" % (link, blocked, rel))
+        elif os.path.islink(path) and resolves_to(root, link, os.readlink(path), rel):
             continue
-        if content is None:
-            for i in known:
-                replacements[i] = ""
+        elif os.path.lexists(path):
+            pending.append("%s 已存在且不是指向 %s 的链接,没有改动;请确认 Claude Code 是否需要加载这条规则" % (link, rel))
+        else:
+            base[link] = link_snapshot(repo, link)
+            changes.append(dict(path=link, operation="link", link=dest,
+                                reason="让 Claude Code 按 paths 加载 " + rel, source=LINK_SOURCE))
+    for rel in deleted:
+        link, _ = rule_link(rel)
+        path = os.path.join(root, link)
+        if not os.path.lexists(path):
             continue
-        patterns = scope(rel, content)
-        where = "所有文件" if patterns == ["**"] else ", ".join(patterns)
-        link = os.path.relpath(rel, directory or ".").replace(os.sep, "/")
-        line = "- [%s](%s):改 %s 时先读这个文件并遵守" % (Path(rel).stem, link, where)
-        if known:
-            i = known[0]
-            ending = "\r\n" if rows[i].endswith("\r\n") else ("\n" if rows[i].endswith("\n") else "")
-            replacements[i] = line + ending
-        elif not other:
-            items.append(line)
-    changed = [replacements.get(i, row) for i, row in enumerate(rows)]
-    if not items:
-        return "".join(changed)
-    body = newline.join(items) + newline
-    if matches:
-        prefix = "".join(changed[:end])
-        return prefix + (newline if prefix and not prefix.endswith("\n") else "") + body + "".join(changed[end:])
-    return original + (newline if original and not original.endswith("\n") else "") + (newline if original else "") + "## 代码约束" + newline * 2 + "改动对应路径前先打开链接的规则文件读完并遵守。" + newline * 2 + body
+        blocked = link_blocker(root, link)
+        if not blocked and os.path.islink(path) and resolves_to(root, link, os.readlink(path), rel):
+            base[link] = link_snapshot(repo, link)
+            changes.append(dict(path=link, operation="unlink", link=base[link]["link"],
+                                reason="规则 %s 已删除,去掉指向它的链接" % rel, source=LINK_SOURCE))
+        else:
+            pending.append("%s 仍存在且不是指向已删除规则 %s 的链接%s,没有改动;请确认" % (
+                link, rel, "(" + blocked + ")" if blocked else ""))
+    return changes, pending + stale_references(repo, deleted, after)
 
 
 def review_settings(rel, text):
@@ -318,45 +432,62 @@ def validate(work, data, view=False, materials=True):
     require(isinstance(data.get("base"), dict) and isinstance(data.get("changes"), list), "草稿缺少基线/变更清单")
     for name in ("pending", "notes"):
         require(isinstance(data.get(name), list) and all(isinstance(s, str) for s in data[name]), name + " 应为文字数组")
+    root = data["repo"]["root"]
     for rel, base in data["base"].items():
         require(isinstance(base, dict) and (base.get("content") is None or isinstance(base["content"], str)), "基线格式不合法: " + rel)
         require(base.get("sha256") == content_hash(base.get("content")), "基线指纹不一致: " + rel)
+        if is_link(rel):
+            require(base.get("kind") in LINK_KINDS and base.get("content") is None, "链接基线格式不合法: " + rel)
         require(snapshot(data["repo"], rel) == base, "目标在起草后变化: %s;保留现有修改,用新工作目录重新起草、预演并确认" % rel)
     paths = list(data["base"])
     require(not any(a != b and b.startswith(a + "/") for a in paths for b in paths), "草稿目标互相占用上级目录")
-    files = data.get("instruction_files", ["AGENTS.md"] if any(
-        isinstance(c, dict) and c.get("operation") == "index" for c in data["changes"]) else [])
-    instruction_files_valid(data["repo"], files)
-    for rel in files:
-        require(rel in data["base"], "接入索引前须 --capture --path " + rel)
+    require(isinstance(data.get("rule_targets", []), list), "rule_targets 应为规则路径数组")
+    for rel in data.get("rule_targets", []):
+        require(isinstance(rel, str) and rel.startswith(RULES) and rel in data["base"], "确认的规则目标没有捕获基线")
+        target(data["repo"], rel)
+    rules = {c.get("path"): c.get("content") for c in data["changes"]
+             if isinstance(c, dict) and c.get("operation") in ("write", "delete")}
     seen = set()
     for c in data["changes"]:
         require(isinstance(c, dict) and isinstance(c.get("path"), str), "文件变更格式不合法")
-        rel = c["path"]
+        rel, op = c["path"], c.get("operation")
         require(rel in data["base"], "目标未捕获真实基线: " + rel)
         require(rel not in seen, "重复变更目标: " + rel)
         seen.add(rel)
-        target(data["repo"], rel, allow_agents=c.get("operation") == "index")
         require(isinstance(c.get("reason"), str) and c["reason"].strip(), "文件变更缺少理由: " + rel)
         source_valid(c.get("source"))
+        base = data["base"][rel]
+        if op in ("link", "unlink"):
+            # 链接只能由脚本按规则变更生成;逐项按基线重算,篡改的指向或时机都拒绝。
+            target(data["repo"], rel, link=True)
+            require("content" not in c and isinstance(c.get("link"), str), "链接变更只写 link 字段: " + rel)
+            rule = linked_rule(rel)
+            if op == "link":
+                require(base["kind"] == "missing", "链接位置已有内容,不能覆盖: " + rel)
+                require(c["link"] == rule_link(rule)[1], "链接只能指向对应的 .agents/rules 规则: " + rel)
+                require(rules.get(rule, data["base"].get(rule, {}).get("content")) is not None, "链接的规则不存在: " + rule)
+            else:
+                require(rule in rules and rules[rule] is None, "只在删除对应规则时去掉链接: " + rel)
+                require(base["kind"] == "symlink" and c["link"] == base["link"] and resolves_to(root, rel, base["link"], rule),
+                        "只删除指向已删除规则的符号链接: " + rel)
+            continue
+        target(data["repo"], rel, allow_agents=op == "hint")
         require("content" in c and (c["content"] is None or isinstance(c["content"], str)), "拟写内容必须是文字,删除用 null: " + rel)
-        if rel in INSTRUCTION_FILES:
-            require(rel in files and c.get("operation") == "index" and isinstance(c.get("links"), list), rel + " 只允许接入选中入口的规则索引")
-            require(c["content"] == index_content(data, c["links"], instruction_file=rel), rel + " 超出受限索引变化")
-        else:
-            require(c.get("operation") == ("delete" if c["content"] is None else "write"), "删除必须显式 operation=delete: " + rel)
+        if rel == AGENTS:
+            require(op == "hint" and isinstance(c["content"], str), AGENTS + " 只允许脚本加 .agents/rules 提示")
+            require(any(text is not None for p, text in rules.items() if p.startswith(RULES)), AGENTS + " 提示只随规则写入生成")
+            require(c["content"] == hint_content(base["content"] or ""), AGENTS + " 超出受限提示变化")
+            continue
+        require(op == ("delete" if c["content"] is None else "write"), "删除必须显式 operation=delete: " + rel)
         if c["content"] is None:
-            require(data["base"][rel]["content"] is not None, "不能删除不存在的文件: " + rel)
+            require(base["content"] is not None, "不能删除不存在的文件: " + rel)
         elif c["content"]:
             require("\x00" not in c["content"] and not crlib.frontmatter_unclosed(c["content"]), "拟写内容含 NUL 或未闭合头部: " + rel)
-            if rel.startswith(".agents/rules/"):
+            if rel.startswith(RULES):
                 scope(rel, c["content"])
             elif os.path.basename(rel) == "REVIEW.md":
                 review_settings(rel, c["content"])
-    require(isinstance(data.get("rule_targets", []), list), "rule_targets 应为规则路径数组")
-    for rel in data.get("rule_targets", []):
-        require(isinstance(rel, str) and rel.startswith(".agents/rules/") and rel in data["base"], "确认的规则目标没有捕获基线")
-        target(data["repo"], rel)
+    require(all(rel in seen for rel in data["base"] if is_link(rel)), "链接基线只随脚本生成的链接变更出现")
     for name, expected in (data.get("bindings", {}) if materials else {}).items():
         require(name in ("candidates.json", "mined-candidates.md", "dropped.json", "snapshot.json", "rules-sources.json"), "不支持的材料绑定: " + name)
         require(content_hash(read(os.path.join(work, name))) == expected, "来源材料已变化: %s;重新编译草稿并预演确认" % name)
@@ -366,30 +497,43 @@ def validate(work, data, view=False, materials=True):
 
 def propose(work, request, bindings=None):
     data = load(work)
+    # 链接及其基线随每次提案重算;旧的先拿掉,别人后来建好的链接不挡新提案。
+    data["base"] = {rel: base for rel, base in data["base"].items() if not is_link(rel)}
+    data["changes"] = [c for c in data["changes"] if isinstance(c, dict) and c.get("operation") in ("write", "delete")]
     validate(work, data, materials=bindings is None)
     require(isinstance(request, dict) and isinstance(request.get("goal"), str) and request["goal"].strip(), "提案须写 goal")
     require(isinstance(request.get("changes"), list), "提案须写 changes 数组")
+    retired = [k for k in ("agents_links", "instruction_files", "agents_source") if k in request]
+    require(not retired, "提案不再接受 %s:0.3.13 起写代码一侧的接入改为 AGENTS.md 一句提示加 .claude/rules 链接,"
+                         "由脚本按规则变更自动生成" % "、".join(retired))
     changes = copy.deepcopy(request["changes"])
-    require(all(c.get("path") not in INSTRUCTION_FILES for c in changes if isinstance(c, dict)),
-            "AGENTS.md/CLAUDE.md 不接受正文提案,请使用 agents_links 和 instruction_files")
-    links = request.get("agents_links", [])
-    require(isinstance(links, list) and all(isinstance(p, str) for p in links), "agents_links 应为路径数组")
-    files = request.get("instruction_files", ["AGENTS.md"]) if links or "instruction_files" in request else []
-    instruction_files_valid(data["repo"], files)
-    require(not links or files, "接入规则链接必须明确选择至少一个指令入口")
-    data.update(goal=request["goal"], changes=changes, pending=request.get("pending", []), notes=request.get("notes", []),
+    for c in changes:
+        require(isinstance(c, dict), "文件变更格式不合法")
+        require(c.get("path") not in INSTRUCTION_FILES and not is_link(c.get("path")),
+                "AGENTS.md/CLAUDE.md 和 .claude/rules 不接受正文提案,提示和链接由脚本按规则变更生成")
+        require(c.get("operation") in ("write", "delete"), "提案的文件变更只用 operation=write 或 delete: " + str(c.get("path")))
+    data.update(goal=request["goal"], changes=changes, pending=list(request.get("pending", [])), notes=request.get("notes", []),
                 bindings=bindings if bindings is not None else data.get("bindings", {}), revision=data["revision"] + 1,
-                rule_targets=request.get("rule_targets", []), instruction_files=files)
-    for rel in files:
-        content = index_content(data, links, warnings=data["pending"], instruction_file=rel)
-        if content != (data["base"][rel]["content"] or ""):
-            source = request.get("agents_source")
-            source_valid(source)
-            data["changes"].append(dict(path=rel, operation="index", links=links, content=content,
-                                        reason="接入本次规则索引", source=source))
+                rule_targets=request.get("rule_targets", []))
+    require(isinstance(data["rule_targets"], list) and all(
+        isinstance(p, str) and p.startswith(RULES) and p in data["base"] for p in data["rule_targets"]), "确认的规则目标没有捕获基线")
+    for c in changes:
+        require(isinstance(c.get("path"), str) and c["path"] in data["base"], "目标未捕获真实基线: " + str(c.get("path")))
+    generated, pending = hookup(data)
+    data["changes"] += generated
+    data["pending"] += pending
     validate(work, data)
     save(work, data)
     return data
+
+
+def applied_state(change):
+    """change 应用后目标应有的快照:链接比对指向,普通文件比对内容。"""
+    if change.get("operation") == "link":
+        return dict(content=None, sha256=None, link=change["link"], kind="symlink")
+    if change.get("operation") == "unlink":
+        return dict(content=None, sha256=None, link=None, kind="missing")
+    return dict(content=change["content"], sha256=content_hash(change["content"]))
 
 
 def already_applied(work, data):
@@ -402,12 +546,16 @@ def already_applied(work, data):
     require(identity(data["repo"]["root"]) == data["repo"], "仓库身份已变化")
     for c in data["changes"]:
         now = snapshot(data["repo"], c["path"])
-        require(now["content"] == c["content"], "本草稿已应用,但文件后来又变化: %s;请另起草稿" % c["path"])
+        require(now == applied_state(c), "本草稿已应用,但文件后来又变化: %s;请另起草稿" % c["path"])
     print("APPLIED: 本草稿已应用,没有重复写入。")
     return True
 
 
 def change_label(change, base):
+    if change.get("operation") == "link":
+        return "LINK: %s -> %s" % (change["path"], change["link"])
+    if change.get("operation") == "unlink":
+        return "UNLINK: " + change["path"]
     if change["content"] is None:
         return "DELETE: " + change["path"]
     added = len(change["content"].splitlines()) - len((base["content"] or "").splitlines())
@@ -437,27 +585,17 @@ def check(work):
     return data
 
 
-def hookup_suggestions(data):
-    root = data["repo"]["root"]
-    after = {c["path"]: c["content"] for c in data["changes"]}
-    selected = set(data.get("rule_targets", [])) | {p for p in after if p.startswith(".agents/rules/")}
-    tips = []
-    for rel in sorted(selected):
-        if after.get(rel, data["base"][rel]["content"]) is None:
-            continue
-        for tool, extension in ((".claude", ".md"), (".cursor", ".mdc")):
-            nested = str(Path(rel[len(".agents/rules/"):]).with_suffix(extension))
-            link = "%s/rules/%s" % (tool, nested)
-            if os.path.isdir(os.path.join(root, tool)) and not os.path.lexists(os.path.join(root, link)):
-                ref = os.path.relpath(rel, os.path.dirname(link))
-                command = "mkdir -p %s && ln -s %s %s" % tuple(map(shlex.quote, (os.path.dirname(link), ref, link)))
-                if tool == ".cursor":
-                    command += "  # Cursor 官方未写明软链接和多余字段的处理,请自行确认"
-                tips.append(command)
-    if tips:
-        print("NOTE: 以下宿主规则接入命令仅为建议,没有执行;请在仓库根目录按需运行。")
-        for tip in tips:
-            print("SUGGEST: " + tip)
+def place_link(path, dest, verify):
+    """先在同目录建临时链接,核对基线后原子落位;不覆盖已有内容由 verify 保证。"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)  # 写记录目录的例外:已校验的工作区 .claude/rules 链接位置,上级不是符号链接
+    tmp = os.path.join(os.path.dirname(path), ".crosscheck-%s-%s" % (os.getpid(), os.path.basename(path)))
+    os.symlink(dest, tmp)
+    try:
+        verify()
+        os.replace(tmp, path)
+    finally:
+        if os.path.lexists(tmp):
+            os.unlink(tmp)
 
 
 def apply(work, expected):
@@ -470,15 +608,21 @@ def apply(work, expected):
     completed = []
     try:
         for c in data["changes"]:
-            rel = c["path"]
-            path = target(data["repo"], rel, allow_agents=True)
+            rel, op = c["path"], c.get("operation")
             def unchanged():
                 require(snapshot(data["repo"], rel) == data["base"][rel], "写入前目标变化: " + rel)
-            if c["content"] is None:
+            if op == "link":
+                place_link(target(data["repo"], rel, link=True), c["link"], unchanged)
+            elif op == "unlink":
+                path = target(data["repo"], rel, link=True)
+                unchanged()
+                os.unlink(path)   # 基线已确认是符号链接,只删链接本身
+            elif c["content"] is None:
+                path = target(data["repo"], rel, allow_agents=True)
                 unchanged()
                 os.unlink(path)
             else:
-                atomic(path, c["content"], verify=unchanged)
+                atomic(target(data["repo"], rel, allow_agents=True), c["content"], verify=unchanged)
             completed.append(rel)
             print(change_label(c, data["base"][rel]))
     except (OSError, ValueError) as error:
@@ -496,7 +640,6 @@ def apply(work, expected):
             print("NOTE: 工作区已全部写入,完成状态记录失败:%s;请核对实际文件,不要重复套用旧基线。" % error)
     print("NOTE: 只改了工作区,没有 git add 或提交。" if completed else "NOTE: 没有写任何文件。")
     notices(data)
-    hookup_suggestions(data)
     return data
 
 

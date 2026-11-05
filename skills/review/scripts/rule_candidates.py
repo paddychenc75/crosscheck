@@ -19,13 +19,10 @@ SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
 EXAMPLES = ("反例", "正例")
 ACTIONS = ("待定", "写入", "跳过")
 RULES_DIR = ".agents/rules"
-# 头部字段:写在头部(第一个 ## 块之前),不属于任何候选块。取值和块的「动作」一样,也用 ACTIONS
-HOOKUP = "接入 AGENTS.md"
-HEAD_FIELDS = (HOOKUP,)
-AGENTS_FILE = "AGENTS.md"
-AGENTS_SECTION = "代码约束"
-AGENTS_INTRO = ("改动下面某一行写的路径之前,先打开那一行链接的规则文件读完并遵守"
-                "(由 crosscheck 从 MR 评论沉淀,审查时也按它检查)。")
+# 头部字段:写在头部(第一个 ## 块之前),不属于任何候选块。0.3.13 起没有可写的头部字段:
+# AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,旧的「接入 AGENTS.md」报错提示删掉。
+HEAD_FIELDS = ()
+RETIRED_HEAD_FIELDS = {"接入 AGENTS.md": "0.3.13 起 AGENTS.md 提示和 .claude/rules 链接由脚本自动生成,删掉这一行"}
 
 # 证据区和来源注释只放几个典型 MR(挑法见 typical),其余只给个数:候选规则文件和规则文件会给别人看,
 # 证据要靠链接点回平台独立看懂。这是展示条数,不是数据上限:完整证据、判断依据仍在 candidates.json 里。
@@ -267,16 +264,9 @@ def render(cands, root, meta):
              "- 项目:" + project,
              "- 扫描:最近 %s 天,%s 个已合并 MR(这是扫描量;每条候选的支持数见各块「候选」行)" % (meta.get("days", "?"), meta.get("mrs", "?")),
              "- 生成:" + datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]
-    # 本批有规则类候选(去 .agents/rules)时才问要不要接入 AGENTS.md:Codex 只读 AGENTS.md,不读 .agents/rules
-    hookup = any(c.get("kind") == "rule" for c in cands)
-    if hookup:
-        lines.append("- **%s**:待定" % HOOKUP)
     lines += ["",
               "<!-- candidates-sha256: %s -->" % fingerprint(cands),
               "<!-- 逐条把「动作」改成「写入」或「跳过」,「待定」不会写。每块末尾 > 开头的引用块是证据,只给人看,改它不影响写入。"]
-    if hookup:
-        lines.append("「%s」也是待定 / 写入 / 跳过:标写入时,把本次写入的 .agents/rules 文件以链接行写进 %s 的「## %s」一节,"
-                     "让只读 %s 的工具(如 Codex)也知道改哪些路径前要先读哪个文件。" % (HOOKUP, AGENTS_FILE, AGENTS_SECTION, AGENTS_FILE))
     lines.append("改完用 rules-write.py <work_dir> --prepare 编译到 rules-draft.md;最终预演和确认写入只用 rules-draft.py。-->")
     for c in cands:
         lines += [""] + render_block(c, suggest_dest(c, root))
@@ -414,8 +404,10 @@ def head_fields(text):
         if not f:
             continue
         name, value = f.group(2).strip(), f.group(4).strip()
-        if name not in HEAD_FIELDS:
-            errors.append((None, name, "未知的头部字段(头部只能写:%s)" % "、".join(HEAD_FIELDS)))
+        if name in RETIRED_HEAD_FIELDS:
+            errors.append((None, name, RETIRED_HEAD_FIELDS[name]))
+        elif name not in HEAD_FIELDS:
+            errors.append((None, name, "未知的头部字段(%s)" % ("头部只能写:" + "、".join(HEAD_FIELDS) if HEAD_FIELDS else "头部没有可写字段")))
         elif name in fields:
             errors.append((None, name, "字段重复"))
         else:

@@ -3,10 +3,9 @@
 <!-- rules-draft.py 按真实基线和受限清单生成的人读视图示例,内容虚构。
 不得手改此文件伪造确认;agent 应修改 proposal.json 并重新 --propose/--check。
 完整历史材料另由内部机器文件绑定,这里仅展示理由、目标、diff 和待确认。
-原生入口由 proposal.json 的 instruction_files 明确选择,默认仍为 ["AGENTS.md"]。
-联合接入示例:instruction_files=["AGENTS.md","CLAUDE.md"],配合现有 agents_links/agents_source。
-入口和规则须先 --capture;只生成代码约束章节的受管提示及规则链接,不接受入口正文提案。
-已有 .claude/CLAUDE.md 且根 CLAUDE.md 不存在时,捕获并选择既有入口;不自动回退或新建第二个入口。
+写代码一侧的接入由脚本按规则变更自动生成,不接受提案:写入 .agents/rules 时 AGENTS.md 只加一句固定提示(给 Codex、Cursor),
+并为规则建 .claude/rules/<相对路径>.md 相对符号链接(Claude Code 按 paths 原生加载);删除规则时删掉指向它的链接。
+CLAUDE.md 不写;删除规则后入口文件里仍有的引用只列待确认。下例的 AGENTS.md 是把 0.3.12 的逐条索引迁移成这句提示。
 -->
 
 - 目标:把公共查询约束收窄到接口目录,同时清理 REVIEW.md 中的重复代码约束
@@ -20,8 +19,7 @@
 ## 待确认
 
 - 离线导出是否始终使用独立协议,尚未核实
-- 是否将本次规则同时接入 AGENTS.md 和选中的 CLAUDE.md 原生入口
-- CLAUDE.md 对旧规则存在不能安全同步的手写或重复引用;已保留,请确认其范围/删除后的链接
+- CLAUDE.md 仍引用已删除的规则 .agents/rules/query.md,请确认是否改掉这处引用
 
 ## 修改 .agents/rules/api.md
 
@@ -39,36 +37,51 @@
 
 ## 修改 AGENTS.md
 
-- 理由:接入本次规则索引
-- 来源:用户要求
-- 要求:在原生指令入口提示先读对应规则,保留用户正文
+- 理由:提示读 AGENTS.md 的宿主去 .agents/rules 按 paths 找适用规则
+- 来源:材料推断(不因确认而变成历史共识)
+- 依据:规则写入 .agents/rules,读 AGENTS.md 的宿主需要知道去哪里找
 
 ```diff
 --- AGENTS.md
 +++ AGENTS.md
-@@ -2,0 +3,5 @@
-+## 代码约束
-+
-+改动对应路径前先打开链接的规则文件读完并遵守。
-+
-+- [api](.agents/rules/api.md):改 src/api/** 时先读这个文件并遵守
+@@ -5,3 +5 @@
+-改动对应路径前先打开链接的规则文件读完并遵守。
+-
+-- [api](.agents/rules/api.md):改 src/** 时先读这个文件并遵守
++改代码前先查看 .agents/rules/ 下的规则文件:按文件头的 paths 判断是否适用于要改的文件,适用的读完并遵守。
 ```
 
-## 修改 CLAUDE.md
+## 新增链接 .claude/rules/api.md
 
-- 理由:接入本次规则索引
+- 理由:让 Claude Code 按 paths 加载 .agents/rules/api.md
+- 来源:材料推断(不因确认而变成历史共识)
+- 依据:Claude Code 按 .claude/rules 的 paths 原生加载规则
+
+```
+LINK: .claude/rules/api.md -> ../../.agents/rules/api.md
+```
+
+## 删除 .agents/rules/query.md
+
+- 理由:内容已并入 api.md,保留会让同一约束有两个范围
 - 来源:用户要求
-- 要求:在原生指令入口提示先读对应规则,保留用户正文
+- 要求:只约束公共查询,离线导出除外
 
 ```diff
---- CLAUDE.md
-+++ CLAUDE.md
-@@ -2,0 +3,5 @@
-+## 代码约束
-+
-+改动对应路径前先打开链接的规则文件读完并遵守。
-+
-+- [api](.agents/rules/api.md):改 src/api/** 时先读这个文件并遵守
+--- .agents/rules/query.md
++++ /dev/null
+@@ -1 +0,0 @@
+-- **规则**:所有查询必须校验分页上限
+```
+
+## 删除链接 .claude/rules/query.md
+
+- 理由:规则 .agents/rules/query.md 已删除,去掉指向它的链接
+- 来源:材料推断(不因确认而变成历史共识)
+- 依据:Claude Code 按 .claude/rules 的 paths 原生加载规则
+
+```
+UNLINK: .claude/rules/query.md
 ```
 
 ## 修改 REVIEW.md

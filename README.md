@@ -293,19 +293,19 @@ Cursor 的会话记录里没有用量,不统计 token,这是预期行为。
 
 ### Codex 写代码时不读 `.agents/rules`
 
-Codex 通过 `AGENTS.md` 获取项目指引,不会因为生成了 `.agents/rules/` 就自动读取其中内容。improve 可以把规则索引接入一并列入维护草稿;预演会显示 `AGENTS.md` 的改动,确认后在 `## 代码约束` 一节为规则文件加链接:
+Codex 通过 `AGENTS.md` 获取项目指引,不会因为生成了 `.agents/rules/` 就自动读取其中内容。improve 写入任意 `.agents/rules` 规则时,会在维护草稿里自动带上 `AGENTS.md` 的一句固定提示,放在 `## 代码约束` 一节(没有就在末尾新建,`AGENTS.md` 不存在就新建):
 
 ```markdown
-- [<主题>](.agents/rules/<主题>.md):改 <范围> 时先读这个文件并遵守
+改代码前先查看 .agents/rules/ 下的规则文件:按文件头的 paths 判断是否适用于要改的文件,适用的读完并遵守。
 ```
 
-已有指向同一文件的链接不重复写;`AGENTS.md` 不存在就新建。修改范围、删除或合并规则时,可一并同步“代码约束”中的受管索引;无法安全识别的手写引用保留并列为待确认,不改其他正文。预演里和其他文件一样显示 diff。这一行**只起指引作用**:Codex 是否真的打开链接的文件由模型决定,不是强制加载。审查时同一条规则不会因为被链接而读两遍,范围仍按规则文件自己的头部。
+只有这一句,不再逐条列规则;已有就不重复写。0.3.12 写入的逐条索引行和引导句会换成这一句,手写引用保留。预演里和其他文件一样显示 diff,确认后才写。这一句**只起指引作用**:Codex(以及读 `AGENTS.md` 的 Cursor)是否真的打开规则文件由模型决定,不是强制加载。审查时同一条规则不会因此读两遍,范围仍按规则文件自己的头部。
 
 ### Claude Code 和 Cursor 怎么接上 `.agents/rules`
 
-优先通过宿主的原生指令入口提示。`improve` 可把根 `AGENTS.md`、根 `CLAUDE.md` 或已有 `.claude/CLAUDE.md` 的接入 diff 一并放进草稿;在“代码约束”一节添加“改适用范围前先读取并遵守规则”的索引,保留其他正文。已有 `.claude/CLAUDE.md` 且没有根 `CLAUDE.md` 时复用已有入口。提示存在不保证模型实际打开规则,不通过 hook 注入正文,也不依赖 Claude 回退读取 AGENTS.md。
+Claude Code 靠 `.claude/rules/` 原生加载:improve 写入规则时,在草稿里为每个规则建 `.claude/rules/<相对路径>.md -> ../../.agents/rules/<相对路径>.md` 的相对符号链接(`.claude/` 不存在也创建),预演显示为 `LINK:`,你确认后与规则文件一起写入;删除规则时一并删掉指向它的链接(`UNLINK:`)。Claude Code 按规则头部的 `paths` 决定何时加载。已有同一指向的链接不变;位置上已有别的文件或链接,或 `.claude/rules` 本身是符号链接(例如共享规则目录)时不动,列为待确认。`CLAUDE.md` 不写任何东西;删除规则后 `AGENTS.md`、`CLAUDE.md` 里仍引用它的行只列待确认,不自动改。
 
-也保留软链接建议。`improve` 写入规则后会按仓库里有什么打印 `SUGGEST:` 建议:有 `.claude/` 时给建 `.claude/rules/<主题>.md` 软链接的命令,有 `.cursor/` 时给建 `.cursor/rules/<主题>.mdc` 软链接的命令;已经接上的不再提示。建议**只打印,不替你执行**。新建的规则文件头部 `paths` 和 `globs` 写同一串 glob(Claude 读 `paths`,Cursor 读 `globs`)。Cursor 官方没有写明软链接和多余字段怎么处理,请自行确认。详见 [DESIGN.html 的「各工具怎么接上」](DESIGN.html#tool-hookup)。
+Cursor 读 `AGENTS.md`,靠上面那句提示找到规则;不再建议 `.cursor/rules/*.mdc` 软链接。新建的规则文件头部 `paths` 和 `globs` 写同一串 glob。详见 [DESIGN.html 的「各工具怎么接上」](DESIGN.html#tool-hookup)。
 
 ### 报告为空,是不是没查?
 

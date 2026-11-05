@@ -421,11 +421,8 @@ def prepare(work, root=""):
     rules_draft.require(root and os.path.isdir(root), "找不到仓库目录,请用 --repo 指定")
     root = os.path.realpath(root)
     blocks, errors = rule_candidates.parse(md_text)
-    fields, field_errors = rule_candidates.head_fields(md_text)
+    _, field_errors = rule_candidates.head_fields(md_text)
     errors += field_errors
-    hook = fields.get(rule_candidates.HOOKUP, (None, None))[0]
-    if hook is not None and hook not in rule_candidates.ACTIONS:
-        errors.append((None, rule_candidates.HOOKUP, "应为 %s 之一,现在是「%s」" % ("、".join(rule_candidates.ACTIONS), hook)))
     todo, pending, unmet = [], [], []
     for b in blocks:
         action = b["fields"].get("动作", "")
@@ -454,13 +451,6 @@ def prepare(work, root=""):
     originals = {}
     skips, touched, before, changed, wrote, warns, rule_files = build(root, todo, originals)
     rels = [os.path.relpath(p, root) for p in touched]
-    links = [os.path.relpath(p, root) for p in rule_files] if hook == "写入" else []
-    if hook == "待定":
-        pending.append("接入 AGENTS.md 尚未决定")
-    if hook == "写入" and not rule_files:
-        pending.append("接入 AGENTS.md 已选择,但还没有选入规则文件")
-    if links:
-        rels.append("AGENTS.md")
     # 新材料只刷新来源绑定,已冻结的目标基线永不悄悄重置。
     rules_draft.capture(work, root, rels, refresh_bindings=True, expected=originals)
     refs = sorted({b["cand"] for b, _ in todo})
@@ -471,9 +461,9 @@ def prepare(work, root=""):
     bindings = {name: rules_draft.content_hash(rules_draft.read(os.path.join(work, name)))
                 for name in ("candidates.json", rule_candidates.FILE, "dropped.json", "snapshot.json", "rules-sources.json")
                 if os.path.isfile(os.path.join(work, name))}
-    request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes, agents_links=links,
+    # AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,这里不再传接入字段。
+    request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes,
                    rule_targets=[os.path.relpath(p, root) for p in rule_files],
-                   agents_source=dict(type="user", request="选择接入本次规则的 AGENTS.md 索引"),
                    pending=pending + unmet + history_pending, notes=skips + warns + history_notes)
     data = rules_draft.propose(work, request, bindings=bindings)
     print("RULES_DRAFT: " + os.path.join(work, rules_draft.VIEW))

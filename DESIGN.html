@@ -1693,17 +1693,16 @@ globs: "src/orders/**"
       <section id="tool-hookup">
         <span id="limits-rules"></span>
         <h3>宿主适配</h3>
-        <p>上面讲的是 crosscheck 审查时怎么读规则；这一节讲反方向：crosscheck 写进 <code>.agents/rules/</code> 的规则，写代码的工具怎么读到。各家只读自己的位置，都不会自动读 <code>.agents/rules/</code>（agents.md 只有提案），所以用各家自己读的位置接上同一份规则。接入都由你决定：Claude Code、Cursor 的软链接命令只打印不执行，Codex 的规则索引链接也进入维护草稿，预演后由你确认。各宿主自己的加载机制见附录的<a href="#context">上下文机制</a>。</p>
+        <p>上面讲的是 crosscheck 审查时怎么读规则；这一节讲反方向：crosscheck 写进 <code>.agents/rules/</code> 的规则，写代码的工具怎么读到。各家只读自己的位置，都不会自动读 <code>.agents/rules/</code>（agents.md 只有提案），所以用各家自己读的位置接上同一份规则。接入由写入脚本按本轮规则变更自动生成，和规则文件一起进入维护草稿，预演确认后才写：<code>AGENTS.md</code> 只加一句通用提示（给 Codex、Cursor），Claude Code 靠 <code>.claude/rules/</code> 下指向规则文件的符号链接。各宿主自己的加载机制见附录的<a href="#context">上下文机制</a>。</p>
         <div class="table-wrap"><table>
           <tr><th>工具</th><th>写代码时读哪里、按什么生效</th><th>improve 怎么接上 <code>.agents/rules</code></th><th>接入的限制</th></tr>
-          <tr><td class="nowrap">Claude Code</td><td><code>CLAUDE.md</code>、<code>.claude/rules/*.md</code>；按头部 <code>paths</code>，不读 <code>globs</code></td><td>写入后，仓库根目录有 <code>.claude/</code> 时打印建 <code>.claude/rules/&lt;主题&gt;.md</code> 软链接的命令</td><td>只打印不执行，要你自己运行；已经接上的不再提示</td></tr>
-          <tr><td class="nowrap">Cursor</td><td><code>.cursor/rules/*.mdc</code>；按头部 <code>globs</code>，不读 <code>paths</code></td><td>有 <code>.cursor/</code> 时打印建 <code>.cursor/rules/&lt;主题&gt;.mdc</code> 软链接的命令</td><td>官方未写明软链接和多余字段的处理，请自行确认；同样只打印不执行</td></tr>
-          <tr><td class="nowrap">Codex</td><td><code>AGENTS.md</code>、<code>AGENTS.override.md</code> 按目录加载；原生 <code>paths</code> / <code>globs</code> 规则未核实</td><td>维护草稿明确接入 AGENTS.md，并经本次预演确认后，写入脚本 在 <code>AGENTS.md</code> 的 <code>## 代码约束</code> 一节为本次写入或确认的每个规则文件保证有一行 <code>- [&lt;主题&gt;](.agents/rules/&lt;主题&gt;.md)：改 &lt;范围&gt; 时先读这个文件并遵守</code>（范围取文件头部的 <code>paths</code>）；只同步本次明确列出的受管索引，范围变化时更新，删除或合并旧规则时移除旧受管链接并接入保留规则。无法安全识别的手写或重复引用保留并列为待确认，不动其他正文</td><td>本插件写入的是“改这些路径前先读”的指引，不代表宿主按路径强制注入；实际读取由 agent 执行</td></tr>
-          <tr><td class="nowrap">原生提示入口</td><td>根 <code>AGENTS.md</code>、根 <code>CLAUDE.md</code> 或已有 <code>.claude/CLAUDE.md</code></td><td>提案显式选择入口，先捕获基线，再为本次规则同步“修改代码前先读取并遵守”的提示和受管索引；全部进入维护草稿，预演确认后写入</td><td>已有嵌套 Claude 入口且根入口不存在时复用已有入口；不增加规则正文注入 hook，不依赖 AGENTS.md 回退。入口提示不保证实际读取，需逐宿主验证。当前 hook 只做<a href="#limits-hooks">消耗统计</a></td></tr>
+          <tr><td class="nowrap">Claude Code</td><td><code>CLAUDE.md</code>、<code>.claude/rules/*.md</code>；按头部 <code>paths</code>，不读 <code>globs</code></td><td>为本次写入的规则（及确认已在的规则）在草稿里建 <code>.claude/rules/&lt;相对路径&gt;.md -&gt; ../../.agents/rules/&lt;相对路径&gt;.md</code> 相对符号链接，预演显示 <code>LINK:</code>；<code>.claude/</code> 不存在也创建。删除规则时删掉指向它的链接（<code>UNLINK:</code>）。<code>CLAUDE.md</code> 不写</td><td>已有同一指向的链接不变；位置已有别的文件或链接、或 <code>.claude</code> / <code>.claude/rules</code> 是符号链接（共享规则目录）时不动，列为待确认</td></tr>
+          <tr><td class="nowrap">Cursor</td><td><code>.cursor/rules/*.mdc</code>（按 <code>globs</code>）；也合并读 <code>AGENTS.md</code></td><td>靠 <code>AGENTS.md</code> 里的同一句提示找到规则；不建 <code>.cursor/rules/*.mdc</code> 链接</td><td>提示只起指引作用，是否打开规则文件由 agent 决定</td></tr>
+          <tr><td class="nowrap">Codex</td><td><code>AGENTS.md</code>、<code>AGENTS.override.md</code> 按目录加载；原生 <code>paths</code> / <code>globs</code> 规则未核实</td><td>写入任意 <code>.agents/rules</code> 规则时，在 <code>AGENTS.md</code> 唯一的 <code>## 代码约束</code> 一节保证有一句固定提示：<code>改代码前先查看 .agents/rules/ 下的规则文件:按文件头的 paths 判断是否适用于要改的文件,适用的读完并遵守。</code>；没有这一节就在末尾新建，<code>AGENTS.md</code> 不存在就新建。已有就不重复写；0.3.12 写入的逐条受管索引行和引导句换成这一句，手写引用保留。删除规则后入口文件里仍有的引用只列待确认</td><td>有多个 <code>## 代码约束</code> 节时报错，先明确位置；提示不代表宿主按路径强制注入，实际读取由 agent 执行。不增加规则正文注入 hook，当前 hook 只做<a href="#limits-hooks">消耗统计</a></td></tr>
         </table></div>
         <ul>
           <li><b>同一份规则给 Claude Code 和 Cursor 用：</b>维护写入脚本新建 <code>.agents/rules</code> 文件时，头部 <code>paths</code> 和 <code>globs</code> 写同一串逗号分隔的 glob（Claude 只读 <code>paths</code>，Cursor 只读 <code>globs</code>）；两者都写但展开后范围不同时，审查报格式错误。</li>
-          <li><b>接入也受草稿约束：</b><code>AGENTS.md</code> / <code>CLAUDE.md</code> 只支持规则提示与受管索引接入，不维护任意正文；拟改索引与其他文件一起预演确认，见<a href="#rule-candidates">维护草稿</a>。</li>
+          <li><b>接入也受草稿约束：</b><code>AGENTS.md</code> 只允许脚本加这一句提示，<code>.claude/rules/</code> 只允许脚本建/删指向规则的链接，<code>CLAUDE.md</code> 不写；提示和链接与其他文件一起预演确认，见<a href="#rule-candidates">维护草稿</a>。</li>
           <li><b>接上之后遵不遵守：</b>取决于写代码的 agent 和宿主何时加载这些文件，本插件不控制。</li>
         </ul>
       </section>
@@ -1780,7 +1779,7 @@ globs: "src/orders/**"
           <li><b>先看两类文件：</b>代码约束和它自己的例外放 <code>.agents/rules/&lt;主题&gt;.md</code>；审查设置、严重程度、审查重点、压住通用直觉的“不要报”放 <code>REVIEW.md</code>。整理其中一类时也要看另一类，避免重复、冲突和放错位置。</li>
           <li><b>维护不是只追加：</b>可以新增、修改、删除、合并，也可以把错放的约束迁到正确位置；所有受影响文件都要进同一个草稿和预演。删除或收窄规则要说明失效依据和影响，不能因为长期零命中就自动停用。</li>
           <li><b>检查是否值得保留：</b>是否项目特有、能对照代码检查、是否已有 linter / CI 覆盖、是否过时或互相矛盾；范围和例外是否足够具体。拿不准的写成待确认项，不加复杂评分或回归库。</li>
-          <li><b>AGENTS.md / CLAUDE.md 只接规则提示与索引：</b>可把确认过的规则链接接入“代码约束”索引；不借规则维护任意改写它的正文。外部共享规则来源只读。</li>
+          <li><b>AGENTS.md 只接一句提示，CLAUDE.md 不写：</b>写代码一侧的接入是 <code>AGENTS.md</code> 的固定提示加 <code>.claude/rules</code> 链接，不借规则维护任意改写入口正文。外部共享规则来源只读。</li>
         </ul>
       </section>
 
@@ -1808,7 +1807,7 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
           <li><b>来源分别保留：</b>用户明确要求记录用户来源；历史推断关联 <code>candidates.json</code> 及证据；已有规则调整指回原文件和调整理由。用户来源不伪装成多个 MR 的支持。</li>
           <li><b>规则内容仍要具体：</b>写清规则、原因、严重级别、范围、反例、正例和“不要报”边界，代码示例用代码块，原因里不堆 MR 号。规则格式见<a href="#good-rule">好的规则</a>。</li>
           <li><b>草稿和确认是一对：</b>预演绑定草稿当前内容、目标文件原内容和来源。你补充需求、修改草稿，或目标文件被其他人改过，都需要重新预演并确认；一句旧“确定”不能授权后来修改的版本。</li>
-          <li><b>原生入口接入也在草稿里：</b>提案通过 <code>instruction_files</code> 显式选择 AGENTS.md、CLAUDE.md 或已有 .claude/CLAUDE.md，复用 <code>agents_links</code> 和 <code>agents_source</code> 同步受管规则索引；省略入口且提供链接时仍接入 AGENTS.md。先捕获每个入口与相关规则的基线；本轮规则范围更新、删除或合并时同步已有受管引用，手写或重复引用保留并列为待确认，不维护任意正文。索引 diff 与其他目标一起预演确认。接入方式见<a href="#tool-hookup">宿主适配</a>。</li>
+          <li><b>写代码一侧的接入也在草稿里：</b>提案不写接入字段（0.3.13 起 <code>agents_links</code>、<code>instruction_files</code>、<code>agents_source</code> 会报错），脚本按本轮规则变更生成 <code>AGENTS.md</code> 提示（operation <code>hint</code>，内容按基线重算校验）和 <code>.claude/rules</code> 链接（operation <code>link</code> / <code>unlink</code>，按链接位置的符号链接状态记基线）；<code>AGENTS.md</code> 未捕获时脚本自己补真实基线。它们与其他目标一起预演确认，应用前核对未变化。接入方式见<a href="#tool-hookup">宿主适配</a>。</li>
         </ul>
       </section>
 
@@ -1818,8 +1817,8 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
         <h4 id="imp-confirm">确认当前版本</h4>
         <p>用户看过本次 diff 后确认当前版本，才进入写入。用户补充内容或目标文件变化后，旧确认失效：更新草稿、重新展示 diff 和指纹，再确认。确认不是对今后所有修改的长期授权。</p>
         <h4 id="imp-apply">应用确认过的内容</h4>
-        <p>确认具体 diff 后运行 <code>python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --apply --expected-digest &lt;预演指纹&gt;</code>。应用前再次核对目标文件和确认指纹，只有与本次预演一致才写入。指纹防止写入未经预演的新版本，用户是否确认仍由对话流程保证。只改限定清单中的工作区文件，不暂存、不提交、不创建或修改 MR。代码约束与规则例外写进 <code>.agents/rules</code>，审查行为写进 <code>REVIEW.md</code>，AGENTS.md / CLAUDE.md 只做规则提示与受管索引接入；不因为 <code>--no-store</code> 而跳过已经确认的规则写入。</p>
-        <p>写入后展示实际改动和仍待处理的事项，由你检查并提交。目标变化或写入中断时，保留当前文件及已写结果，用新 work 捕获当前基线、重新起草剩余改动，再预演确认；不会自动回滚或继续套用旧确认。软链接建议只打印，不执行。目标路径不能越出工作区或进入 Git 元数据，读取外部共享规则不意味着可以改它。</p>
+        <p>确认具体 diff 后运行 <code>python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --apply --expected-digest &lt;预演指纹&gt;</code>。应用前再次核对目标文件和确认指纹，只有与本次预演一致才写入。指纹防止写入未经预演的新版本，用户是否确认仍由对话流程保证。只改限定清单中的工作区文件，不暂存、不提交、不创建或修改 MR。代码约束与规则例外写进 <code>.agents/rules</code>，审查行为写进 <code>REVIEW.md</code>，AGENTS.md 只加一句规则提示，<code>.claude/rules</code> 只建/删指向规则的链接，CLAUDE.md 不写；不因为 <code>--no-store</code> 而跳过已经确认的规则写入。</p>
+        <p>写入后展示实际改动和仍待处理的事项，由你检查并提交。目标变化或写入中断时，保留当前文件及已写结果，用新 work 捕获当前基线、重新起草剩余改动，再预演确认；不会自动回滚或继续套用旧确认。不再打印软链接建议，链接已作为草稿的一部分确认写入。目标路径不能越出工作区或进入 Git 元数据，读取外部共享规则不意味着可以改它。</p>
       </section>
 
       <section id="improve-trust">

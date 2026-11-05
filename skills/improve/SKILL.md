@@ -44,7 +44,7 @@ python3 "<cr_dir>/scripts/crlib.py" init-work "<仓库根目录>" [--no-store]
 - 根目录 REVIEW.md 头部放 `skip`、`limits`、`depth`;正文放严重程度、审查重点、通用直觉的“不要报”。子目录 REVIEW.md 只放正文,只对该目录生效。某条规则的例外回到那条规则,不能扩大成全目录抑制。
 - 联查两类文件,可以在同一草稿内迁移/合并;明确展示从哪里删、放到哪里。冲突展示双方原文、范围与拟定取舍。拿不准的保留待确认,不能静默选边。
 - 只根据当前相关代码、规范和真实工具配置判断过时或覆盖。“禁止的写法已经没有了”可能说明大家遵守,不是删除理由。要求使用的 helper 已不存在、规范互相矛盾、重复承担工具已能阻止的问题才值得提出调整。
-- `CLAUDE.md`、`AGENTS.md` 等已有约定是复核材料,不开放任意正文改写。原生指令入口只允许脚本同步本次规则提示和受管索引;规则文件删除/合并时核对已有引用,不能留下未说明的失效链接。
+- `CLAUDE.md`、`AGENTS.md` 等已有约定是复核材料,不开放任意正文改写。AGENTS.md 只允许脚本加一句规则提示,`.claude/rules/` 只允许脚本建/删指向规则的链接,CLAUDE.md 不写;规则文件删除/合并时核对已有引用,不能留下未说明的失效链接。
 
 ## 形成统一草稿
 
@@ -75,9 +75,13 @@ python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --capture --path ".agents
 
 本地检查推断的 source 使用 `{"type":"inferred","basis":"具体文件原文与判断依据"}`。删除/迁移的理由必须说明价值和范围,不能只写“清理”。
 
-要接入原生指令文件,先 capture 所选入口和要链接、更新范围或删除的规则文件;提案加 `instruction_files:["AGENTS.md","CLAUDE.md"]`、`agents_links:[".agents/rules/api.md"]`、`agents_source:{"type":"user","request":"用户选择维护本次规则提示的原话"}`。省略 `instruction_files` 且 `agents_links` 非空时仍接入 AGENTS.md,两者均省略则不接入口;显式入口只允许根 AGENTS.md、根 CLAUDE.md 和已有的 .claude/CLAUDE.md。仓库已有 .claude/CLAUDE.md 而无根 CLAUDE.md 时选择已有入口,不另建重复入口。按用户使用的宿主和既有文件提出适合的接入 diff,不依赖 Claude 对 AGENTS.md 的回退,不注入规则正文。
+写代码一侧的接入由脚本按本轮规则变更自动生成,提案里不写接入字段(旧的 `agents_links`、`instruction_files`、`agents_source` 会报错),也不要在 changes 里写 AGENTS.md、CLAUDE.md 或 `.claude/rules/` 的正文:
 
-不要在 changes 里提供入口正文。脚本只在“代码约束”一节新增提示和索引、更新可识别索引行的范围、移除本轮显式删除规则的受管索引行;显式选择入口时,本轮变更规则的既有引用会一并核对;合并后新保留规则用 `agents_links` 选入。无法安全识别的手写引用保留并列 PENDING,不声称已同步;所有变化都进 diff 和确认指纹。提示存在不等于宿主实际读取,交付时说明已验证到哪一步。不自动运行软链接命令。
+- 写入任意 `.agents/rules/**/*.md` 时,AGENTS.md 只保证有一句固定提示(给 Codex、Cursor):放在唯一的「## 代码约束」节里,没有就在末尾新建这一节,AGENTS.md 不存在就新建。已有提示不重复写;0.3.12 写入的逐条受管索引行和引导句换成这一句,手写引用保留。有多个「## 代码约束」节时报错,先和用户明确位置。
+- 写入的规则和 `rule_targets` 中仍存在的规则,在 `.claude/rules/<相对路径>.md` 建指向规则文件的相对符号链接(Claude Code 按 paths 原生加载),`.claude/` 不存在也创建。已有同一指向的链接不变;位置已有别的文件/链接,或 `.claude`、`.claude/rules` 是符号链接时不动,列 PENDING。删除规则时一并删除指向它的链接。
+- CLAUDE.md、`.claude/CLAUDE.md` 不写。删除规则时,AGENTS.md、CLAUDE.md、`.claude/CLAUDE.md` 里仍引用它的行只列 PENDING,不自动改。
+
+提示和链接都进 diff 和确认指纹,来源为 inferred。提示或链接存在不等于宿主实际读取,交付时说明已验证到哪一步。
 
 ```sh
 python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --propose "<work_dir>/proposal.json"
@@ -104,7 +108,7 @@ sh "<cr_dir>/scripts/mine-mrs.sh" [--days <n>] [--limit <n>] [--repo "<仓库根
 
 ## 唯一确认与写入出口
 
-预演 `--check` 不改仓库,逐项给出 WRITE/DELETE 和实际 diff、PENDING/NOTE,最后给 `DIGEST: <指纹>`。用户必须先看本次具体 diff 与未解决事项,明确同意后才执行:
+预演 `--check` 不改仓库,逐项给出 WRITE/DELETE/LINK/UNLINK 和实际 diff、PENDING/NOTE,最后给 `DIGEST: <指纹>`。用户必须先看本次具体 diff 与未解决事项,明确同意后才执行:
 
 ```sh
 python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --apply --expected-digest "<用户刚确认的预演指纹>"
@@ -113,8 +117,6 @@ python3 "<cr_dir>/scripts/rules-draft.py" "<work_dir>" --apply --expected-digest
 不得同轮自己 check 后立即代用户批准。用户先前授权“起草/整理”不等于批准尚未展示的 diff。expected-digest 只是版本校验,程序不能证明用户真的确认;确认由对话执行者负责。用户确认了已展示的当前版本即可执行,不要无理由重复问。
 
 应用前完整检查所有目标、仓库身份、草稿版本、来源和起草基线。错指纹、补充后的旧确认、目标并发变化、符号链接或 Git 元数据目标都拒绝。只操作清单中明确选择的文件,不自动清理空文件或未选文件。逐文件临时写入后替换,不承诺多文件原子;中途失败报告已完成/未完成,保留实际结果,重新起草剩余改动再确认,不报成功。写后展示文件清单和实际 diff,明确只改工作区、没有提交。成功后保存本轮完成记录、在人读草稿标记已应用;再次检查或应用同版时报告 APPLIED,不重复写。已应用后的文件若又变化,另起草稿,不能用旧版覆盖。
-
-写入成功后将 `SUGGEST:` 中 `.claude/rules/*.md`、`.cursor/rules/*.mdc` 的软链接命令原样转告,由用户决定是否运行;你不执行。已存在的链接不重复建议,删除的规则不建议接入。
 
 ## 执行边界
 
