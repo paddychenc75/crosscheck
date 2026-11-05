@@ -290,20 +290,9 @@ td.nowrap { white-space: nowrap; }
 .term .who { color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .term .txt { overflow-wrap: anywhere; }
 
-/* 分段进度条:已完成段实心,当前段按这一步的时长填满 */
-.segs { list-style: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; padding: 0; margin: 14px 0 0; }
-.segs li { margin: 0; min-width: 0; }
-.seg { font: inherit; width: 100%; cursor: pointer; background: none; border: 0; border-radius: 4px; padding: 4px 0 2px; color: var(--muted); text-align: left; display: grid; gap: 6px; }
-.seg-bar { display: block; height: 5px; border-radius: 99px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; transition: box-shadow .3s; }
-.seg-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; transform: scaleX(0); }
-.seg[aria-current="step"] { color: var(--accent); font-weight: 600; }
-.seg[aria-current="step"] .seg-bar { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, var(--border)), 0 0 12px -3px color-mix(in srgb, var(--accent) 80%, transparent); }
-.seg[aria-current="step"] .seg-fill { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--surface)), var(--accent)); }
-.seg:hover { color: var(--text); }
-.seg:hover .seg-bar { background: var(--border); }
-.seg-t { display: block; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.seg-n { font-variant-numeric: tabular-nums; margin-right: 4px; opacity: .7; }
-@media (max-width: 600px) { .seg-l { display: none; } .seg-t { text-align: center; } }
+/* 步骤编号徽标:和流程卡的编号一致 */
+.sbadge { display: inline-grid; place-items: center; align-self: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 6px; background: var(--accent); color: var(--surface); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.sbadge:empty { display: none; }
 
 /* 场景里的元素 */
 .kv { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
@@ -540,7 +529,7 @@ pre.tdiff.a { margin-left: 1.5em; }
   .cr-demo *, .cr-demo *::before, .cr-demo *::after { animation: none !important; transition: none !important; }
 }
 
-.cr-demo .segs { margin: 10px 0 12px; }
+.cr-demo .win { margin-top: 10px; }
 /* 讨论要点 */
 .qnum { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 
@@ -577,27 +566,46 @@ nav.toc a.top.active { color: var(--accent); }
 .steps { padding-left: 1.5em; }
 .steps > li { margin: 8px 0; }
 
-/* 流程总览里的三张流程图:每一步是一个可点击的卡片,橙色是需要你确认的步骤,虚线是视情况才有的步骤 */
-.fc-wrap { margin: 12px 0 20px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
-.fc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 12px; }
+/* 流程总览:三个技能用标签切换,一次看一个流程;每个流程一排流程卡加一段动画,流程卡就是动画的步骤条 */
+.fc-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.fc-tabs button { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.fc-tabs button small { font-size: 12px; font-weight: 400; margin-left: 6px; }
+.fc-tabs button:hover { color: var(--text); }
+.fc-tabs button[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.fc-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fc-wrap { margin: 0 0 20px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+.fc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 10px; }
 .fc-head b { font-size: 15px; }
 .fc-head .muted { font-size: 12.5px; }
-.fc-head a { margin-left: auto; font-size: 12.5px; white-space: nowrap; }
-.fc { list-style: none; margin: 0; padding: 3px 3px 6px; display: flex; align-items: stretch; gap: 24px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
-.fc > li { position: relative; flex: 1 1 0; min-width: 118px; margin: 0; display: flex; }
-.fc > li + li::before { content: "→"; position: absolute; left: -19px; top: 50%; translate: 0 -50%; color: var(--muted); font-size: 15px; line-height: 1; }
-.fc-step { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); font-size: 12.5px; line-height: 1.45; transition: border-color .25s, background-color .25s, box-shadow .25s; }
-.fc-t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.fc-t { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; color: var(--text); }
-.fc-t:hover { color: var(--accent); text-decoration: none; }
-.fc-n { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--surface); font-size: 11px; font-weight: 800; }
-.fc-who { color: var(--accent); font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+/* 什么时候用 · 入口 · 产出 */
+.fc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 6px 18px; margin: 0 0 14px; padding: 8px 12px; border-radius: 8px; background: var(--surface-2); font-size: 12.5px; line-height: 1.55; }
+.fc-meta > div { min-width: 0; }
+.fc-meta dt { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.fc-meta dd { margin: 0; overflow-wrap: anywhere; }
+.fc-meta code { font-size: 11.5px; }
+/* 列数由脚本按宽度算,让各行卡片数接近;没有脚本时按最小宽度自动换行。箭头画在卡片间距里,每行第一张不画 */
+.fc { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 14px 22px; }
+.fc > li { position: relative; margin: 0; display: flex; min-width: 0; }
+.fc > li + li:not(.fc-rs)::before { content: "→"; position: absolute; left: -16px; top: 50%; translate: 0 -50%; color: var(--muted); font-size: 13px; line-height: 1; pointer-events: none; }
+.fc.fc-col { gap: 18px; }
+.fc.fc-col > li + li::before { content: "↓"; position: absolute; left: 50%; top: -16px; translate: -50% 0; color: var(--muted); font-size: 13px; line-height: 1; pointer-events: none; }
+.fc-step { position: relative; display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); font-size: 12.5px; line-height: 1.5; cursor: pointer; overflow: hidden; transition: border-color .25s, background-color .25s, box-shadow .25s; }
+.fc-step:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.fc-top { display: flex; align-items: flex-start; gap: 6px; }
+/* 编号是按钮:在动画里看这一步;步骤名是链接:跳到详细说明 */
+.fc-n { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: var(--accent); color: var(--surface); font-family: inherit; font-size: 11px; font-weight: 800; line-height: 1; cursor: pointer; }
+.fc-n:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.fc-n:focus-visible, .fc-t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.fc-t { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: 13.5px; line-height: 22px; color: var(--text); }
+.fc-t:hover { color: var(--accent); }
+.fc-mark { flex: none; margin-top: 3px; font-size: 11px; font-weight: 700; line-height: 1; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--warn-border); background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
+.fc-sub { flex: none; margin-top: 4px; font-size: 11px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fc-who { display: block; color: var(--accent); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.fc-who .nw { white-space: nowrap; }
 .fc-d { margin: 0; }
-.fc-d code { font-size: 11px; white-space: nowrap; }
-/* 确认标签放在说明之后,各卡片的说明从同一高度开始 */
-.fc-ask { order: 1; }
-.fc-io { order: 2; }
-.fc-io { margin-top: auto; padding-top: 2px; }
+.fc-d code { font-size: 11px; }
+.fc-askd { margin: 0; font-size: 11.5px; color: var(--warn); }
+.fc-io { margin-top: auto; padding-top: 2px; cursor: auto; }
 .fc-io summary { cursor: pointer; color: var(--muted); font-size: 11.5px; font-weight: 600; }
 .fc-io summary:hover { color: var(--accent); }
 .fc-io summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -605,31 +613,26 @@ nav.toc a.top.active { color: var(--accent); }
 .fc-io dt { color: var(--muted); font-size: 11px; font-weight: 600; margin-top: 3px; }
 .fc-io dd { margin: 0; overflow-wrap: anywhere; }
 .fc-io code { font-size: 10.5px; padding: 0 .25em; background: var(--surface); }
-.fc-step.ask { border-color: var(--warn-border); background: var(--warn-soft); }
 .fc-step.opt { border-style: dashed; background: var(--surface); }
-.fc-ask { align-self: flex-start; font-size: 11px; font-weight: 700; line-height: 1.3; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--warn-border); color: var(--warn); background: var(--surface); }
-.fc-note { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
-.fc-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
-.fc-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--border); background: var(--surface-2); }
-.fc-legend i.ask { border-color: var(--warn-border); background: var(--warn-soft); }
-.fc-legend i.opt { border-style: dashed; background: var(--surface); }
-@media (max-width: 760px) {
-  .fc { flex-direction: column; gap: 22px; overflow-x: visible; }
-  .fc > li { min-width: 0; }
-  .fc > li + li::before { content: "↓"; left: 50%; top: -19px; translate: -50% 0; }
-  .fc-head a { margin-left: 0; }
-}
-/* 动画播到哪一步,流程卡里对应的那一步就高亮;前面走过的步骤编号变绿 */
-.fc > li.fc-cur > .fc-step { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.fc > li.fc-cur > .fc-step:not(.ask) { background: var(--accent-soft); }
+/* 动画播到哪一步,那张卡蓝框高亮,底部细条是这一步的播放进度;走过的步骤编号变绿 */
+.fc-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; display: none; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.fc-bar > i { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+.fc > li.fc-cur .fc-bar { display: block; }
+.fc > li.fc-cur > .fc-step { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .fc > li.fc-cur > .fc-step.opt { border-style: solid; }
 .fc > li.fc-past .fc-n { background: var(--ok); }
-.fc > li.fc-cur + li::before { color: var(--accent); }
+.fc > li.fc-cur + li:not(.fc-rs)::before, .fc.fc-col > li.fc-cur + li::before { color: var(--accent); }
+.fc-note { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+.fc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
+.fc-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.fc-legend .fc-mark { margin: 0; }
+.fc-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 1px solid var(--border); background: var(--surface-2); }
+.fc-legend i.opt { border-style: dashed; background: var(--surface); }
+.fc-legend i.cur { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
 .fc-wrap > .demo, .fc-wrap > .cr-demo { margin: 16px 0 0; box-shadow: none; }
-.fc-demo-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 16px 0 0; padding-top: 14px; border-top: 1px dashed var(--border); font-size: 13px; color: var(--muted); }
-.fc-demo-h b { color: var(--text); font-size: 14px; }
+@media (max-width: 760px) { .fc-wrap { padding: 12px; } }
 @media (prefers-reduced-motion: reduce) { .fc-step { transition: none; } }
-.demo-head h4 { border: 0; padding: 0; margin: 0 0 2px; font-size: 17px; text-wrap: balance; }
+.demo-head h4 { border: 0; padding: 0; margin: 0 0 2px; font-size: 16px; text-wrap: balance; }
 
 </style>
 </head>
@@ -638,15 +641,14 @@ nav.toc a.top.active { color: var(--accent); }
   <nav class="toc" aria-label="目录">
     <div class="brand"><svg class="logo" width="24" height="24" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="cc-logo-nav" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5272F2"/><stop offset="1" stop-color="#2B3FB0"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#cc-logo-nav)"/><path d="M12.5 33.5 L22.5 43.5 L40.5 21" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 34 L32 44 L51.5 20.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>CrossCheck</div>
     <a class="top" href="#overview">一、流程总览</a>
-    <a class="sub" href="#skills">三个技能</a>
-    <a class="sub" href="#flowcharts">三个流程</a>
+    <a class="sub" href="#flowcharts">三个技能的流程</a>
     <a class="sub flow-child" href="#fc-review">review</a>
     <a class="sub flow-child" href="#fc-improve">improve</a>
     <a class="sub flow-child" href="#fc-describe">describe</a>
     <a class="sub" href="#layers">整体结构</a>
     <a class="sub" href="#principles">设计原则</a>
     <a class="top" href="#review">二、审查流程</a>
-    <a class="sub" href="#flows">步骤一览</a>
+    <a class="sub" href="#flows">只读与深度</a>
     <a class="sub" href="#analyze">代码分析</a>
     <a class="sub" href="#rule-select">规则分析</a>
     <a class="sub" href="#find">代码查找</a>
@@ -668,7 +670,7 @@ nav.toc a.top.active { color: var(--accent); }
     <a class="sub" href="#improve-apply">写入规则</a>
     <a class="sub" href="#improve-trust">可信保障</a>
     <a class="top" href="#describe">五、PR 描述</a>
-    <a class="sub" href="#describe-flow">生成步骤</a>
+    <a class="sub" href="#describe-flow">步骤细节</a>
     <a class="sub" href="#describe-output">描述内容</a>
     <a class="sub" href="#describe-limits">边界规则</a>
     <a class="top" href="#appendix">附录</a>
@@ -686,50 +688,40 @@ nav.toc a.top.active { color: var(--accent); }
       </button>
     </header>
     <p><strong>CrossCheck 是一个代码审查插件，有三个技能：</strong><code>review</code> 把审查拆成代码分析、规则分析、代码查找、结论核实和输出报告；<code>improve</code> 统一维护项目规则，历史沉淀是可选材料来源；<code>describe</code> 为评审人生成 PR/MR 描述。脚本整理可校验的事实，角色判断问题是否成立，负责人决定规则是否写入。本文解释各阶段的职责和取舍；安装、命令与完整参数见 <a href="README.md">README</a>。</p>
-    <p class="muted">先看<a href="#overview">流程总览</a>里的三张流程图，再按需要看<a href="#review">审查流程</a>、<a href="#rules">规则机制</a>、<a href="#improve">规则维护</a>和 <a href="#describe">PR 描述</a>；每张流程图下面都有一段动画；每章末尾的「限制」说明这些机制能保证到哪一步，<a href="#appendix">附录</a>对比各家 agent 的上下文机制和 CR 做法。</p>
+    <p class="muted">先在<a href="#overview">流程总览</a>切换 review / improve / describe，看各自的流程卡和动画，再按需要看<a href="#review">审查流程</a>、<a href="#rules">规则机制</a>、<a href="#improve">规则维护</a>和 <a href="#describe">PR 描述</a>；每章末尾的「限制」说明这些机制能保证到哪一步，<a href="#appendix">附录</a>对比各家 agent 的上下文机制和 CR 做法。</p>
 
     <section id="overview">
       <h2>一、流程总览</h2>
-      <p class="sec-lead"><b>解决什么：</b>先弄清三个技能各管什么、什么时候用哪个，再看每个流程怎么走：每个流程一张图加一段动画，不用跳到别处。<b>入口：</b>review 和 describe 可以用自然语言触发，improve 只能用命令；三者的产出都留在本机或工作区，托管平台只读。</p>
-
-      <section id="skills">
-        <h3>三个技能</h3>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>技能</th><th>什么时候用</th><th>入口</th><th>产出</th></tr></thead>
-            <tbody>
-              <tr><td class="nowrap"><a href="#review"><b>review</b></a><br>审查</td><td>想知道这次改动有没有问题；审查后说「以后都要查 X」「这种别报了」，当场定一条</td><td>自然语言或 <code>/crosscheck:review</code></td><td>本地 CR 报告和审查记录；<code>--fix</code> 只在你要求时改工作区</td></tr>
-              <tr><td class="nowrap"><a href="#improve"><b>improve</b></a><br>规则维护</td><td>新增、修改、删除、合并项目规则或 <code>REVIEW.md</code>；明确要求时从历史 MR 评论归纳</td><td>只能用命令 <code>/crosscheck:improve</code></td><td>预演实际 diff，确认当前版本后只写工作区，不提交</td></tr>
-              <tr><td class="nowrap"><a href="#describe"><b>describe</b></a><br>PR/MR 描述</td><td>开 PR/MR 前要给评审人写描述</td><td>自然语言或 <code>/crosscheck:describe</code></td><td>本地 <code>describe.md</code> 和 <code>describe.html</code>，由你复制粘贴，不发布</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="muted">Codex 用 <code>$crosscheck:&lt;技能&gt;</code>，Cursor 用 <code>/&lt;技能&gt;</code>。每个技能怎么走见下面的流程图。</p>
-      </section>
+      <p class="sec-lead"><b>解决什么：</b>三个技能各管什么、什么时候用、怎么走。切换标签一次看一个流程；流程卡就是动画的步骤，编号一一对应。<b>入口：</b>review 和 describe 可以用自然语言触发，improve 只能用命令；三者的产出都留在本机或工作区，托管平台只读。</p>
 
       <section id="flowcharts">
         <span id="demos"></span>
-        <h3>三个流程</h3>
-        <p>每个流程一张图、一段动画：图里每一步标出谁来做、要不要你确认，点开“输入 / 产出”看这一步读哪些文件、写出哪些文件；动画用演示数据把流程走一遍，播到哪一步，图里对应的那一步就高亮。</p>
-        <p class="fc-legend"><span><i></i>脚本或角色自动完成</span><span><i class="ask"></i>需要你回答或确认</span><span><i class="opt"></i>视情况才有</span><span>点步骤名跳到详细说明</span><span>蓝框：动画正播到的这一步</span></p>
-      <div class="fc-wrap" id="fc-review">
+        <h3>三个技能的流程</h3>
+        <p class="fc-legend"><span><span class="fc-mark">问你</span>要你回答或确认</span><span><i class="opt"></i>视情况才有</span><span><i class="cur"></i>动画正播到这一步</span><span>点编号或卡片空白处：动画跳到这一步；点步骤名：看详细说明</span></p>
+        <div class="fc-tabs" role="tablist" aria-label="选择技能">
+          <button type="button" role="tab" id="fcTab-review" aria-controls="fc-review" aria-selected="true">review<small>审查</small></button>
+          <button type="button" role="tab" id="fcTab-improve" aria-controls="fc-improve" aria-selected="false">improve<small>规则维护</small></button>
+          <button type="button" role="tab" id="fcTab-describe" aria-controls="fc-describe" aria-selected="false">describe<small>PR/MR 描述</small></button>
+        </div>
+      <div class="fc-wrap" id="fc-review" role="tabpanel" aria-labelledby="fcTab-review">
         <span id="demo-review"></span>
-        <div class="fc-head"><b>review：代码分析 → 规则分析 → 代码查找 → 结论核实 → 输出报告</b><span class="muted">中间文件都在本次的临时目录 <code>review_dir</code></span></div>
+        <div class="fc-head"><b>review：发起 → 代码分析 → 规则分析 → 代码查找 → 结论核实 → 输出报告</b><span class="muted">中间文件都在本次的临时目录 <code>review_dir</code></span></div>
+        <dl class="fc-meta"><div><dt>什么时候用</dt><dd>想知道这次改动有没有问题；审查后说「以后都要查 X」「这种别报了」，当场定一条</dd></div><div><dt>入口</dt><dd>自然语言或 <code>/crosscheck:review</code>（Codex <code>$crosscheck:review</code>，Cursor <code>/review</code>）</dd></div><div><dt>产出</dt><dd>本地 CR 报告和审查记录；<code>--fix</code> 只在你要求时改工作区</dd></div></dl>
         <ol class="fc" aria-label="review 流程">
-        <li><div class="fc-step ask"><a class="fc-t" href="#analyze"><span class="fc-n">1</span>代码分析</a><span class="fc-ask">可能问你：基准、需求资料、超过 4 批</span><span class="fc-who">collect-diff.sh</span><p class="fc-d">定对比基准、拉改动，整理意图和需求来源，生成分析线索，扫出测试削弱。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>审查目标（当前分支、分支、提交范围或 PR/MR）、意图、需求链接</dd><dt>产出</dt><dd><code>diff.patch</code> <code>ranges.txt</code> <code>intent.md</code> <code>sources.json</code> <code>analysis-facts.json</code> <code>weakening.txt</code></dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#rule-select"><span class="fc-n">2</span>规则分析</a><span class="fc-who">collect-rules.sh</span><p class="fc-d">读出仓库里的规则文件，按改动的文件挑出这次适用的。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>项目规则（PR/MR 读 base）、<code>files.txt</code></dd><dt>产出</dt><dd><code>rules.txt</code> <code>rules-index.json</code> <code>rules-meta.txt</code></dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#find"><span class="fc-n">3</span>代码查找</a><span class="fc-who">reviewer ∥ rules-auditor</span><p class="fc-d">两个角色各自独立读材料，交出候选问题。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>review_dir</code> 里的材料（每个角色自己读，不贴 diff）</dd><dt>产出</dt><dd><code>finders/*.json</code> → <code>candidates.json</code></dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#verify"><span class="fc-n">4</span>结论核实</a><span class="fc-who">prepare-verify.sh → verifier × N → aggregate.sh</span><p class="fc-d">候选分批交给看不到查找推理的 verifier 打分，脚本汇总，低于 80 分只留档。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>verify/batch-*.json</code>（每批最多 3 条，看不到查找时的推理）</dd><dt>产出</dt><dd><code>verify/result-*.json</code> → <code>final.json</code> <code>findings.json</code> <code>rejected.json</code>（低于 80 分留档）</dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#review-report"><span class="fc-n">5</span>输出报告</a><span class="fc-who">check-state.sh · report-lines.sh · save-review.sh</span><p class="fc-d">核对仓库没被改动，用脚本给的说明行和原文片段写报告并保存。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>final.json</code>、脚本给的说明行、<code>snippet.sh</code> 摘出的原文</dd><dt>产出</dt><dd><code>report.md</code>，默认记录存到 <code>~/.crosscheck/reviews/&lt;项目&gt;/&lt;目标&gt;/&lt;时间&gt;/</code>；<code>--no-store</code> 仅留临时材料</dd></dl></details></div></li>
-        <li><div class="fc-step opt ask"><a class="fc-t" href="#metrics"><span class="fc-n">+</span>报告之后</a><span class="fc-ask">你决定</span><span class="fc-who">你 · 主 agent · feedback.sh</span><p class="fc-d">你表态或质疑，判断记下来；你要求时 <code>--fix</code> 才改工作区。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的表态、质疑、修复要求</dd><dt>产出</dt><dd><code>feedback.jsonl</code>（本机、项目级）；<code>--fix</code> 只改工作区</dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 0 步：发起审查">0</button><a class="fc-t" href="#review">发起审查</a></div><span class="fc-who"><span class="nw">你</span> · <span class="nw">主 agent</span></span><p class="fc-d">用自然语言或命令发起；主 agent 复述范围、深度和意图，理解错了当场纠正。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的一句话：目标、深度、改动目的</dd><dt>产出</dt><dd>审查目标、深度（没说按根目录 <code>REVIEW.md</code> 的 <code>depth</code>，再没有按 standard）和 <code>--intent</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 1 步：代码分析">1</button><a class="fc-t" href="#analyze">代码分析</a><span class="fc-mark">问你</span></div><span class="fc-who"><span class="nw">collect-diff.sh</span></span><p class="fc-d">定对比基准、拉改动，整理意图和需求来源，生成分析线索，扫出测试削弱。</p><p class="fc-askd">可能问你：基准、需求资料；超过 4 批时先问你</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>审查目标（当前分支、分支、提交范围或 PR/MR）、意图、需求链接；内部调用 <code>collect-context.sh</code> <code>settings.sh</code> <code>feedback.sh history</code></dd><dt>产出</dt><dd><code>diff.patch</code> <code>ranges.txt</code> <code>intent.md</code> <code>sources.json</code> <code>analysis-facts.json</code> <code>weakening.txt</code> <code>history.json</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 2 步：规则分析">2</button><a class="fc-t" href="#rule-select">规则分析</a></div><span class="fc-who"><span class="nw">collect-rules.sh</span></span><p class="fc-d">读出仓库里的规则文件，按改动的文件挑出这次适用的。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>项目规则（PR/MR 读 base）、<code>files.txt</code></dd><dt>产出</dt><dd><code>rules.txt</code> <code>rules-index.json</code> <code>rules-meta.txt</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 3 步：代码查找">3</button><a class="fc-t" href="#find">代码查找</a></div><span class="fc-who"><span class="nw">reviewer</span> ∥ <span class="nw">rules-auditor</span></span><p class="fc-d">两个角色各自独立读材料，交出候选问题。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>review_dir</code> 里的材料（每个角色自己读，不贴 diff）</dd><dt>产出</dt><dd><code>finders/*.json</code> → <code>candidates.json</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 4 步：结论核实">4</button><a class="fc-t" href="#verify">结论核实</a></div><span class="fc-who"><span class="nw">prepare-verify.sh</span> → <span class="nw">verifier × N</span> → <span class="nw">aggregate.sh</span></span><p class="fc-d">候选分批交给看不到查找推理的 verifier 打分，脚本汇总，低于 80 分只留档。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>verify/batch-*.json</code>（每批最多 3 条，看不到查找时的推理）</dd><dt>产出</dt><dd><code>verify/result-*.json</code> → <code>final.json</code> <code>findings.json</code> <code>rejected.json</code>（低于 80 分留档）<code>completeness.txt</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 5 步：输出报告">5</button><a class="fc-t" href="#review-report">输出报告</a></div><span class="fc-who"><span class="nw">check-state.sh</span> · <span class="nw">report-lines.sh</span> · <span class="nw">save-review.sh</span></span><p class="fc-d">核对仓库没被改动，用脚本给的说明行和原文片段写报告并保存。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>final.json</code>、脚本给的说明行、<code>snippet.sh</code> 摘出的原文</dd><dt>产出</dt><dd><code>report.md</code>，默认记录存到 <code>~/.crosscheck/reviews/&lt;项目&gt;/&lt;目标&gt;/&lt;时间&gt;/</code>；<code>--no-store</code> 仅留临时材料</dd></dl></details></div></li>
+        <li><div class="fc-step opt"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看报告之后">+</button><a class="fc-t" href="#metrics">报告之后</a><span class="fc-mark">你决定</span></div><span class="fc-who"><span class="nw">你</span> · <span class="nw">主 agent</span> · <span class="nw">feedback.sh</span></span><p class="fc-d">你表态或质疑，判断记下来；你要求时 <code>--fix</code> 才改工作区。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的表态、质疑、修复要求</dd><dt>产出</dt><dd><code>feedback.jsonl</code>（本机、项目级）；<code>--fix</code> 只改工作区</dd></dl></details></div></li>
         </ol>
         <p class="fc-note">standard / deep 在宿主有子代理工具时，查找和核实都用独立子代理；quick 或宿主没有这个工具时由主线程顺序执行，报告披露独立性限制。</p>
-        <p class="fc-demo-h"><b>动画</b>审查 MR 128：开发者从发起到回复判断的完整过程（演示数据）</p>
       <div id="demo" class="demo" role="group" aria-labelledby="demo-title">
         <div class="demo-head">
           <div>
-            <h4 id="demo-title">动画：审查一次改动</h4>
-            <p class="muted">上面看主 agent、脚本和子 agent 怎么分工，下面看你在终端里实际看到什么，两块按步骤同步；播到哪一步，上方流程卡对应的那一步就高亮。文件名、分数和结果都是演示数据。进入视野后自动循环播放，可暂停、重播，或用左右方向键切换步骤；系统开启“减少动态效果”时不自动播放，直接显示最后一步的完整结果。</p>
+            <h4 id="demo-title">动画：审查 MR 128，从发起到回复判断</h4>
+            <p class="muted">演示数据。上块看分工，下块看终端；点流程卡或按 ← → 切换步骤，开启“减少动态效果”时直接显示最后一步。</p>
           </div>
           <div class="demo-ctrl">
             <button type="button" id="dPrev" aria-label="上一步">‹ 上一步</button>
@@ -742,14 +734,13 @@ nav.toc a.top.active { color: var(--accent); }
 
         <div class="tracks" role="tablist" aria-label="选择视角" id="dTracks" hidden></div>
         <p class="trackinfo" id="dTrackInfo"></p>
-        <ol class="segs" id="dDots" aria-label="跳到某一步"></ol>
 
         <div class="blk-h"><span class="blk-n">1</span><b>内部怎么运转</b><span class="muted">主 agent、脚本和子 agent 各做什么</span></div>
         <div class="pipe" id="dPipe" role="group" aria-label="流水线：这一步谁在工作"><div class="pipe-in" id="dPipeIn"></div></div>
 
         <div class="demo-body">
           <div class="scene-wrap">
-            <div class="scene-title"><span class="scene-no" id="dNo">1 / 7</span><b id="dTitle">发起审查</b></div>
+            <div class="scene-title"><span class="scene-no sbadge" id="dNo"></span><b id="dTitle">发起审查</b></div>
             <p class="scene-cap" id="dCap" aria-live="polite"></p>
 
             <div class="track" data-track="review">
@@ -943,28 +934,28 @@ nav.toc a.top.active { color: var(--accent); }
         </div>
       </div>
       </div>
-      <div class="fc-wrap" id="fc-improve">
+      <div class="fc-wrap" id="fc-improve" role="tabpanel" aria-labelledby="fcTab-improve">
         <span id="demo-improve"></span>
         <div class="fc-head"><b>improve：明确需求 → 联查规则 → 维护草稿 → 预演 → 确认 → 写入</b><span class="muted">用途不明先问一次；历史沉淀只补充材料</span></div>
+        <dl class="fc-meta"><div><dt>什么时候用</dt><dd>新增、修改、删除、合并项目规则或 <code>REVIEW.md</code>；明确要求时从历史 MR 评论归纳</dd></div><div><dt>入口</dt><dd>只能用命令 <code>/crosscheck:improve</code>（Codex <code>$crosscheck:improve</code>，Cursor <code>/improve</code>）</dd></div><div><dt>产出</dt><dd>预演实际 diff，确认当前版本后只写工作区，不提交</dd></div></dl>
         <ol class="fc" aria-label="improve 流程">
-          <li><div class="fc-step"><a class="fc-t" href="#improve-modes"><span class="fc-n">1</span>明确需求</a><span class="fc-who">你 · 主 agent</span><p class="fc-d">用途不明时先问本地维护还是历史归纳。新增、改、删、合并都进入同一流程。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的要求、已有对话；明确要求历史沉淀时才拉 MR</dd><dt>产出</dt><dd>本次维护范围；是否保存记录</dd></dl></details></div></li>
-          <li><div class="fc-step"><a class="fc-t" href="#imp-inspect"><span class="fc-n">2</span>联查规则</a><span class="fc-who">主 agent · 只读材料采集</span><p class="fc-d">一起看代码规则和 REVIEW.md，核对分工、冲突、价值与范围。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>本地规则与项目事实；可选的 MR 讨论和判断记录</dd><dt>产出</dt><dd>维护建议与来源；历史推断保留内部候选和证据</dd></dl></details></div></li>
-          <li><div class="fc-step"><a class="fc-t" href="#rule-candidates"><span class="fc-n">3</span>维护草稿</a><span class="fc-who">你 ↔ 主 agent</span><p class="fc-d">生成 <code>rules-draft.md</code>，明确每个目标文件的原内容、拟写内容和来源。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>用户要求、联查结果、可选历史候选</dd><dt>产出</dt><dd><code>rules-draft.md</code>、限定文件清单、待确认项</dd></dl></details></div></li>
-          <li><div class="fc-step"><a class="fc-t" href="#improve-apply"><span class="fc-n">4</span>预演</a><span class="fc-who">脚本</span><p class="fc-d">展示实际 diff、当前指纹和待确认项，目标文件尚未改动。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>当前草稿、目标文件原内容、来源</dd><dt>产出</dt><dd>diff 与当前版本指纹；没有应用到工作区</dd></dl></details></div></li>
-          <li><div class="fc-step ask"><a class="fc-t" href="#imp-confirm"><span class="fc-n">5</span>确认</a><span class="fc-ask">你确认当前版本</span><span class="fc-who">你</span><p class="fc-d">看过本次预演再确认。补充需求或目标文件变化后，旧确认失效。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>刚展示的 diff、指纹和待确认项</dd><dt>产出</dt><dd>只针对当前版本的确认</dd></dl></details></div></li>
-          <li><div class="fc-step"><a class="fc-t" href="#imp-apply"><span class="fc-n">6</span>写入</a><span class="fc-who">脚本</span><p class="fc-d">再核对指纹，只写确认清单中的工作区文件，不暂存、不提交。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>当前确认与仍匹配的目标文件</dd><dt>产出</dt><dd>规则文件、REVIEW.md 和可选的 AGENTS.md / CLAUDE.md 规则提示与索引；实际写入结果</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 1 步：明确需求">1</button><a class="fc-t" href="#improve-modes">明确需求</a><span class="fc-mark">问你</span></div><span class="fc-who"><span class="nw">你</span> · <span class="nw">主 agent</span></span><p class="fc-d">新增、改、删、合并都进入同一流程。</p><p class="fc-askd">用途不明时问一次：本地维护还是历史归纳</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的要求、已有对话；明确要求历史沉淀时才拉 MR</dd><dt>产出</dt><dd>本次维护范围；是否保存记录</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 2 步：联查规则">2</button><a class="fc-t" href="#imp-inspect">联查规则</a></div><span class="fc-who"><span class="nw">主 agent</span> · <span class="nw">只读材料采集</span></span><p class="fc-d">一起看代码规则和 REVIEW.md，核对分工、冲突、价值与范围。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>本地规则与项目事实；可选的 MR 讨论和判断记录（见<a href="#improve-flow">沉淀流程</a>）</dd><dt>产出</dt><dd>维护建议与来源；历史推断保留内部候选和证据</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 3 步：维护草稿">3</button><a class="fc-t" href="#rule-candidates">维护草稿</a></div><span class="fc-who"><span class="nw">你</span> ↔ <span class="nw">主 agent</span></span><p class="fc-d">生成 <code>rules-draft.md</code>，明确每个目标文件的原内容、拟写内容和来源。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>用户要求、联查结果、可选历史候选</dd><dt>产出</dt><dd><code>rules-draft.md</code>、限定文件清单、待确认项</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 4 步：预演">4</button><a class="fc-t" href="#improve-apply">预演</a></div><span class="fc-who"><span class="nw">rules-draft.py --check</span></span><p class="fc-d">展示实际 diff、当前指纹和待确认项，目标文件尚未改动。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>当前草稿、目标文件原内容、来源</dd><dt>产出</dt><dd>diff 与当前版本指纹；没有应用到工作区</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 5 步：确认">5</button><a class="fc-t" href="#imp-confirm">确认</a><span class="fc-mark">你确认</span></div><span class="fc-who"><span class="nw">你</span></span><p class="fc-d">看过本次预演再确认当前版本。补充需求或目标文件变化后，旧确认失效。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>刚展示的 diff、指纹和待确认项</dd><dt>产出</dt><dd>只针对当前版本的确认</dd></dl></details></div></li>
+          <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 6 步：写入">6</button><a class="fc-t" href="#imp-apply">写入</a></div><span class="fc-who"><span class="nw">rules-draft.py --apply</span></span><p class="fc-d">再核对指纹，只写确认清单中的工作区文件，不暂存、不提交。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>当前确认与仍匹配的目标文件</dd><dt>产出</dt><dd>规则文件、REVIEW.md 和可选的 AGENTS.md / CLAUDE.md 规则提示与索引；实际写入结果</dd></dl></details></div></li>
         </ol>
-        <p class="fc-note">↺ 补充或修改后回到草稿和预演，再确认当前版本。本地明确要求不需要凑两个 MR；从历史推断仍有证据门槛。<code>--no-store</code> 让材料留在临时目录，不影响确认后的规则写入。</p>
-        <p class="fc-demo-h"><b>动画</b>本地用户补充与历史沉淀，两条入口汇入同一份维护草稿（演示数据）</p>
+        <p class="fc-note">↺ 补充或修改后回到草稿和预演，再确认当前版本；动画里同一张卡播第二遍时，卡上显示「2/2」。本地明确要求不需要凑两个 MR；从历史推断仍有证据门槛。<code>--no-store</code> 让材料留在临时目录，不影响确认后的规则写入。</p>
         <div class="cr-demo" id="crDemo" role="group" aria-labelledby="crDemoTitle">
           <div class="cr-head">
-            <div><b id="crDemoTitle">动画：improve 怎么跑</b><p class="muted">两条演示共用上面的六步。默认看本地维护，也可切到明确要求历史沉淀的例子；两者都先草稿、预演、确认，再写工作区。文件名、指纹简称和内容均为演示数据。滚入视野后自动播放，可暂停、重播或用方向键切换；开启“减少动态效果”时直接显示最后一步。</p></div>
+            <div><b id="crDemoTitle">动画：本地维护和历史沉淀汇入同一份维护草稿</b><p class="muted">演示数据。两个例子共用上面六步；点流程卡或按 ← → 切换步骤，开启“减少动态效果”时直接显示最后一步。</p></div>
             <div class="demo-ctrl"><button type="button" data-act="prev" aria-label="上一步">‹ 上一步</button><button type="button" data-act="play" class="primary" aria-label="播放">▶ 播放</button><button type="button" data-act="replay" aria-label="从第一步重播">↻ 重播</button><button type="button" data-act="next" aria-label="下一步">下一步 ›</button></div>
           </div>
           <div class="tracks" role="group" aria-label="选择演示"><button type="button" data-track="rules" aria-pressed="true">本地维护：用户补充</button><button type="button" data-track="review" aria-pressed="false">历史沉淀：可选材料</button></div>
-          <p class="trackinfo" data-r="info"></p><ol class="segs" data-r="segs" aria-label="跳到某一步"></ol>
+          <p class="trackinfo" data-r="info"></p>
           <div class="win"><div class="win-bar"><span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="cr-wt">终端 · ~/demo-shop</span></div><div class="cr-pane tbody" data-r="pane" role="region" aria-label="终端画面" tabindex="0"><div class="tbanner"><b>AI 编程助手</b><span>已加载插件 crosscheck</span><span class="muted">~/demo-shop · main</span></div><div data-r="steps"></div></div></div>
-          <div class="cr-cap"><div class="scene-title"><span class="scene-no" data-r="no"></span><b data-r="title"></b><span class="tag2" data-r="who"></span></div><p class="scene-cap" data-r="cap" aria-live="polite"></p></div>
+          <div class="cr-cap"><div class="scene-title"><span class="scene-no sbadge" data-r="no"></span><b data-r="title"></b><span class="tag2" data-r="who"></span></div><p class="scene-cap" data-r="cap" aria-live="polite"></p></div>
 
           <template data-track="rules" data-fc="0" data-title="本地补充" data-who="你" data-cap="明确的新要求直接进入草稿，不要求两个 MR。默认从本地规则开始；本例说了不留记录，使用 --no-store，仍保留临时材料供继续对话。">
             <div class="tc"><div class="tp"><span class="pr">›</span>/crosscheck:improve 新增方向图标要判断 rtl 类名，顺便整理现有规则。这次不留记录</div><div class="ta"><span class="bul">●</span>先一起检查代码规则和 REVIEW.md，再给你维护草稿。这次使用 <code>--no-store</code>，材料留在临时目录，确认后的项目规则仍可写入。</div><div class="tt"><span class="bul">◆</span><b>初始化</b> <code>python3 &lt;cr_dir&gt;/scripts/crlib.py init-work &lt;repo_root&gt; --no-store</code></div></div>
@@ -1036,23 +1027,23 @@ nav.toc a.top.active { color: var(--accent); }
           </template>
         </div>
       </div>
-      <div class="fc-wrap" id="fc-describe">
+      <div class="fc-wrap" id="fc-describe" role="tabpanel" aria-labelledby="fcTab-describe">
         <span id="demo-describe"></span>
         <div class="fc-head"><b>describe：采集 → 起草 → 校验和渲染 → 交付</b><span class="muted">按 <code>skills/describe/SKILL.md</code> 的四步</span></div>
+        <dl class="fc-meta"><div><dt>什么时候用</dt><dd>开 PR/MR 前要给评审人写描述</dd></div><div><dt>入口</dt><dd>自然语言或 <code>/crosscheck:describe</code>（Codex <code>$crosscheck:describe</code>，Cursor <code>/describe</code>）</dd></div><div><dt>产出</dt><dd>本地 <code>describe.md</code> 和 <code>describe.html</code>，由你复制粘贴，不发布</dd></div></dl>
         <ol class="fc" aria-label="describe 流程">
-        <li><div class="fc-step ask"><a class="fc-t" href="#ds-collect"><span class="fc-n">1</span>采集</a><span class="fc-ask">可能问你：需求单链接</span><span class="fc-who">collect.sh（调用 review 的 collect-diff.sh，全量、不分批）</span><p class="fc-d">配了读取工具时先问需求单链接，再拉全量改动，算出代码块、影响面等事实。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>目标、<code>--intent</code> / <code>--doc</code> / <code>--source</code>；需求单链接（<code>describe.ask</code> 默认，配了读取工具才问，每次都问）</dd><dt>产出</dt><dd>材料目录 <code>dir</code>：<code>diff.patch</code> <code>intent.md</code> <code>describe-facts.json</code>；跳过审查记录里的 <code>pending</code> 和来源状态写入</dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#ds-draft"><span class="fc-n">2</span>起草</a><span class="fc-who">analyst（一个子代理；代码块超过 40 个时每批一个）</span><p class="fc-d">analyst 只读材料和目标版本代码，按 JSON 契约起草改动、影响和验证建议。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>intent.md</code> <code>describe-facts.json</code> <code>diff.patch</code>、目标版本代码</dd><dt>产出</dt><dd><code>analyst.json</code> 或 <code>analyst-&lt;批次&gt;.json</code></dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#ds-render"><span class="fc-n">3</span>校验和渲染</a><span class="fc-who">describe.sh</span><p class="fc-d">脚本核对出处，删掉不合格条目，按模板渲染两份描述。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>analyst 回复；作者给的 <code>--tested</code> / <code>--focus</code></dd><dt>产出</dt><dd><code>analysis.json</code>（不合格条目 <code>DROPPED</code>）→ <code>~/.crosscheck/describe/&lt;项目&gt;/&lt;目标&gt;/</code> 下的 <code>describe.md</code> <code>describe.html</code> <code>author.json</code></dd></dl></details></div></li>
-        <li><div class="fc-step"><a class="fc-t" href="#ds-deliver"><span class="fc-n">4</span>交付</a><span class="fc-who">check-state.sh · 主 agent</span><p class="fc-d">原样展示 <code>describe.md</code>，给出两个本地链接，转告 <code>NOTE:</code>。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>渲染结果</dd><dt>产出</dt><dd>原样展示 <code>describe.md</code>，给出 <code>md_link=</code> 和 <code>link=</code> 两个本地链接，转告 <code>NOTE:</code></dd></dl></details></div></li>
-        <li><div class="fc-step opt"><a class="fc-t" href="#describe-limits"><span class="fc-n">+</span>你来粘贴</a><span class="fc-who">你</span><p class="fc-d">你核对后自己复制到 PR/MR；插件不发布。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>describe.md</code></dd><dt>产出</dt><dd>你核对后自己复制到 PR/MR；插件不发布、不修改平台上的描述</dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 1 步：采集">1</button><a class="fc-t" href="#ds-collect">采集</a><span class="fc-mark">问你</span></div><span class="fc-who"><span class="nw">collect.sh</span>（调用 review 的 <span class="nw">collect-diff.sh</span>，全量、不分批）</span><p class="fc-d">发起后先问资料，再拉全量改动，算出代码块、影响面等事实。</p><p class="fc-askd">可能问你：需求单链接（配了读取工具才问）</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>目标、<code>--intent</code> / <code>--doc</code> / <code>--source</code>；需求单链接（<code>describe.ask</code> 默认，配了读取工具才问，每次都问）</dd><dt>产出</dt><dd>材料目录 <code>dir</code>：<code>diff.patch</code> <code>intent.md</code> <code>describe-facts.json</code>；跳过审查记录里的 <code>pending</code> 和来源状态写入</dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 2 步：起草">2</button><a class="fc-t" href="#ds-draft">起草</a></div><span class="fc-who"><span class="nw">analyst</span>（一个子代理；代码块超过 40 个时每批一个）</span><p class="fc-d">analyst 只读材料和目标版本代码，按 JSON 契约起草改动、影响和验证建议。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>intent.md</code> <code>describe-facts.json</code> <code>diff.patch</code>、目标版本代码</dd><dt>产出</dt><dd><code>analyst.json</code> 或 <code>analyst-&lt;批次&gt;.json</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 3 步：校验和渲染">3</button><a class="fc-t" href="#ds-render">校验和渲染</a></div><span class="fc-who"><span class="nw">describe.sh</span></span><p class="fc-d">脚本核对出处，删掉不合格条目，按模板渲染两份描述。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>analyst 回复；作者给的 <code>--tested</code> / <code>--focus</code></dd><dt>产出</dt><dd><code>analysis.json</code>（不合格条目 <code>DROPPED</code>）→ <code>~/.crosscheck/describe/&lt;项目&gt;/&lt;目标&gt;/</code> 下的 <code>describe.md</code> <code>describe.html</code> <code>author.json</code></dd></dl></details></div></li>
+        <li><div class="fc-step"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看第 4 步：交付">4</button><a class="fc-t" href="#ds-deliver">交付</a></div><span class="fc-who"><span class="nw">check-state.sh</span> · <span class="nw">主 agent</span></span><p class="fc-d">原样展示 <code>describe.md</code>，给出两个本地链接，转告 <code>NOTE:</code>。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>渲染结果</dd><dt>产出</dt><dd>原样展示 <code>describe.md</code>，给出 <code>md_link=</code> 和 <code>link=</code> 两个本地链接，转告 <code>NOTE:</code></dd></dl></details></div></li>
+        <li><div class="fc-step opt"><div class="fc-top"><button type="button" class="fc-n" aria-label="在动画里看最后一步：你来粘贴">+</button><a class="fc-t" href="#describe-limits">你来粘贴</a></div><span class="fc-who"><span class="nw">你</span></span><p class="fc-d">你核对后自己复制到 PR/MR；插件不发布。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd><code>describe.md</code></dd><dt>产出</dt><dd>你核对后自己复制到 PR/MR；插件不发布、不修改平台上的描述</dd></dl></details></div></li>
         </ol>
         <p class="fc-note">describe 不依赖 review 的产出，没审查过也能用；托管平台只读，用户要求也不替你发布或修改 PR/MR。</p>
-        <p class="fc-demo-h"><b>动画</b>为 MR 128 生成描述：从回答需求单链接到你自己粘贴（演示数据）</p>
       <div class="cr-demo" id="dsDemo" role="group" aria-labelledby="dsDemoTitle">
         <div class="cr-head">
           <div>
-            <b id="dsDemoTitle">动画：生成一份 PR/MR 描述</b>
-            <p class="muted">一步一步看终端里发生什么；播到哪一步，上方流程卡对应的那一步就高亮。文件名、编号和输出内容是演示数据。滚动到这里会自动循环播放，滚出视野暂停；可暂停、重播，或用左右方向键切换步骤；系统开启“减少动态效果”时不自动播放，直接显示最后一步的完整结果。</p>
+            <b id="dsDemoTitle">动画：为 MR 128 生成描述，从回答需求单链接到你自己粘贴</b>
+            <p class="muted">演示数据。点流程卡或按 ← → 切换步骤，开启“减少动态效果”时直接显示最后一步。</p>
           </div>
           <div class="demo-ctrl">
             <button type="button" data-act="prev" aria-label="上一步">‹ 上一步</button>
@@ -1062,7 +1053,6 @@ nav.toc a.top.active { color: var(--accent); }
           </div>
         </div>
         <p class="trackinfo" data-r="info"></p>
-        <ol class="segs" data-r="segs" aria-label="跳到某一步"></ol>
         <div class="win">
           <div class="win-bar">
             <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -1074,20 +1064,16 @@ nav.toc a.top.active { color: var(--accent); }
           </div>
         </div>
         <div class="cr-cap">
-          <div class="scene-title"><span class="scene-no" data-r="no"></span><b data-r="title"></b><span class="tag2" data-r="who"></span></div>
+          <div class="scene-title"><span class="scene-no sbadge" data-r="no"></span><b data-r="title"></b><span class="tag2" data-r="who"></span></div>
           <p class="scene-cap" data-r="cap" aria-live="polite"></p>
         </div>
 
-        <template data-track="main" data-fc="0" data-title="发起并回答资料" data-who="你 · 主 agent" data-cap="用自然语言或命令发起。问哪些资料由配置 describe.ask 决定（默认需求单），而且对应的读取工具配了才问；要问的每次生成都问一次，审查记录里问过也照问。用户这次已经给了链接、说没有需求单或跳过时不再问。给了链接时按 review 的采集协议读取正文并暂存。">
+        <template data-track="main" data-fc="0" data-title="发起、回答资料并采集" data-who="你 · 主 agent · 脚本" data-cap="问哪些资料由 describe.ask 决定（默认需求单），对应的读取工具配了才问；要问的每次生成都问，用户已给链接、说没有或跳过时不再问。collect.sh 调用 review 的 collect-diff.sh，全量、不分批，最后一行是材料目录 dir；以 collection_skill=describe 跳过审查进行中标记和来源状态写入，不影响之后 review 问不问需求单。">
           <div class="tc">
             <div class="tp"><span class="pr">›</span>/crosscheck:describe 给 MR 128 写个描述</div>
             <div class="ta"><span class="bul">●</span>需求单链接是？可以贴链接，说没有需求单，或跳过。</div>
             <div class="tp"><span class="pr">›</span>需求单在这：&lt;需求单链接&gt;</div>
             <div class="ta"><span class="bul">●</span>用配置的读取工具读了需求单正文，暂存后开始采集。</div>
-          </div>
-        </template>
-        <template data-track="main" data-fc="0" data-title="采集" data-who="脚本" data-cap="collect.sh 调用 review 的 collect-diff.sh，总是全量、不分批，输出原样转出，最后一行是材料目录 dir。材料齐全时写出 describe-facts.json：代码块摘要、影响面、检查范围、入口、新增用例、调用方。采集时以 collection_skill=describe 跳过审查进行中标记和来源状态写入，描述不影响之后 review 问不问需求单。">
-          <div class="tc">
             <div class="tt"><span class="bul">◆</span><b>运行</b> collect.sh 128 --source requirement=&lt;需求单链接&gt; --source-dir &lt;暂存目录&gt;</div>
             <div class="to"><span class="tree">└</span>MR !128 · 5 个文件 · +186 −31 · 跳过 2 个（go.sum、package-lock.json）</div>
             <div class="to"><span class="tree">└</span>describe_facts: hunks=9 symbols=6 attention=2 entrypoints=1</div>
@@ -1267,7 +1253,8 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
       <p class="sec-lead"><b>解决什么：</b>找出这次改动里真实存在的问题，报告只放核实过、带依据的发现。<b>入口：</b>自然语言（「review 一下」「帮我看下 MR 128」）或命令 <code>/crosscheck:review</code>（Codex <code>$crosscheck:review</code>，Cursor <code>/review</code>）；不带目标时审当前分支的全部改动（含未提交内容）。流程图和动画见<a href="#fc-review">流程总览</a>。</p>
 
       <section id="flows">
-        <h3>步骤一览</h3>
+        <h3>只读约束与三档深度</h3>
+        <p class="muted">每一步谁来做、读写哪些文件见<a href="#fc-review">流程总览的 review 流程</a>；这里只讲贯穿每一步的只读约束，以及三档深度在哪几步不同。</p>
         <h4 id="read-only"><span id="security"></span>只读约束</h4>
         <p>下面这些约束对每一步、每个子代理都成立，任何规则文件都不能放宽。它们写在 <code>SKILL.md</code> 的「只读约束」、<code>references/common.md</code> 和每个角色说明里（子代理看不到 <code>SKILL.md</code>，所以各写一遍）。</p>
         <ul>
@@ -1288,14 +1275,14 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
         </details>
 
         <h4><span id="depth"></span>五步和三档深度</h4>
-        <p>每一步对应 <code>skills/review/SKILL.md</code> 的步骤编号；三档深度只在下表标出的地方不同。</p>
+        <p>步骤编号对应 <code>skills/review/SKILL.md</code>；三档深度只在下表标出的地方不同，各步的脚本和产出见流程卡的「输入 / 产出」。</p>
       <div class="table-wrap"><table>
-        <tr><th>步骤</th><th>谁做 · 产出</th><th>quick</th><th>standard（默认）</th><th>deep</th></tr>
-        <tr><td class="nowrap"><a href="#analyze">代码分析</a><br><span class="muted">第 1 步</span></td><td><code>collect-diff.sh</code>（内部调用 <code>collect-context.sh</code>、<code>settings.sh</code>、<code>feedback.sh history</code>）→ <code>diff.patch</code>、<code>ranges.txt</code>、<code>intent.md</code>、<code>sources.json</code>、<code>analysis-facts.json</code>、<code>weakening.txt</code>、<code>history.json</code></td><td colspan="3">三档相同：分析线索所有深度都生成；按约 1000 行算出批次，超过 4 批先问你</td></tr>
-        <tr><td class="nowrap"><a href="#rule-select">规则分析</a><br><span class="muted">第 2 步</span></td><td><code>collect-rules.sh</code> → <code>rules.txt</code>、<code>rules-index.json</code>、<code>rules-meta.txt</code></td><td>装配但不对照，报告写明有几块规则没查</td><td colspan="2">rules-auditor 对照；<code>blocks=0</code> 时跳过</td></tr>
-        <tr><td class="nowrap"><a href="#find">代码查找</a><br><span class="muted">第 3 步</span></td><td><code>reviewer</code>、<code>rules-auditor</code> → <code>finders/*.json</code> → <code>candidates.json</code></td><td>主 agent 自己按 reviewer 说明做第 1–3 遍，不分批、不启动子代理</td><td>reviewer（同一上下文做第 1–3 遍）和 rules-auditor 各一个子代理，同时启动；分批时每批各一次</td><td>同 standard，reviewer 多做第 4 遍影响面</td></tr>
-        <tr><td class="nowrap"><a href="#verify">结论核实</a><br><span class="muted">第 4、5 步</span></td><td><code>prepare-verify.sh</code> → <code>verifier</code> × N → <code>aggregate.sh</code> → <code>final.json</code>、<code>findings.json</code>、<code>rejected.json</code>、<code>completeness.txt</code></td><td>主 agent 自己核实，报告写明“同一宿主顺序核实”</td><td>每批一个 verifier 子代理，只读代码</td><td>工作区就是被审版本时，verifier 可经 <code>run-check.sh</code> 跑项目已有的检查和测试</td></tr>
-        <tr><td class="nowrap"><a href="#review-report">输出报告</a><br><span class="muted">第 6、7 步</span></td><td><code>check-state.sh</code>、<code>report-lines.sh</code>、主 agent、<code>save-review.sh</code> → 报告和审查记录；要求时 <code>--fix</code></td><td>最多 5 条</td><td colspan="2">缺陷 10 条；需求核对、规范各 5 条（可被 <code>REVIEW.md</code> 的 <code>limits</code> 覆盖）</td></tr>
+        <tr><th>步骤</th><th>quick</th><th>standard（默认）</th><th>deep</th></tr>
+        <tr><td class="nowrap"><a href="#analyze">代码分析</a><br><span class="muted">SKILL.md 第 1 步</span></td><td colspan="3">三档相同：分析线索所有深度都生成；按约 1000 行算出批次，超过 4 批先问你</td></tr>
+        <tr><td class="nowrap"><a href="#rule-select">规则分析</a><br><span class="muted">SKILL.md 第 2 步</span></td><td>装配但不对照，报告写明有几块规则没查</td><td colspan="2">rules-auditor 对照；<code>blocks=0</code> 时跳过</td></tr>
+        <tr><td class="nowrap"><a href="#find">代码查找</a><br><span class="muted">SKILL.md 第 3 步</span></td><td>主 agent 自己按 reviewer 说明做第 1–3 遍，不分批、不启动子代理</td><td>reviewer（同一上下文做第 1–3 遍）和 rules-auditor 各一个子代理，同时启动；分批时每批各一次</td><td>同 standard，reviewer 多做第 4 遍影响面</td></tr>
+        <tr><td class="nowrap"><a href="#verify">结论核实</a><br><span class="muted">SKILL.md 第 4、5 步</span></td><td>主 agent 自己核实，报告写明“同一宿主顺序核实”</td><td>每批一个 verifier 子代理，只读代码</td><td>工作区就是被审版本时，verifier 可经 <code>run-check.sh</code> 跑项目已有的检查和测试</td></tr>
+        <tr><td class="nowrap"><a href="#review-report">输出报告</a><br><span class="muted">SKILL.md 第 6、7 步</span></td><td>最多 5 条</td><td colspan="2">缺陷 10 条；需求核对、规范各 5 条（可被 <code>REVIEW.md</code> 的 <code>limits</code> 覆盖）</td></tr>
       </table></div>
       <p>深度按“当次指定 &gt; 根目录 <code>REVIEW.md</code> 头部的 <code>depth</code> &gt; standard”决定，PR/MR、分支和范围审查读 base 版的 <code>REVIEW.md</code>；<code>meta.txt</code> 记下来源（<code>depth_source</code>），报告的范围行写明，不认识的值提示后按 standard。全量（<code>--full</code>）和全部改动（<code>--allow-large</code>）只决定范围，不会升级成 deep。standard / deep 在宿主有子代理工具时必须用独立子代理，改动再小也一样；宿主没有这个工具时由主线程顺序执行，报告披露独立性限制。</p>
       </section>
@@ -1762,7 +1749,6 @@ globs: "src/orders/**"
       <h2>四、规则维护（improve）</h2>
       <p class="sec-lead"><b>解决什么：</b>统一维护项目规则，把用户补充、已有规则和可选的历史证据汇入同一份 <code>rules-draft.md</code>。<b>入口：</b><code>/crosscheck:improve</code>（Codex <code>$crosscheck:improve</code>，Cursor <code>/improve</code>）；用途不明时先问一次走本地维护还是历史归纳，明确要求历史沉淀才拉 MR。流程图和动画见<a href="#fc-improve">流程总览</a>，规则分工见<a href="#rules">规则机制</a>。</p>
       <p>无论新增、修改、删除还是合并，都先联查代码规则与 <code>REVIEW.md</code>，再生成维护草稿、预演 diff、确认当前版本，最后只写工作区。默认保存维护材料；明确“不保存 / 不留记录”时使用 <code>--no-store</code>，草稿和中间材料仍在临时目录，能继续对话修改，不改原配置和历史记录，也不影响已确认的规则写入。</p>
-      <div class="lifecycle"><span class="state s1">用户需求 · 本地规则 · 可选历史证据</span><span class="edge">联查职责、价值和范围</span><span class="state s3">rules-draft.md</span><span class="edge">预演 diff 与指纹</span><span class="state s3">用户确认当前版本</span><span class="edge">再核对目标文件</span><span class="state s2">只写工作区</span></div>
 
       <section id="improve-modes">
         <h3>维护入口</h3>
@@ -1786,6 +1772,7 @@ globs: "src/orders/**"
 
       <section id="improve-flow">
         <h3>沉淀流程</h3>
+        <p class="muted">六步流程见<a href="#fc-improve">流程总览的 improve 流程</a>；这里展开第 2 步「联查规则」前可选的历史材料。</p>
         <p>这是可选的材料前段，只有明确要求从历史沉淀时才运行。本地明确要求可以直接进入维护草稿；从历史推断新的长期约束仍要满足证据门槛。</p>
         <ol class="steps">
           <li id="imp-fetch"><b>只读拉取。</b>按用户要求的时间和数量范围采集已合并 MR 的完整讨论，以及本机判断记录；默认历史范围仍为最近 90 天，没有隐含 MR 数量上限。快照固定材料，分页失败或来源不完整时披露并停止对应推断，不用旧缓存冒充完整材料。</li>
@@ -1864,7 +1851,8 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
       <p class="muted"><code>--tested</code>、<code>--focus</code> 记在这个目标的描述目录（<code>author.json</code>），之后重新生成时沿用，传空字符串清除。describe 不问「怎么验证的」：验证建议由 analyst 依据目标版本代码起草，脚本识别的入口只是线索。</p>
 
       <section id="describe-flow">
-        <h3>生成步骤</h3>
+        <h3>步骤细节</h3>
+        <p class="muted">四步的分工和输入产出见<a href="#fc-describe">流程总览的 describe 流程</a>；下面只补每一步的细节。</p>
         <ol class="steps">
           <li id="ds-collect"><b>采集。</b>先问资料链接：问哪些类别由配置 <code>describe.ask</code> 决定（默认 <code>requirement</code>，即需求单），而且对应的读取工具（<code>tools.requirement</code> / <code>tools.doc_reader</code>）配了才问；要问的每次生成都问一次，审查记录里这个分支问过也照问。用户这次已经给了链接、明说没有需求单或跳过时不再问；给了链接且配了读取工具时，按 review 的采集协议读取正文并暂存。然后 <code>collect.sh</code> 调用 review 的 <code>collect-diff.sh</code>（总是全量、不分批），最后一行是材料目录 <code>dir</code>，材料齐全时还写出 <code>describe-facts.json</code>（代码块摘要、影响面、检查范围、入口、新增用例、调用方）。采集以 <code>collection_skill=describe</code> 直接跳过审查记录里的 <code>pending</code> 标记和来源状态写入，描述不影响 review 之后问不问需求单。非交互运行从第一次就带 <code>--non-interactive</code>：不提问、不编造，需求单记为未询问，表格对应值留空。<code>BASE_UNSET:</code>、<code>NEED_CODE_HOST:</code>、<code>BASE_FAILED:</code> 等提示按 review 的采集协议处理；<code>EMPTY</code> 时告诉用户没有可描述的改动并停止。</li>
           <li id="ds-draft"><b>起草。</b>能启动子代理时启动一个 analyst，任务只是「阅读 <code>roles/analyst.md</code> 并严格照做」，不贴 diff 或自己的印象，回复原样写成 <code>analyst.json</code>。代码块超过 40 个时 <code>describe-facts.json</code> 里有按目录分好的 <code>batches</code>，每批启动一个子代理，回复分别写成 <code>analyst-&lt;批次&gt;.json</code>，合并和去重交给下一步的脚本。不能启动子代理时主代理按同一角色和 JSON 契约逐批顺序执行，交付时披露「由主代理顺序起草，未进行独立复核」；起草失败或失败批次留缺，不补造。analyst 只读：读 <code>intent.md</code>、<code>describe-facts.json</code>、<code>diff.patch</code>，需要入口或调用方时用 <code>git show</code> 读 <code>meta.txt</code> 里 <code>code_ref</code> 指定的目标版本；不运行项目代码、测试或构建，不访问网络。</li>
@@ -2009,19 +1997,117 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
     updateThemeButton();
   });
 
-  // review 动画:按视角分成几条流程;静止时显示当前步骤的完整内容,点播放后逐步推进
-  // 动画播到第 n 步时,高亮流程总览里流程卡的第 n 步;n 为 -1 时不高亮。两段脚本共用
-  window.ccFcSync = function (id, n) {
-    var ol = document.querySelector('#' + id + ' .fc');
-    if (!ol) return;
-    Array.prototype.forEach.call(ol.children, function (li, k) {
-      li.classList.toggle('fc-cur', k === n);
-      li.classList.toggle('fc-past', n >= 0 && k < n);
-      var a = li.querySelector('.fc-t');
-      if (a) { if (k === n) a.setAttribute('aria-current', 'step'); else a.removeAttribute('aria-current'); }
+  // 流程卡就是动画的步骤条:sync 高亮第 n 张卡(-1 不高亮),sub 是同一张卡里的第几段(如 "2/2");
+  // progress 画高亮卡底部的进度;bind 登记点卡片时怎么跳步骤。两段脚本共用
+  window.ccFc = (function () {
+    var jumps = {};
+    function cards(id) { var ol = document.querySelector('#' + id + ' .fc'); return ol ? Array.prototype.slice.call(ol.children) : []; }
+    Array.prototype.forEach.call(document.querySelectorAll('.fc-step'), function (st) {
+      var bar = document.createElement('span');
+      bar.className = 'fc-bar';
+      bar.setAttribute('aria-hidden', 'true');
+      bar.appendChild(document.createElement('i'));
+      st.appendChild(bar);
     });
-  };
+    document.addEventListener('click', function (e) {
+      var li = e.target.closest ? e.target.closest('.fc > li') : null;
+      if (!li || e.target.closest('a, .fc-io')) return;
+      var wrap = li.closest('.fc-wrap'), fn = wrap && jumps[wrap.id];
+      if (fn) fn(Array.prototype.indexOf.call(li.parentNode.children, li));
+    });
+    return {
+      bind: function (id, fn) { jumps[id] = fn; },
+      label: function (id, n) { var li = cards(id)[n], b = li && li.querySelector('.fc-n'); return b ? b.textContent : ''; },
+      sync: function (id, n, sub) {
+        cards(id).forEach(function (li, k) {
+          li.classList.toggle('fc-cur', k === n);
+          li.classList.toggle('fc-past', n >= 0 && k < n);
+          var b = li.querySelector('.fc-n');
+          if (b) { if (k === n) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); }
+          var old = li.querySelector('.fc-sub');
+          if (old) old.remove();
+          if (k === n && sub) {
+            var s = document.createElement('span');
+            s.className = 'fc-sub';
+            s.textContent = sub;
+            s.title = '这张卡在动画里有几段,正播第几段';
+            li.querySelector('.fc-t').after(s);
+          }
+        });
+      },
+      progress: function (id, p) {
+        var i = document.querySelector('#' + id + ' .fc > li.fc-cur .fc-bar > i');
+        if (i) i.style.transform = 'scaleX(' + Math.max(0, Math.min(1, p)) + ')';
+      }
+    };
+  })();
 
+  // 流程卡排版:按宽度算最多几列,再让各行张数接近(7 张排 4+3,6 张排 3+3);每行第一张不画箭头,只剩一列时竖排
+  (function () {
+    var MIN = 180, GAP = 22;
+    function layout(ol) {
+      var lis = ol.children, n = lis.length, w = ol.clientWidth;
+      if (!n || !w) return;
+      var max = Math.max(1, Math.floor((w + GAP) / (MIN + GAP)));
+      var cols = Math.ceil(n / Math.ceil(n / max));
+      ol.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+      ol.classList.toggle('fc-col', cols === 1);
+      for (var k = 0; k < n; k++) lis[k].classList.toggle('fc-rs', k % cols === 0);
+    }
+    var ols = Array.prototype.slice.call(document.querySelectorAll('.fc'));
+    if ('ResizeObserver' in window) {
+      var ro = new ResizeObserver(function (es) { es.forEach(function (e) { layout(e.target); }); });
+      ols.forEach(function (ol) { ro.observe(ol); });
+    } else {
+      window.addEventListener('resize', function () { ols.forEach(layout); });
+    }
+    ols.forEach(layout);
+  })();
+
+  // 三个流程用标签切换,一次只显示一个;切走的流程不在视野里,它的动画由各自的视野检测暂停。
+  // 地址里的锚点落在某个流程内部(#fc-improve、#demo-describe、流程卡里的 id 等)时,自动切到那个流程
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.fc-tabs [role="tab"]'));
+    if (!tabs.length) return;
+    function select(id, focus) {
+      tabs.forEach(function (b) {
+        var on = b.getAttribute('aria-controls') === id;
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+        document.getElementById(b.getAttribute('aria-controls')).hidden = !on;
+        if (on && focus) b.focus();
+      });
+    }
+    tabs.forEach(function (b, i) {
+      b.addEventListener('click', function () { select(b.getAttribute('aria-controls')); });
+      b.addEventListener('keydown', function (e) {
+        var j = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
+        if (j === null) return;
+        e.preventDefault();
+        select(tabs[(j + tabs.length) % tabs.length].getAttribute('aria-controls'), true);
+      });
+    });
+    function fromHash() {
+      var id = '';
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch (e) { return false; }
+      var el = id && document.getElementById(id), wrap = el && el.closest('.fc-wrap');
+      if (!wrap) return false;
+      if (wrap.hidden) select(wrap.id);
+      return el;
+    }
+    select('fc-review');
+    fromHash();
+    window.addEventListener('hashchange', function () { var el = fromHash(); if (el) el.scrollIntoView(); });
+    // 点同一个锚点不会触发 hashchange,这里补上切换
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a[href^="#"]') : null;
+      if (!a || a.getAttribute('href') !== location.hash) return;
+      var el = fromHash();
+      if (el) { e.preventDefault(); el.scrollIntoView(); }
+    });
+  })();
+
+  // review 动画:按视角分成几条流程;静止时显示当前步骤的完整内容,点播放后逐步推进
   var demo = document.getElementById('demo');
   var ACTOR_NAMES = {
     you: '你', lead: '项目负责人', main: '主 agent', script: '脚本', hook: 'hook',
@@ -2043,26 +2129,27 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
         [['report', '报告', 'CR 报告', 'doc']]],
       edges: [['you', 'main'], ['main', 'script'], ['script', 'gparallel'], ['gfind', 'verifier', { label: '5 条候选' }],
         ['verifier', 'report', { label: 'pass' }]],
+      // fc 是流程卡的序号:0 发起审查 … 5 输出报告,6 是「+ 报告之后」,和动画步骤一一对应
       scenes: [
         { title: '发起审查', fc: 0, actors: ['you', 'main'], pipe: ['you', 'main'],
           cap: '你用平时说话的方式发起审查，主 agent 把理解到的范围、深度和意图复述一遍，理解错了可以马上纠正。',
           log: [['你', '/crosscheck:review 帮我看下 MR 128,这次是修复分页丢数据'], ['主 agent', '→ target 128 · --intent "修复分页丢数据" · 深度 standard']] },
-        { title: '代码分析', fc: 0, actors: ['script', 'hook'], pipe: ['script'],
+        { title: '代码分析', fc: 1, actors: ['script', 'hook'], pipe: ['script'],
           cap: '脚本拉取 MR 的改动，过滤测试和 lock 文件，算出改动行的范围，扫出被削弱的测试和检查；同时记下仓库状态，开始统计用量。',
           log: [['collect-diff', '拉取 MR !128(code.company.com)'], ['collect-diff', '5 个文件 · +186 −31 · 跳过 2 个'], ['collect-context', '意图来源已整理 · 验收标准 2 条 · 测试削弱 1 处'], ['guard', '审查开始,开始统计用量']] },
-        { title: '规则分析', fc: 1, actors: ['script', 'repo'], pipe: ['script'],
+        { title: '规则分析', fc: 2, actors: ['script', 'repo'], pipe: ['script'],
           cap: '意图和验收标准在代码分析时已经从 MR 描述、关联需求、提交说明、人工讨论和你的补充里整理好；规则分析读仓库里的规则文件（PR/MR 从 base 读），按改动的文件挑出这次适用的。',
           log: [['collect-rules', 'REVIEW.md · CLAUDE.md · .cursor/rules/orders.mdc']] },
-        { title: '代码查找', fc: 2, actors: ['main', 'reviewer', 'rules'], pipe: ['reviewer', 'rules'],
+        { title: '代码查找', fc: 3, actors: ['main', 'reviewer', 'rules'], pipe: ['reviewer', 'rules'],
           cap: '同一阶段并行做两类查找：reviewer 和 rules-auditor 互相独立。reviewer 在同一上下文分遍查正确性、安全、需求核对，复用已读材料；rules-auditor 对照规则并引用原文。两个角色把候选交给核实。',
           log: [['主 agent', '并行启动：候选查找 ×2'], ['reviewer', '5 条候选'], ['rules-auditor', '1 条候选 · 引文 .cursor/rules/orders.mdc'], ['主 agent', '合并去重 6 → 5 条(:43 与 :42 同根因)']] },
-        { title: '结论核实', fc: 3, actors: ['verifier', 'script'], pipe: ['verifier'],
+        { title: '结论核实', fc: 4, actors: ['verifier', 'script'], pipe: ['verifier'],
           cap: 'verifier 只拿到候选结论，逐条重新读代码，先尝试推翻再打分，并给出读过的代码和排除的可能。脚本核对依据位置和规则引文，低于 80 分的不报但留档。',
           log: [['verifier ×2', '5 条候选'], ['aggregate', '依据位置 ✓ · 规则引文 ✓'], ['aggregate', '通过 3 · 否决 2 → rejected.json']] },
-        { title: '输出报告', fc: 4, actors: ['main', 'script'], pipe: ['report'],
+        { title: '输出报告', fc: 5, actors: ['main', 'script'], pipe: ['report'],
           cap: '问题代码由脚本从原文摘取，每条附上依据；测试削弱单列；末尾写明用了哪些规则文件。',
           log: [['check-state', '仓库未被改动 ✓ · 只读阶段结束'], ['save-review', '报告已保存']] },
-        { title: '报告之后', actors: ['you', 'main'], pipe: ['you', 'main', 'report'], fc: 5,
+        { title: '报告之后', actors: ['you', 'main'], pipe: ['you', 'main', 'report'], fc: 6,
           cap: '你确认第 1 条、质疑第 2 条。主 agent 重新核对调用方，确认外层有事务后撤回；两条判断都记下来，同一段代码不变时不再报。',
           log: [['主 agent', '重新核对 handler.go:30-48'], ['feedback', 'valid #1'], ['feedback', 'invalid #2「外层事务整体回滚」']] }
       ] }
@@ -2093,13 +2180,12 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
   var pipeIn = document.getElementById('dPipeIn');
   var logEl = document.getElementById('dLog');
   var logCount = document.getElementById('dLogCount');
-  var dotsEl = document.getElementById('dDots');
   var tabsEl = document.getElementById('dTracks');
   var playBtn = document.getElementById('dPlay');
   var speedBtn = document.getElementById('dSpeed');
   var termPane = document.getElementById('dTerm');
   var t = 0, cur = 0, speed = 1, mode = 'idle'; // idle | playing | paused | ended
-  var sceneEls = [], chunkEls = [], segBtns = [], nodeEls = {}, nodeState = {}, groupOf = {}, inGroup = {}, linksSvg = null, frozen = [];
+  var sceneEls = [], chunkEls = [], nodeEls = {}, nodeState = {}, groupOf = {}, inGroup = {}, linksSvg = null, frozen = [];
   var elabs = [], passLab = null, binEl = null, passN = 0, binN = 0;
   var clock = 0, dur = 0, last = 0, raf = 0, tl = null, quiet = false;
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -2626,28 +2712,13 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
     chunkEls = sl(termEls[tr.id].querySelectorAll('.tc'));
     document.getElementById('dTrackInfo').textContent = tr.info;
     buildPipe(tr);
-    dotsEl.textContent = '';
-    tr.scenes.forEach(function (sc, k) {
-      var li = document.createElement('li');
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'seg';
-      b.setAttribute('aria-label', '第 ' + (k + 1) + ' 步：' + sc.title);
-      b.innerHTML = '<span class="seg-bar"><span class="seg-fill"></span></span><span class="seg-t"><span class="seg-n">' + (k + 1) + '</span><span class="seg-l">' + sc.title + '</span></span>';
-      b.addEventListener('click', function () { userStopped = true; stop(); show(k, true); });
-      li.appendChild(b);
-      dotsEl.appendChild(li);
-    });
-    segBtns = sl(dotsEl.querySelectorAll('.seg'));
     setBtn();
   }
 
+  // 当前步骤的播放进度画在高亮流程卡的底部
   function paintSegs() {
     var running = (mode === 'playing' || mode === 'paused') && !still();
-    segBtns.forEach(function (b, k) {
-      var f = k < cur ? 1 : k > cur ? 0 : running ? Math.min(1, clock / dur) : 1;
-      b.firstChild.firstChild.style.transform = 'scaleX(' + f + ')';
-    });
+    window.ccFc.progress('fc-review', running ? clock / dur : 1);
   }
 
   function show(i, animate) {
@@ -2655,11 +2726,10 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
     animate = animate && !still();
     var scenes = tracks[t].scenes, sc = scenes[i];
     sceneEls.forEach(function (el, k) { el.hidden = k !== i; });
-    segBtns.forEach(function (b, k) { if (k === i) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
-    document.getElementById('dNo').textContent = (i + 1) + ' / ' + scenes.length;
+    window.ccFc.sync('fc-review', sc.fc);
+    document.getElementById('dNo').textContent = window.ccFc.label('fc-review', sc.fc);
     document.getElementById('dTitle').textContent = sc.title;
     document.getElementById('dCap').textContent = sc.cap;
-    window.ccFcSync('fc-review', sc.fc);
     // 终端保留之前几步的输出,当前这步从头播放
     chunkEls.forEach(function (el, k) {
       el.hidden = k > i;
@@ -2749,6 +2819,11 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
     stop(); cur = 0; start();
   });
   function step(d) { userStopped = true; stop(); show(Math.max(0, Math.min(tracks[t].scenes.length - 1, cur + d)), true); }
+  // 点流程卡:跳到这张卡对应的动画步骤
+  window.ccFc.bind('fc-review', function (k) {
+    var scenes = tracks[t].scenes;
+    for (var i = 0; i < scenes.length; i++) if (scenes[i].fc === k) { userStopped = true; stop(); show(i, true); return; }
+  });
   document.getElementById('dPrev').addEventListener('click', function () { step(-1); });
   document.getElementById('dNext').addEventListener('click', function () { step(1); });
   speedBtn.addEventListener('click', function () {
@@ -2807,14 +2882,15 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
 </script>
 <script>
 // 终端逐步演示(improve、describe 共用一套):步骤内容来自容器里的 <template>,每次切换都重新生成,所以可以反复重播。
-// 模板上的 data-fc 是流程总览里流程卡的序号,播到这一步就高亮那张卡;没有 data-fc 的步骤(如“整理整份 REVIEW.md”)不高亮。
+// 模板上的 data-fc 是流程总览里流程卡的序号,播到这一步就高亮那张卡,编号取自卡片;一张卡对应几段时(improve 补充后回到草稿)卡上标出第几段。
+// 没有单独的步骤条:点流程卡跳步骤,播放进度画在高亮卡底部。
 (function () {
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   var sl = function (list) { return Array.prototype.slice.call(list); };
 
   function stepDemo(root, opt) {
     var $ = function (r) { return root.querySelector('[data-r="' + r + '"]'); };
-    var pane = $('pane'), stepsBox = $('steps'), segList = $('segs');
+    var pane = $('pane'), stepsBox = $('steps');
     var playBtn = root.querySelector('[data-act="play"]'), prevBtn = root.querySelector('[data-act="prev"]');
     var nextBtn = root.querySelector('[data-act="next"]'), replayBtn = root.querySelector('[data-act="replay"]');
     var trackBtns = sl(root.querySelectorAll('.tracks button'));
@@ -2824,7 +2900,7 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
       var k = tp.getAttribute('data-track');
       (tpls[k] = tpls[k] || []).push(tp);
     });
-    var track = opt.start, cur = 0, playing = false, timer = 0, segBtns = [];
+    var track = opt.start, cur = 0, playing = false, timer = 0, progRaf = 0, progStart = 0, progLen = 1;
     var userPaused = false; // 你点过暂停或手动切过步骤之后,滚回来也不再自动播放
 
     function list() { return tpls[track]; }
@@ -2835,35 +2911,22 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
       if (on) started = true;
       playBtn.textContent = on ? '❚❚ 暂停' : started ? '▶ 继续' : '▶ 播放';
       playBtn.setAttribute('aria-label', on ? '暂停' : started ? '继续' : '播放');
-      if (!on) stopTimer();
+      if (!on) { stopTimer(); stopProg(1); }
+    }
+    function cardOf(i) { var v = list()[i].getAttribute('data-fc'); return v === null ? -1 : +v; }
+    // 这张卡在当前演示里对应的所有步骤
+    function stepsOf(k) { var out = []; list().forEach(function (tp, i) { if (cardOf(i) === k) out.push(i); }); return out; }
+    function stopProg(p) { cancelAnimationFrame(progRaf); progRaf = 0; window.ccFc.progress(opt.fc, p); }
+    function runProg() {
+      progRaf = 0;
+      if (!playing) return;
+      window.ccFc.progress(opt.fc, (performance.now() - progStart) / progLen);
+      progRaf = requestAnimationFrame(runProg);
     }
     function atEdge() {
       prevBtn.setAttribute('aria-disabled', cur === 0 ? 'true' : 'false');
       nextBtn.setAttribute('aria-disabled', cur === list().length - 1 ? 'true' : 'false');
     }
-    function buildSegs() {
-      segList.textContent = '';
-      segBtns = list().map(function (tp, i) {
-        var li = document.createElement('li'), b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'seg';
-        b.setAttribute('aria-label', '跳到第 ' + (i + 1) + ' 步：' + tp.getAttribute('data-title'));
-        b.innerHTML = '<span class="seg-bar"><span class="seg-fill"></span></span>' +
-          '<span class="seg-t"><span class="seg-n">' + (i + 1) + '</span><span class="seg-l"></span></span>';
-        b.querySelector('.seg-l').textContent = tp.getAttribute('data-title');
-        b.addEventListener('click', function () { manualStop(); go(i, true); });
-        li.appendChild(b);
-        segList.appendChild(li);
-        return b;
-      });
-    }
-    function paintSegs() {
-      segBtns.forEach(function (b, i) {
-        if (i === cur) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
-        b.querySelector('.seg-fill').style.transform = i <= cur ? 'scaleX(1)' : 'scaleX(0)';
-      });
-    }
-
     // 到第 n 步:前面的步骤原样显示(播放时变淡),当前步骤逐行出现
     function go(n, animate) {
       var items = list();
@@ -2883,13 +2946,14 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
         }
         stepsBox.appendChild(frag);
       }
-      var tp = items[cur], fc = tp.getAttribute('data-fc');
-      noEl.textContent = '步骤 ' + (cur + 1) + ' / ' + items.length;
+      var tp = items[cur], fc = cardOf(cur), same = stepsOf(fc);
+      var sub = fc >= 0 && same.length > 1 ? (same.indexOf(cur) + 1) + '/' + same.length : '';
+      window.ccFc.sync(opt.fc, fc, sub);
+      noEl.textContent = fc >= 0 ? window.ccFc.label(opt.fc, fc) + (sub ? ' · ' + sub : '') : '';
       titleEl.textContent = tp.getAttribute('data-title');
       whoEl.textContent = '谁：' + tp.getAttribute('data-who');
       capEl.textContent = tp.getAttribute('data-cap');
-      if (window.ccFcSync) window.ccFcSync(opt.fc, fc === null ? -1 : +fc);
-      paintSegs();
+      window.ccFc.progress(opt.fc, playing ? 0 : 1);
       atEdge();
       pane.scrollTop = cur === 0 ? 0 : Math.max(0, Math.min(now.offsetTop - 8, pane.scrollHeight - pane.clientHeight));
     }
@@ -2898,10 +2962,14 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
       stopTimer();
       if (!playing) return;
       var lines = stepsBox.querySelectorAll('.tc.now > *').length;
+      progLen = Math.min(6500, 2400 + lines * 380);
+      progStart = performance.now();
+      cancelAnimationFrame(progRaf);
+      runProg();
       timer = setTimeout(function () {
         go(cur >= list().length - 1 ? 0 : cur + 1, true);
         schedule();
-      }, Math.min(6500, 2400 + lines * 380));
+      }, progLen);
     }
     function stop() { setPlaying(false); }
     function manualStop() { userPaused = true; stop(); }
@@ -2933,7 +3001,6 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
       track = name;
       trackBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-track') === name ? 'true' : 'false'); });
       infoEl.textContent = opt.info[name] || '';
-      buildSegs();
       if (reduced.matches) showFull(); else go(0, false);
       if (wasPlaying) startAuto();
     }
@@ -2943,6 +3010,14 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
     prevBtn.addEventListener('click', function () { manualStop(); go(cur - 1, true); });
     nextBtn.addEventListener('click', function () { manualStop(); go(cur + 1, true); });
     trackBtns.forEach(function (b) { b.addEventListener('click', function () { setTrack(b.getAttribute('data-track')); }); });
+    // 点流程卡:跳到这张卡的第一段;已经在这张卡上时跳到它的下一段
+    window.ccFc.bind(opt.fc, function (k) {
+      var same = stepsOf(k);
+      if (!same.length) return;
+      var at = same.indexOf(cur);
+      manualStop();
+      go(at < 0 ? same[0] : same[(at + 1) % same.length], true);
+    });
     root.addEventListener('keydown', function (e) {
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); manualStop(); go(cur + 1, true); }
