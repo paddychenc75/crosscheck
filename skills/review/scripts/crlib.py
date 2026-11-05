@@ -385,7 +385,7 @@ def rule_warnings(kind, rule, paths, exceptions=""):
     """写法合格、但可能不是一条可复用约束的地方:只警告,不拦写入,也不自动改写或放宽范围。"""
     out = []
     if paths and not any(re.search(r"[*?\[{]", p) for p in paths):
-        out.append("范围全是具体文件(%s),更像一次修复的记录;确认能否写成目录或文件类型" % ", ".join(paths))
+        out.append("范围全是具体文件(%s):如果规则只适用于这些文件,它可能是一次修复的记录,考虑退为案例;不要为消除这条警告改成目录" % ", ".join(paths))
     verbs = len(RULE_VERB.findall(norm(rule)))
     if kind == "rule" and verbs > 1:
         out.append("规则里有 %d 处「必须 / 禁止」,一条规则只写一个约束,其余拆开" % verbs)

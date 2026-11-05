@@ -336,6 +336,10 @@ def main(argv):
                 if kind == "rule" and not incident:
                     unmet.append("待确认:缺「情形」(这次具体发生了什么、反例错在哪、正例为什么修好了)")
                 if wider:
+                    # 推广到情形之外要有情形之外的依据:另一个 MR,或固定 head 上已核对的独立实现
+                    if not (len(refs) > 1 or practice_verified):
+                        disposition = "watch"
+                        require(False, "案例:推广到情形之外,但没有第二个 MR 或固定 head 上已核对的独立实现作依据")
                     unmet.append("待确认:原则比情形宽一级," + wider)
                 why = crlib.norm(c.get("why", ""))
                 if crlib.MR_REF.search(why):
@@ -346,6 +350,7 @@ def main(argv):
                 exts = {os.path.splitext(e["file"])[1][1:].lower() for e in ev if e.get("file")}
                 kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule,
                                  why=why, severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""), incident=incident,
+                                 generalized=wider,
                                  severity_reason=crlib.norm(severity_reason),
                                  bad_example=str(c.get("bad_example") or ""), good_example=str(c.get("good_example") or ""),
                                  lang=next(iter(exts)) if len(exts) == 1 else "",

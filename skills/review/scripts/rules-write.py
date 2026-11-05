@@ -470,29 +470,37 @@ def compact(text):
     return "".join(str(text or "").split())
 
 
+OMITTED = re.compile(r"(//|#|/\*|\*|--|<!--)\s*(\.\.\.|…)|…|\.\.\.(?![\w$\[({])")
+
+
 def code_rows(text):
-    """示例里要对照的代码行,去掉全部空白;空行、省略号行和只有括号标点的行不算。"""
+    """示例里要对照的代码行,去掉全部空白;空行、省略行和只有括号标点的行不算。
+    省略行:去掉前导注释标记后以省略号开头,后面带不带说明都算。只认标点,不认词;
+    没有注释标记时 ... 紧跟标识符或括号(展开语法 ...rest)仍是代码。"""
     rows = []
     for row in str(text or "").split("\n"):
         s = compact(row)
-        if not s or re.fullmatch(r"(//|#|/\*|\*|--|<!--)?(\.\.\.|…+)(\*/|-->)?", s) or re.fullmatch(r"[{}()\[\];,]+", s):
+        if not s or OMITTED.match(row.strip()) or re.fullmatch(r"[{}()\[\];,]+", s):
             continue
         rows.append(s)
     return rows
 
 
 class CodeSources:
-    """核对示例用的代码:评论时的代码窗口(快照里评论的 code)、各 MR 最终 head 与采集时固定 head 上的相关文件。
-    只读 Git 对象,不读工作区;读不到的当作没有。"""
+    """核对示例用的代码:评论时的代码窗口(快照里评论的 code)、评论所在 commit 上的文件全文、
+    各 MR 最终 head 与采集时固定 head 上的相关文件。只读 Git 对象,不读工作区;读不到的当作没有。
+    旧快照的评论没有 commit 字段时只用窗口。"""
 
     def __init__(self, work, root):
         path = os.path.join(work, "snapshot.json")
         snapshot = json.loads(rules_draft.read(path)) if os.path.isfile(path) else {}
-        self.windows, self.heads = {}, {}
+        self.windows, self.heads, self.commented = {}, {}, {}
         for rec in snapshot.get("records", []):
             self.heads[str(rec.get("iid"))] = rec.get("head_sha") or ""
             for note in rec.get("notes", []):
-                self.windows[(str(rec.get("iid")), str(note.get("id")))] = str(note.get("code") or "")
+                key = (str(rec.get("iid")), str(note.get("id")))
+                self.windows[key] = str(note.get("code") or "")
+                self.commented[key] = (note.get("commit") or "", note.get("file") or "")
         self.head = crlib.read_kv(os.path.join(work, "meta.txt")).get("head", "")
         self.code = mining_evidence.CodeEvidence(root)
 
@@ -506,22 +514,25 @@ class CodeSources:
 
     def texts(self, c):
         """-> (评论时的代码窗口, 全部可对照的代码),都已去掉空白。"""
-        windows, final, files = [], [], set()
+        windows, commented, final, files = [], [], [], set()
         for e in c.get("evidence", []):
             if "mr" not in e:
                 continue
-            windows.append(self.windows.get((str(e["mr"]), str(e.get("note"))), ""))
+            key = (str(e["mr"]), str(e.get("note")))
+            windows.append(self.windows.get(key, ""))
+            commented.append(self.blob(*self.commented.get(key, ("", ""))))
             names = {e.get("file")} | {x.get("file") for x in e.get("assessment", {}).get("code", [])}
             final += [self.blob(self.heads.get(str(e["mr"])), name) for name in sorted(x for x in names if x)]
             files |= names
         practice = c.get("practice") or {}
         files |= {x.get("file") for key in ("examples", "counterexamples") for x in practice.get(key, [])}
         base = [self.blob(self.head, name) for name in sorted(x for x in files if x)]
-        return [compact(w) for w in windows if w], [compact(t) for t in windows + final + base if t]
+        return [compact(w) for w in windows if w], [compact(t) for t in windows + commented + final + base if t]
 
 
 def example_warnings(c, sources):
-    """反例要能在真实代码里找到;正例改动的行不该在评论时的代码里早就有。只警告,不拦写入。"""
+    """反例要能在真实代码里找到;正例和反例要有不同的行(加了行或删了行都算);
+    正例加上的行不该在评论时的代码里早就有。只警告,不拦写入。"""
     if c["kind"] != "rule" or not c.get("bad_example"):
         return []
     windows, texts = sources.texts(c)
@@ -532,10 +543,12 @@ def example_warnings(c, sources):
     missing = [row for row in bad if not any(row in t for t in texts)]
     if missing:
         out.append("反例有 %d 行在评论时的代码、MR 最终代码和采集时 head 里都找不到,请确认它来自真实代码" % len(missing))
-    fixed = [row for row in code_rows(c.get("good_example")) if row not in bad]
-    if c.get("good_example") and not fixed:
+    good = code_rows(c.get("good_example"))
+    added = [row for row in good if row not in bad]
+    removed = [row for row in bad if row not in good]
+    if c.get("good_example") and not added and not removed:
         out.append("正例和反例没有不同的代码行,正例应是反例的修复")
-    elif fixed and windows and all(any(row in w for w in windows) for row in fixed):
+    elif added and windows and all(any(row in w for w in windows) for row in added):
         out.append("正例改动的行在评论时的代码里已经有了,可能不是这次的修复")
     return out
 
@@ -563,7 +576,7 @@ def editor_input(todo):
     for b, c in todo:
         lines += ["", "## 候选 %d. %s" % (b["cand"], b["title"]), "",
                   "- **类别**:" + ("规则" if c["kind"] == "rule" else "不要报")]
-        for name, key in (("规则", "rule"), ("情形", "incident"), ("原因", "why"), ("严重级别", "severity")):
+        for name, key in (("规则", "rule"), ("情形", "incident"), ("原因", "why"), ("严重级别", "severity"), ("推广", "generalized")):
             if c.get(key):
                 lines.append("- **%s**:%s" % (name, c[key]))
         lines.append("- **范围**:" + ", ".join(c["paths"]))
@@ -594,7 +607,7 @@ def review_gate(work, todo):
         with crlib.record_write(path):
             rules_draft.atomic(path, editor_input(waiting))
         errors += [(b["label"], "复核", "还没有独立复核;待复核的块已写到 %s:按 roles/editor.md 交给独立读者,"
-                    "回复按候选编号合并进 %s,再把结论(写入 / 改写 / 案例,加一句理由)抄进「复核」后重新 --prepare"
+                    "回复按候选编号合并进 %s,再把结论(可读 / 改写 / 案例,加一句理由)抄进「复核」后重新 --prepare"
                     % (path, os.path.join(work, EDITOR))) for b, _ in waiting]
     return errors
 

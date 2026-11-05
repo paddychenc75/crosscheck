@@ -433,7 +433,7 @@ class RulesMining(fixture.Base):
         if field == "动作" and value == "写入":
             self.reviewed(work, n)
 
-    def reviewed(self, work, n, verdict="写入"):
+    def reviewed(self, work, n, verdict="可读"):
         """模拟独立读者复核:结论存进 editor.json,并抄进块的「复核」(已有就不动)。"""
         path = Path(work, "editor.json")
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"reviews": []}
@@ -1369,13 +1369,31 @@ class RulesMining(fixture.Base):
 
     # ---------- 情形、读者复核、只警告的检查 ----------
 
+    def test_generalization_without_outside_evidence_is_a_case(self):
+        # 只有一个 MR、没有固定 head 上已核对的独立实现:推广到情形之外没有依据,退为案例
+        lone = rule(title="查询有上限", rule="在 src/api/** 的查询接口里,必须限制返回条数", generalized="从订单列表推广到所有查询接口",
+                    evidence=[rule()["evidence"][0]])
+        work, no = self.prepare(lone)
+        self.assertNotIn(lone["rule"], no)
+        row = next(r for r in self.load(os.path.join(work, "dropped.json")) if r["rule"] == lone["rule"])
+        self.assertEqual(row["disposition"], "watch")
+        self.assertIn("推广到情形之外", row["reason"])
+
     def test_incident_is_required_and_generalization_is_pending(self):
+        # 第二个 MR 是情形之外的依据:推广照常进待确认,并交给读者看
         wide = rule(title="查询有上限", rule="在 src/api/** 的查询接口里,必须限制返回条数", generalized="从订单列表推广到所有查询接口")
         bare = rule(title="金额不用浮点", rule="在 src/api/** 里,金额计算禁止使用浮点数", incident="")
         work, no = self.prepare(wide, bare)
         nw, nb = no[wide["rule"]], no[bare["rule"]]
         cands = {c["no"]: c for c in self.load(os.path.join(work, "candidates.json"))}
         self.assertIn("待确认:原则比情形宽一级,从订单列表推广到所有查询接口", cands[nw]["unmet"])
+        self.write_all(work, [nw])
+        self.edit_block(work, nw, "复核", "")
+        os.remove(os.path.join(work, "editor.json"))
+        self.run_py("rules-write.py", work, "--prepare", check=False)
+        given = Path(work, "editor-input.md").read_text(encoding="utf-8")
+        self.assertIn("- **严重级别**:重要\n- **推广**:从订单列表推广到所有查询接口\n- **范围**:", given)
+        self.edit_block(work, nw, "动作", "跳过")
         self.assertTrue(any("缺「情形」" in x for x in cands[nb]["unmet"]))
         self.assertIn("- **情形**:" + wide["incident"], self.md_text(work))
         # 情形为空的规则不能写入;补上后写进规则文件,紧跟严重级别
@@ -1410,7 +1428,7 @@ class RulesMining(fixture.Base):
         self.reviewed(work, ns)
         self.edit_block(work, n, "复核", "改写:按意见改过")
         r = self.run_py("rules-write.py", work, "--prepare", check=False)
-        self.assertIn("ERROR: 块 %d 复核: 和 editor.json 的结论「写入」不一致" % n, r.stdout)
+        self.assertIn("ERROR: 块 %d 复核: 和 editor.json 的结论「可读」不一致" % n, r.stdout)
         self.reviewed(work, n, "案例")
         self.edit_block(work, n, "复核", "案例:只是一次修复")
         r = self.run_py("rules-write.py", work, "--prepare", check=False)
@@ -1433,6 +1451,43 @@ class RulesMining(fixture.Base):
                      "反例有 1 行在评论时的代码、MR 最终代码和采集时 head 里都找不到", "正例和反例没有不同的代码行"):
             self.assertTrue(any(text in x for x in notes), text)
         self.assertNotIn("NOTE: 候选 %d「" % n, out)                   # 反例取自评论时的代码,范围是目录:没有警告
+
+    def test_deletion_fix_and_annotated_omission_do_not_warn(self):
+        # 正例是反例删掉一行:有不同的行,不报;省略行带说明也不算代码行,不算「找不到」
+        cut = rule(title="删掉多余调用", rule="在 src/api/** 里,禁止重复调用同一个查询",
+                   bad_example="line 3\nline 4\nline 6", good_example="line 3\nline 6")
+        omit = rule(title="省略其余", rule="在 src/api/** 里,必须在查询前收紧参数",
+                    bad_example="line 3\n// … 省略其余字段\nline 4",
+                    good_example="line 3\n// … 省略其余字段\nconst limit = Math.min(input.limit, 100);")
+        work, no = self.prepare(cut, omit)
+        self.write_all(work, no.values())
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: .agents/rules/", out)
+        for c in (cut, omit):
+            self.assertNotIn("NOTE: 候选 %d「" % no[c["rule"]], out)
+
+    def test_bad_example_found_in_commented_version_beyond_window(self):
+        # 评论挂在 MR 的中间版本上:窗口外的行只在那一版全文里,读快照的 commit 才找得到;旧快照没有 commit 时照旧警告
+        orders = Path(self.repo, "src/api/orders.ts").read_text(encoding="utf-8")
+        middle = self.commit(self.repo, {"src/api/orders.ts": orders.replace("line 9\n", "const rows = query(input);\n")}, "wip")
+        self.commit(self.repo, {"src/api/orders.ts": orders}, "drop wip")
+        far = rule(title="窗口之外", rule="在 src/api/** 里,禁止把原始输入直接拿去查询", bad_example="const rows = query(input);",
+                   good_example="const rows = query(clamp(input));")
+        work, no = self.prepare(far)
+        n = no[far["rule"]]
+        snapshot = self.load(os.path.join(work, "snapshot.json"))
+        notes = {x["id"]: x for r in snapshot["records"] for x in r["notes"]}
+        self.assertEqual(notes[101]["commit"], self.sha0)              # new_line 的评论记 head_sha
+        self.assertTrue(all("commit" not in x for b in Path(work).glob("batch-*.json") for x in self.load(b)))
+        self.write_all(work, [n])
+        missing = "NOTE: 候选 %d「窗口之外」:反例有 1 行" % n
+        self.assertIn(missing, self.write_rules(work, "--check"))     # 指向 sha0 时那一行不在任何版本里
+        notes[101]["commit"] = middle
+        Path(work, "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        self.assertNotIn(missing, self.write_rules(work, "--check"))
+        del notes[101]["commit"]
+        Path(work, "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        self.assertIn(missing, self.write_rules(work, "--check"))
 
 
 class EvidenceDigest(fixture.unittest.TestCase):

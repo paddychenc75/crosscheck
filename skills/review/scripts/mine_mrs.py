@@ -21,7 +21,7 @@ if target:
     repo_id = target["identity"]
     repo_url = target["scheme"] + "://" + target["identity"]
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2:评论带 commit(评论所在的版本),旧缓存重拉
 BATCH_CHAR_BUDGET = 48000  # JSON 序列化字符数，仅用于分配上下文，不估算 token、不截正文。
 
 class CollectionError(Exception):
@@ -208,15 +208,17 @@ def fetch_notes(m):
                 path = pos.get("new_path") or pos.get("old_path") or ""
                 line = pos.get("new_line") or pos.get("old_line") or None
                 if pos.get("new_line"):
-                    after, code = changed_after(pos.get("head_sha"), m.get("head_sha"), path, line), code_near(pos.get("head_sha"), path, line)
+                    commit = pos.get("head_sha") or ""
+                    after, code = changed_after(commit, m.get("head_sha"), path, line), code_near(commit, path, line)
                 else:
                     # 只有 old_line:评论落在删掉的行上,行号属于 base 那一版;删掉的行本来就不在最终版本里,改没改判断不了
                     path = pos.get("old_path") or path
-                    after, code = None, code_near(pos.get("base_sha"), path, line)
+                    commit = pos.get("base_sha") or ""
+                    after, code = None, code_near(commit, path, line)
                 out.append(dict(id=n.get("id"), discussion=d.get("id"), author=(n.get("author") or {}).get("username", ""),
                                 author_identity=identity(n["author"]), body=n["body"], file=path, line=line, reply=i > 0,
                                 resolved=n.get("resolved") if n.get("resolvable") else None,
-                                changed_after=after, code=code, created_at=n.get("created_at", "")))
+                                changed_after=after, code=code, commit=commit, created_at=n.get("created_at", "")))
     else:
         for kind, path in (("review", "repos/{owner}/{repo}/pulls/%s/comments"), ("issue", "repos/{owner}/{repo}/issues/%s/comments")):
             cs = paginate(path % m["iid"])
@@ -229,7 +231,8 @@ def fetch_notes(m):
                 out.append(dict(id=c.get("id"), discussion="review:%s" % (c.get("in_reply_to_id") or c.get("id")) if kind == "review" else "issue",author=(c.get("user") or {}).get("login", ""),
                                 author_identity=identity(c["user"]), body=c["body"], in_reply_to_id=c.get("in_reply_to_id"), kind=kind, file=c.get("path") or "", line=line, reply=bool(c.get("in_reply_to_id")),
                                 resolved=None, changed_after=changed_after(sha, m.get("head_sha"), c.get("path"), line),
-                                code=code_near(sha, c.get("path"), line), created_at=c.get("created_at", "")))
+                                code=code_near(sha, c.get("path"), line), commit=sha or "",
+                                created_at=c.get("created_at", "")))
     return out
 
 try:
