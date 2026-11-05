@@ -22,6 +22,21 @@ import project_rules
 STATE = "rules-draft.json"
 VIEW = "rules-draft.md"
 VERSION = 1
+INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md")
+
+
+def instruction_files_valid(repo, files):
+    require(isinstance(files, list) and all(isinstance(p, str) and p in INSTRUCTION_FILES for p in files),
+            "instruction_files 只允许 AGENTS.md、CLAUDE.md 或既有 .claude/CLAUDE.md 的明确列表")
+    require(len(files) == len(set(files)), "instruction_files 不能重复")
+    require(not {"CLAUDE.md", ".claude/CLAUDE.md"}.issubset(files), "只选择一个 Claude 指令入口")
+    if "CLAUDE.md" in files:
+        require(os.path.lexists(os.path.join(repo["root"], "CLAUDE.md")) or
+                not os.path.lexists(os.path.join(repo["root"], ".claude/CLAUDE.md")),
+                "已有 .claude/CLAUDE.md,请捕获并显式选择现有入口")
+    if ".claude/CLAUDE.md" in files:
+        require(os.path.isfile(target(repo, ".claude/CLAUDE.md", allow_agents=True)),
+                ".claude/CLAUDE.md 仅允许维护既有入口;新入口请选择根 CLAUDE.md")
 
 
 def require(ok, message):
@@ -61,7 +76,7 @@ def target(repo, rel, allow_agents=False):
     require(not os.path.isabs(rel) and all(p not in ("", ".", "..") for p in parts), "目标必须是仓库内相对路径,不含 . 或 ..")
     require(not any(p.lower() == ".git" for p in parts), "目标不能指向 Git 元数据")
     permitted = (rel.startswith(".agents/rules/") and rel.endswith(".md")) or parts[-1] == "REVIEW.md"
-    require(permitted or (allow_agents and rel == "AGENTS.md"), "只维护 .agents/rules/**/*.md、REVIEW.md;AGENTS.md 仅允许脚本接入规则索引")
+    require(permitted or (allow_agents and rel in INSTRUCTION_FILES), "只维护 .agents/rules/**/*.md、REVIEW.md;AGENTS.md/CLAUDE.md 仅允许脚本接入规则索引")
     path = os.path.join(repo["root"], rel)
     current = repo["root"]
     for i, part in enumerate(parts):
@@ -177,25 +192,33 @@ def scope(rel, text):
     return rule["patterns"]
 
 
-def index_content(data, links, warnings=None):
+def index_content(data, links, warnings=None, instruction_file="AGENTS.md"):
     """只同步明确列出的规则索引;识别不了的手写引用保留并列待确认。"""
-    require("AGENTS.md" in data["base"], "接入索引前须 --capture --path AGENTS.md")
-    original = data["base"]["AGENTS.md"]["content"] or ""
-    after = {c["path"]: c["content"] for c in data["changes"] if c["path"] != "AGENTS.md"}
+    require(instruction_file in INSTRUCTION_FILES, "不支持的指令入口")
+    require(instruction_file in data["base"], "接入索引前须 --capture --path " + instruction_file)
+    original = data["base"][instruction_file]["content"] or ""
+    after = {c["path"]: c["content"] for c in data["changes"] if c["path"] not in INSTRUCTION_FILES}
     rows = original.splitlines(True)
     fenced = crlib.fence_mask([x.rstrip("\r\n") for x in rows])
     _, body = crlib.parse_frontmatter(original)
     body_start = len(original.split("\n")) - len(body.split("\n"))
     heads = [i for i, row in enumerate(rows) if i >= body_start and not fenced[i] and row.startswith("## ")]
     matches = [i for i in heads if rows[i][3:].strip().rstrip(":：") == "代码约束"]
-    require(len(matches) <= 1, "AGENTS.md 有多个代码约束章节,请先明确接入位置")
+    require(len(matches) <= 1, instruction_file + " 有多个代码约束章节,请先明确接入位置")
     start = matches[0] if matches else -1
     end = next((i for i in heads if i > start), len(rows)) if matches else len(rows)
-    managed = re.compile(r"^- \[[^\]\r\n]+\]\((\.agents/rules/[^)\r\n]+\.md)\):改 [^\r\n]* 时先读这个文件并遵守(?:\r?\n)?$")
+    managed = re.compile(r"^- \[[^\]\r\n]+\]\(((?:\.\./)?\.agents/rules/[^)\r\n]+\.md)\):改 [^\r\n]* 时先读这个文件并遵守(?:\r?\n)?$")
+    directory = os.path.dirname(instruction_file)
+    def reference(path):
+        return os.path.normpath(os.path.join(directory, path)).replace(os.sep, "/")
     newline = "\r\n" if "\r\n" in original else "\n"
+    require(isinstance(links, list), "agents_links 应为数组")
+    existing_refs = {reference(x) for x in project_rules._local_references(original)}
+    # 已受管或手写的既有引用也随本轮规则变更复核,无需调用方重复列旧路径。
+    links = links + [rel for rel in after if rel.startswith(".agents/rules/") and rel in existing_refs]
     items, replacements = [], {}
     for rel in dict.fromkeys(links):
-        require(isinstance(rel, str) and rel.startswith(".agents/rules/") and rel.endswith(".md"), "AGENTS 索引只允许 .agents/rules 下的 Markdown")
+        require(isinstance(rel, str) and rel.startswith(".agents/rules/") and rel.endswith(".md"), "指令索引只允许 .agents/rules 下的 Markdown")
         require(rel in data["base"], "接入索引前须捕获规则文件基线: " + rel)
         target(data["repo"], rel)
         content = after.get(rel, data["base"][rel]["content"])
@@ -204,17 +227,17 @@ def index_content(data, links, warnings=None):
         for i, row in enumerate(rows):
             if fenced[i]:
                 continue
-            refs = {os.path.normpath(x).replace(os.sep, "/") for x in project_rules._local_references(row)}
+            refs = {reference(x) for x in project_rules._local_references(row)}
             if rel not in refs:
                 continue
             match = managed.fullmatch(row)
-            if matches and start < i < end and match and match.group(1) == rel:
+            if matches and start < i < end and match and reference(match.group(1)) == rel:
                 known.append(i)
             else:
                 other.append(i)
         if other or len(known) > 1:
             if warnings is not None:
-                warnings.append("AGENTS.md 对 %s 有不能安全同步的手写或重复引用;已保留,请确认其范围/删除后的链接" % rel)
+                warnings.append("%s 对 %s 有不能安全同步的手写或重复引用;已保留,请确认其范围/删除后的链接" % (instruction_file, rel))
         if len(known) > 1:
             continue
         if content is None:
@@ -223,7 +246,8 @@ def index_content(data, links, warnings=None):
             continue
         patterns = scope(rel, content)
         where = "所有文件" if patterns == ["**"] else ", ".join(patterns)
-        line = "- [%s](%s):改 %s 时先读这个文件并遵守" % (Path(rel).stem, rel, where)
+        link = os.path.relpath(rel, directory or ".").replace(os.sep, "/")
+        line = "- [%s](%s):改 %s 时先读这个文件并遵守" % (Path(rel).stem, link, where)
         if known:
             i = known[0]
             ending = "\r\n" if rows[i].endswith("\r\n") else ("\n" if rows[i].endswith("\n") else "")
@@ -300,6 +324,11 @@ def validate(work, data, view=False, materials=True):
         require(snapshot(data["repo"], rel) == base, "目标在起草后变化: %s;保留现有修改,用新工作目录重新起草、预演并确认" % rel)
     paths = list(data["base"])
     require(not any(a != b and b.startswith(a + "/") for a in paths for b in paths), "草稿目标互相占用上级目录")
+    files = data.get("instruction_files", ["AGENTS.md"] if any(
+        isinstance(c, dict) and c.get("operation") == "index" for c in data["changes"]) else [])
+    instruction_files_valid(data["repo"], files)
+    for rel in files:
+        require(rel in data["base"], "接入索引前须 --capture --path " + rel)
     seen = set()
     for c in data["changes"]:
         require(isinstance(c, dict) and isinstance(c.get("path"), str), "文件变更格式不合法")
@@ -311,9 +340,9 @@ def validate(work, data, view=False, materials=True):
         require(isinstance(c.get("reason"), str) and c["reason"].strip(), "文件变更缺少理由: " + rel)
         source_valid(c.get("source"))
         require("content" in c and (c["content"] is None or isinstance(c["content"], str)), "拟写内容必须是文字,删除用 null: " + rel)
-        if rel == "AGENTS.md":
-            require(c.get("operation") == "index" and isinstance(c.get("links"), list), "AGENTS.md 只允许接入规则索引")
-            require(c["content"] == index_content(data, c["links"]), "AGENTS.md 超出受限索引变化")
+        if rel in INSTRUCTION_FILES:
+            require(rel in files and c.get("operation") == "index" and isinstance(c.get("links"), list), rel + " 只允许接入选中入口的规则索引")
+            require(c["content"] == index_content(data, c["links"], instruction_file=rel), rel + " 超出受限索引变化")
         else:
             require(c.get("operation") == ("delete" if c["content"] is None else "write"), "删除必须显式 operation=delete: " + rel)
         if c["content"] is None:
@@ -329,7 +358,7 @@ def validate(work, data, view=False, materials=True):
         require(isinstance(rel, str) and rel.startswith(".agents/rules/") and rel in data["base"], "确认的规则目标没有捕获基线")
         target(data["repo"], rel)
     for name, expected in (data.get("bindings", {}) if materials else {}).items():
-        require(name in ("candidates.json", "mined-candidates.md"), "不支持的材料绑定: " + name)
+        require(name in ("candidates.json", "mined-candidates.md", "dropped.json", "snapshot.json", "rules-sources.json"), "不支持的材料绑定: " + name)
         require(content_hash(read(os.path.join(work, name))) == expected, "来源材料已变化: %s;重新编译草稿并预演确认" % name)
     if view:
         require(read(os.path.join(work, VIEW)) == render(data), "rules-draft.md 与机器清单不一致;请更新提案并重新生成草稿")
@@ -341,18 +370,22 @@ def propose(work, request, bindings=None):
     require(isinstance(request, dict) and isinstance(request.get("goal"), str) and request["goal"].strip(), "提案须写 goal")
     require(isinstance(request.get("changes"), list), "提案须写 changes 数组")
     changes = copy.deepcopy(request["changes"])
-    require(all(c.get("path") != "AGENTS.md" for c in changes if isinstance(c, dict)), "AGENTS.md 不接受正文提案,请使用 agents_links")
+    require(all(c.get("path") not in INSTRUCTION_FILES for c in changes if isinstance(c, dict)),
+            "AGENTS.md/CLAUDE.md 不接受正文提案,请使用 agents_links 和 instruction_files")
+    links = request.get("agents_links", [])
+    require(isinstance(links, list) and all(isinstance(p, str) for p in links), "agents_links 应为路径数组")
+    files = request.get("instruction_files", ["AGENTS.md"]) if links or "instruction_files" in request else []
+    instruction_files_valid(data["repo"], files)
+    require(not links or files, "接入规则链接必须明确选择至少一个指令入口")
     data.update(goal=request["goal"], changes=changes, pending=request.get("pending", []), notes=request.get("notes", []),
                 bindings=bindings if bindings is not None else data.get("bindings", {}), revision=data["revision"] + 1,
-                rule_targets=request.get("rule_targets", []))
-    links = request.get("agents_links", [])
-    require(isinstance(links, list), "agents_links 应为数组")
-    if links:
-        content = index_content(data, links, warnings=data["pending"])
-        if content != (data["base"]["AGENTS.md"]["content"] or ""):
+                rule_targets=request.get("rule_targets", []), instruction_files=files)
+    for rel in files:
+        content = index_content(data, links, warnings=data["pending"], instruction_file=rel)
+        if content != (data["base"][rel]["content"] or ""):
             source = request.get("agents_source")
             source_valid(source)
-            data["changes"].append(dict(path="AGENTS.md", operation="index", links=links, content=content,
+            data["changes"].append(dict(path=rel, operation="index", links=links, content=content,
                                         reason="接入本次规则索引", source=source))
     validate(work, data)
     save(work, data)

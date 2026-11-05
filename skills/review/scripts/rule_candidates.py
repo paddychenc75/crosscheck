@@ -193,6 +193,31 @@ def evidence_lines(c):
         out.append("> - %s「%s」[%s]" % (feedback_ref(e), clip(e["quote"], QUOTE_CHARS), e["state"]))
     if len(fb) > TYPICAL:
         out.append("> 另有 %d 条判断记录" % (len(fb) - TYPICAL))
+    code = []
+    for evidence in c.get("evidence", []):
+        for source in evidence.get("assessment", {}).get("code", []):
+            if source not in code:
+                code.append(source)
+    for source in code[:TYPICAL]:
+        out.append("> 落实依据:%s:%s @ %s[%s]「%s」" % (
+            one(source["file"]), source["line"], source["ref"],
+            "已核对原文" if source.get("status") == "verified" else "版本不可读",
+            clip(source["quote"], QUOTE_CHARS)))
+    if len(code) > TYPICAL:
+        out.append("> 另有 %d 份最终代码依据" % (len(code) - TYPICAL))
+    practice = c.get("practice") or {}
+    if practice:
+        out.append("> 仓库惯例(不计入 MR 采纳数):" + first_sentence(practice["reason"], REVIEW_CHARS))
+        out.append("> 核对范围:" + ", ".join(practice["scope"]))
+        for key, label in (("examples", "惯例"), ("counterexamples", "相反实现")):
+            rows = practice.get(key, [])
+            for source in rows[:TYPICAL]:
+                out.append("> %s:%s:%s @ %s[%s]「%s」" % (
+                    label, one(source["file"]), source["line"], source["ref"],
+                    "已核对原文" if source.get("status") == "verified" else "版本不可读",
+                    clip(source["quote"], QUOTE_CHARS)))
+            if len(rows) > TYPICAL:
+                out.append("> 另有 %d 份%s依据" % (len(rows) - TYPICAL, label))
     if c.get("review"):
         out.append("> 语义复核(模型判断):" + first_sentence(c["review"], REVIEW_CHARS))
     if c.get("severity_reason"):

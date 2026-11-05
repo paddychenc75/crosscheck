@@ -6,6 +6,7 @@
 不写仓库。所有维护的预演、确认版本校验和写入由 rules-draft.py 统一执行。
 """
 import argparse
+import json
 import os
 import subprocess
 import re
@@ -356,6 +357,58 @@ def build(root, todo, originals=None):
     return skips, touched, before, changed, wrote, warns, rule_files
 
 
+def maintenance_notes(work):
+    """未成为新增规则的历史主题也进入草稿;只展示,不据此自动修改规则。"""
+    path = os.path.join(work, "dropped.json")
+    if not os.path.isfile(path):
+        return [], []
+    rows = json.loads(rules_draft.read(path))
+    if not isinstance(rows, list):
+        raise ValueError("历史去向材料应为数组")
+    notes, pending = [], []
+    excluded = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("历史去向条目应为对象")
+        disposition = row.get("disposition", "exclude")
+        if disposition not in ("watch", "maintain", "exclude"):
+            raise ValueError("未知的历史主题去向")
+        if disposition == "exclude":
+            excluded += 1
+            continue
+        label = "待观察" if disposition == "watch" else "维护已有规范"
+        title = rule_candidates.one(row.get("pattern") or row.get("rule"))
+        reason = rule_candidates.one(row.get("reason"))
+        if not title or not reason:
+            raise ValueError("历史主题缺少标题或理由")
+        refs = list(row.get("observations", [])) + ["feedback:" + str(x) for x in row.get("feedback", [])]
+        pending.append("%s:%s — %s" % (label, title, reason))
+        if refs:
+            notes.append("%s「%s」来源:%s" % (label, title, ", ".join(refs)))
+        picked, rest = rule_candidates.typical(row)
+        for evidence in picked:
+            notes.append("%s「%s」讨论:%s「%s」" % (
+                label, title, rule_candidates.mr_ref(evidence["mr"], evidence["url"]),
+                rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
+        if rest:
+            notes.append("另有 %d 个 MR,完整证据保留在本轮材料中" % len(rest))
+        for evidence in rule_candidates.feedback_rows(row)[:rule_candidates.TYPICAL]:
+            notes.append("%s「%s」判断记录:%s「%s」" % (
+                label, title, rule_candidates.feedback_ref(evidence),
+                rule_candidates.clip(evidence["quote"], rule_candidates.QUOTE_CHARS)))
+        for source in row.get("coverage", {}).get("sources", []):
+            notes.append("%s「%s」依据:%s「%s」" % (label, title, rule_candidates.one(source["file"]), rule_candidates.one(source["quote"])))
+        practice = row.get("practice") or {}
+        if practice:
+            notes.append("%s「%s」仓库核对:%s" % (label, title, rule_candidates.one(practice.get("reason"))))
+            for key, kind in (("examples", "惯例"), ("counterexamples", "相反实现")):
+                for source in practice.get(key, []):
+                    notes.append("%s:%s:%s @ %s — %s" % (kind, rule_candidates.one(source["file"]), source["line"], source["ref"], rule_candidates.one(source["reason"])))
+    if excluded:
+        notes.append("另有 %d 个主题已排除,理由与完整来源保留在本轮材料中" % excluded)
+    return notes, pending
+
+
 def prepare(work, root=""):
     """把冻结的历史候选构建成统一文件清单;不写仓库,不代替最终确认。"""
     candidates = crlib.load_json(os.path.join(work, "candidates.json"), [])
@@ -414,12 +467,14 @@ def prepare(work, root=""):
     source = dict(type="inferred", basis="历史候选 " + ", ".join(map(str, refs)), candidates=refs)
     changes = [dict(path=os.path.relpath(p, root), operation="write", content="\n".join(touched[p]).rstrip("\n") + "\n",
                     reason="根据已核对材料整理项目约束或误报边界", source=source) for p in changed]
+    history_notes, history_pending = maintenance_notes(work)
     bindings = {name: rules_draft.content_hash(rules_draft.read(os.path.join(work, name)))
-                for name in ("candidates.json", rule_candidates.FILE)}
+                for name in ("candidates.json", rule_candidates.FILE, "dropped.json", "snapshot.json", "rules-sources.json")
+                if os.path.isfile(os.path.join(work, name))}
     request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes, agents_links=links,
                    rule_targets=[os.path.relpath(p, root) for p in rule_files],
                    agents_source=dict(type="user", request="选择接入本次规则的 AGENTS.md 索引"),
-                   pending=pending + unmet, notes=skips + warns)
+                   pending=pending + unmet + history_pending, notes=skips + warns + history_notes)
     data = rules_draft.propose(work, request, bindings=bindings)
     print("RULES_DRAFT: " + os.path.join(work, rules_draft.VIEW))
     return data

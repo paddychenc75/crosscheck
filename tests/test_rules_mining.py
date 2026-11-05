@@ -68,14 +68,32 @@ def synthesis(work, cands):
     coverage = {"status": "uncovered" if sources else "unknown",
                 "reason": "已核对采集时冻结的规范全文" if sources else "采集没有提供可核对的规范全文",
                 "sources": sources}
+    snapshot = json.loads(Path(work, "snapshot.json").read_text())
+    heads = {row['iid']: row.get('head_sha') for row in snapshot['records']}
+    # 这些代码确实存在于下方临时仓库的对应最终提交，不能用回复假装落实。
+    final_code = {
+        12: ('src/api/orders.ts', 5, 'const limit = Math.min(input.limit, 100);'),
+        15: ('src/api/users.ts', 1, 'export function users(limit) { return list(Math.min(limit, 100)); }'),
+        19: ('src/api/users.ts', 1, 'export function users(limit) { return list(Math.min(limit, 100)); }'),
+        18: ('src/api/orders.ts', 2, 'const amountCents = 100;'),
+        16: ('src/api/users.ts', 1, 'export function users(limit) { return list(limit); }'),
+        17: ('src/api/users.ts', 1, 'export function users(limit) { return list(limit); }'),
+    }
     for c in cands:
         c.setdefault("observations", obs_ids)
         c.setdefault("review", "测试中的模型判断:证据指向同一约束,边界已说明")
         c.setdefault("coverage", copy.deepcopy(coverage))
         for e in c.get("evidence", []):
             if not e.get("feedback"):
-                state = "rejected" if e.get("mr") in (16, 17) else "accepted"
-                e.setdefault("assessment", {"state": state, "reason": "测试夹具预置的语义判断", "basis": [{k: e[k] for k in ("mr", "note", "quote")}]})
+                mr = e.get('mr')
+                state = 'rejected' if mr in (16, 17) else 'accepted' if mr in final_code else 'unknown'
+                code = []
+                if mr in final_code and heads.get(mr):
+                    path, line, quote = final_code[mr]
+                    code = [dict(ref=heads[mr], file=path, line=line, quote=quote,
+                                 reason='最终代码保留无事务和无上限调用' if state == 'rejected' else
+                                        '最终代码实现评论要求的分页上限或整数分单位')]
+                e.setdefault('assessment', dict(state=state, reason='根据固定最终代码判断落实', basis=[], code=code))
     feedback = json.loads(Path(work, "snapshot.json").read_text()).get("feedback", [])
     used = {e["feedback"] for c in cands for e in c.get("evidence", []) if e.get("feedback")}
     unused = [f.get("key") or f["id"] for f in feedback if f.get("key") not in used and f.get("id") not in used]
@@ -129,18 +147,22 @@ class RulesMining(fixture.Base):
         super().setUp()
         self.use_mock_glab()
         self.repo = self.make_repo("shop", {
-            "src/api/orders.ts": "".join("line %d\n" % i for i in range(1, 11)),
-            "src/api/users.ts": "export function users() {}\n",
+            "src/api/orders.ts": "".join("const amountCents = 100;\n" if i == 2 else "line %d\n" % i for i in range(1, 11)),
+            "src/api/users.ts": "export function users(limit) { return list(limit); }\n",
             "REVIEW.md": "# 规则\n\n- 日志里不能出现邮箱。\n",
         }, remote="git@gitlab.example.com:eng/shop.git")
         self.sha0 = self.git(self.repo, "rev-parse", "HEAD")
         # MR 12 在评论后改了第 5 行
-        self.sha1 = self.commit(self.repo, {"src/api/orders.ts": "".join(("line %d\n" % i) if i != 5 else "limit checked\n" for i in range(1, 11))}, "fix")
+        self.sha1 = self.commit(self.repo, {"src/api/orders.ts": "".join(
+            'const amountCents = 100;\n' if i == 2 else 'const limit = Math.min(input.limit, 100);\n' if i == 5 else
+            'line %d\n' % i for i in range(1, 11))}, "fix")
+        self.sha2 = self.commit(self.repo, {'src/api/users.ts':
+            'export function users(limit) { return list(Math.min(limit, 100)); }\n'}, 'bound users pagination')
 
     def mr(self, iid, author="dev1", days=5, updated=None, desc="", sha=None):
         return {"iid": iid, "title": "MR %d" % iid, "author": {"username": author}, "merged_at": ago(days),
                 "updated_at": updated or ago(days), "web_url": MR_URL % iid,
-                "description": desc, "sha": sha or self.sha0}
+                "description": desc, "sha": sha or (self.sha2 if iid in (15, 19) else self.sha0)}
 
     def standard_mrs(self):
         self.mock_api(LIST, [self.mr(12, sha=self.sha1), self.mr(15, author="dev2"), self.mr(16, author="dev3"),
@@ -181,7 +203,7 @@ class RulesMining(fixture.Base):
         if len(args) != 1 or args[0] not in ("--check", "--apply"):
             return self.run_py("rules-write.py", work, *args, check=False)
         draft_work = tempfile.mkdtemp(prefix="draft-", dir=self.tmp)
-        for name in ("meta.txt", "candidates.json", "mined-candidates.md"):
+        for name in ("meta.txt", "candidates.json", "dropped.json", "mined-candidates.md"):
             if Path(work, name).exists():
                 shutil.copyfile(Path(work, name), Path(draft_work, name))
         result = self.run_py("rules-write.py", draft_work, "--prepare", check=False)
@@ -216,7 +238,7 @@ class RulesMining(fixture.Base):
         self.assertEqual(sorted(notes), [101, 102, 201, 301, 302, 303, 401])         # 机器人和系统消息去掉,超出窗口的 MR 不取
         self.assertIn("line 5", notes[101]["code"])
         self.assertTrue(notes[101]["changed_after"])                   # 评论处的代码在最终版本里改了
-        self.assertEqual((notes[201]["resolved"], notes[201]["changed_after"]), (True, False))
+        self.assertEqual((notes[201]["resolved"], notes[201]["changed_after"]), (True, True))
         self.assertEqual(self.kv(os.path.join(work, "meta.txt"))["reviewers"], "4")   # MR 作者自己的回复不算评审人
         # 没更新过的 MR 不再拉评论
         for iid in (12, 15, 16, 17, 18):
@@ -251,15 +273,15 @@ class RulesMining(fixture.Base):
         existing = rule(rule="日志里不能出现邮箱")
         bad_scope = rule(rule="别处必须这样", paths=["../x/**"])
         out, cands, dropped = self.check(work, [good, dup, forged, thin, unfixed, unfixed2, no_must, no_exc, subjective, existing, bad_scope])
-        self.assertEqual({c["rule"] for c in cands}, {good["rule"], dup["rule"], existing["rule"]})
+        self.assertEqual({c["rule"] for c in cands}, {good["rule"], dup["rule"], thin["rule"], existing["rule"]})
         c = next(c for c in cands if c["rule"] == good["rule"])
         self.assertEqual((c["no"], c["mrs"], c["people"], c["severity"]), (1, [12, 15], 2, "重要"))
         self.assertEqual(len(c["evidence"]), 2)                              # 重复的候选合并成一条,同一条评论不重复计
         reasons = {d["rule"]: d["reason"] for d in dropped}
-        self.assertIn("证据不足", reasons["所有查询必须加索引"])
+        self.assertIn("证据未全部核对通过", reasons["所有查询必须加索引"])
         self.assertIn("!12 note 101", reasons["所有查询必须加索引"])
-        self.assertIn("证据不足", reasons["写操作必须记审计日志"])
-        self.assertIn("证据不足", reasons["接口里必须用事务包起来"])           # 同一 MR 不算两次,编造的 MR 作废
+        self.assertIn('单次历史观察', ';'.join(next(c for c in cands if c['rule'] == thin['rule'])['unmet']))
+        self.assertIn("证据未全部核对通过", reasons["接口里必须用事务包起来"])  # 编造的 MR 使整条不合格
         self.assertIn("明确未采纳", reasons["users 接口必须用事务"])
         self.assertIn("必须 / 禁止", reasons["分页参数的上限最好校验一下"])
         self.assertIn("不要报", reasons["接口必须记录耗时"])
@@ -269,7 +291,7 @@ class RulesMining(fixture.Base):
         # 每条候选一行:编号、规则句、建议去向;准入全满足时不列;自检不输出也不存
         self.assertIn("1. [api · 重要] 在 src/api/** 的接口里,必须校验分页参数的上限 → .agents/rules/api.md\n", out)
         lines = [x for x in out.split("\n") if x[:1].isdigit() and ". [" in x]
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(lines), 4)
         for word in ("准入", "自检", "标题:", "证据:", "案例:"):
             self.assertFalse([x for x in out.split("\n") if x.startswith("   ") and word in x], word)
             self.assertFalse([x for x in lines if word in x], word)
@@ -302,7 +324,8 @@ class RulesMining(fixture.Base):
         self.assertEqual(cands[0]["rule"], three["rule"])
         self.assertEqual((cands[0]["mrs"], cands[0]["people"]), ([12, 15, 17], 3))
         self.assertEqual((cands[0]["support"], cands[0]["mentions"]), (2, 3))
-        self.assertIn("待确认:评审人仅 1 位", out)                             # 只有 alice 一个人:标出来,不丢
+        self.assertEqual(1, next(c for c in cands if c['rule'] == single['rule'])['people'])
+        self.assertNotIn('待确认:评审人仅', out)  # 人数是统计，不是准入或确认门槛。
 
     def test_feedback_records_as_suppress_evidence(self):
         self.standard_mrs()
@@ -359,8 +382,8 @@ class RulesMining(fixture.Base):
         self.assertIn("vendor 目录", b["suppress"])
 
     def test_changed_after_ignores_lines_inserted_above(self):
-        sha2 = self.commit(self.repo, {"src/api/orders.ts": "import a\nimport b\n\nimport c\n" + "".join(
-            ("line %d\n" % i) if i != 5 else "limit checked\n" for i in range(1, 11))}, "insert")
+        sha2 = self.commit(self.repo, {"src/api/orders.ts": "import a\nimport b\n\nimport c\n" +
+                           self.git(self.repo, 'show', self.sha1 + ':src/api/orders.ts') + '\n'}, "insert")
         self.mock_api(LIST, [self.mr(19, sha=sha2)])
         old = note(602, "bob", "这行删掉前要确认调用方")
         old["position"] = {"old_path": "src/api/orders.ts", "old_line": 7, "base_sha": self.sha0, "head_sha": sha2}
@@ -510,7 +533,8 @@ class RulesMining(fixture.Base):
         self.assertNotIn("判断依据", md)
         self.assertNotIn("测试夹具预置的语义判断", md)
         self.assertIn("> 提及 2 个 MR:模型判断已采纳 2,未知/结论不一致 0,未采纳 0", md)
-        self.assertIn("> 待确认:评审人仅 1 位;待确认:缺反例或正例\n\n- **候选**:", md)
+        self.assertIn("> 待确认:缺反例或正例\n\n- **候选**:", md)
+        self.assertIn('待确认:存在未采纳或冲突反证', md)
         self.assertEqual(md.count("待确认"), 2)
         # 引用块不影响解析:字段、标题、候选编号和去掉引用块后完全一样,也没有吞掉后面的行
         blocks = self.parse_md(md)
@@ -1241,7 +1265,7 @@ class RulesMining(fixture.Base):
         n1, n2 = no[rule()["rule"]], no[lone["rule"]]
         self.write_all(work, [n1, n2])
         out = self.write_rules(work, "--check")
-        self.assertIn("PENDING: 候选 %d:待确认:评审人仅 1 位\n" % n2, out)
+        self.assertIn("PENDING: 候选 %d:待确认:缺反例或正例\n" % n2, out)
         self.assertNotIn("PENDING: 候选 %d:待确认" % n1, out)
         self.assertIn("WRITE: .agents/rules/api.md", out)                          # 只提醒,不拦
         out = self.write_rules(work, "--apply")
@@ -1313,13 +1337,15 @@ class RulesMining(fixture.Base):
         self.assertEqual(sorted(blocks[".agents/rules/all.md"]["applies_files"]), ["lib/x.ts", "src/api/orders.ts"])
         self.assertNotIn(".agents/rules/web.md", blocks)
 
-    def test_unaccepted_mr_cannot_complete_two_cases(self):
+    def test_unaccepted_mr_remains_counterevidence_without_discarding_accepted_case(self):
         self.standard_mrs()
         _, work = self.mine()
         candidate = rule(evidence=[rule()["evidence"][0], {"mr": 17, "note": 302, "quote": "limit 也要加上限"}])
         _, got, dropped = self.check(work, [candidate])
-        self.assertEqual(got, [])
-        self.assertIn("接受案例不足", dropped[0]["reason"])
+        self.assertEqual(1, len(got))
+        self.assertEqual(1, got[0]['support'])
+        self.assertIn('未采纳或冲突反证', ';'.join(got[0]['unmet']))
+        self.assertEqual([], dropped)
 
     def test_unknown_acceptance_is_not_counted_as_true_or_false(self):
         self.standard_mrs()
@@ -1329,7 +1355,8 @@ class RulesMining(fixture.Base):
         _, got, _ = self.check(work, [rule(evidence=evidence)])
         self.assertEqual((got[0]["support"], got[0]["mentions"], got[0]["unknown"]), (1, 2, 1))
         self.assertEqual({e["mr"]: e["state"] for e in got[0]["evidence"]}, {12: "模型判断已采纳", 17: "未知"})
-        self.assertEqual(got[0]["unmet"], ["待确认:模型判断已采纳的只有 1 个"])
+        self.assertNotIn("待确认:模型判断已采纳的只有 1 个", got[0]["unmet"])
+        self.assertIn("待确认:存在未知或不一致的采纳判断,须补核最终代码", got[0]["unmet"])
 
     def test_wontfix_and_feedback_context(self):
         self.standard_mrs()

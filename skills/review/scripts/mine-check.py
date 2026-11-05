@@ -18,6 +18,7 @@ sys.dont_write_bytecode = True
 import crlib
 import project_rules
 import rule_candidates
+import mining_evidence
 
 FB_VERDICTS = {"rule": ("valid",), "suppress": ("invalid",)}
 STATES = {"accepted": "模型判断已采纳", "rejected": "模型判断未采纳", "unknown": "未知"}
@@ -49,9 +50,12 @@ class Input:
         self.meta = crlib.read_kv(os.path.join(work, "meta.txt"))
         snapshot = load(os.path.join(work, "snapshot.json"))
         require(snapshot.get("version") == 1 and snapshot.get("complete") is True, "采集不完整或快照版本不支持,请重新采集")
-        self.notes, self.threads = {}, set()
+        self.notes, self.threads, self.heads = {}, set(), {}
+        self.code = mining_evidence.CodeEvidence(self.meta.get("repo_root", ""))
         repo_url, platform = self.meta.get("repo_url", ""), self.meta.get("platform", "")
         for rec in snapshot["records"]:
+            require(str(rec["iid"]) not in self.heads, "快照里有重复 MR")
+            self.heads[str(rec["iid"])] = rec.get("head_sha")
             # MR 网页地址:快照里平台给的优先,没有就按仓库地址拼,拼不出为空(证据区退回只写 !N),不编造
             url = rule_candidates.mr_web_url(rec.get("web_url"), repo_url, platform, rec["iid"])
             for note in rec["notes"]:
@@ -85,6 +89,26 @@ class Input:
         return dict(mr=row["mr"], note=row["id"], thread=row["thread"], author=row.get("author", ""),
                     mr_author=row.get("mr_author", ""), quote=quote, file=row.get("file", ""), line=row.get("line"),
                     url=row["url"], resolved=row.get("resolved"), changed_after=row.get("changed_after"))
+
+    def assessment(self, item, evidence):
+        assessment = item.get("assessment", {})
+        require(isinstance(assessment, dict), "采纳判断应为对象")
+        state = assessment.get("state")
+        require(state in STATES and nonempty(assessment.get("reason")), "评论缺少采纳判断与依据")
+        require(isinstance(assessment.get("basis"), list), "采纳依据 basis 应为数组")
+        basis = [self.evidence(b) for b in assessment["basis"]]
+        require(all(b.get("thread") == evidence["thread"] for b in basis), "采纳依据不在同一讨论")
+        code = self.code.references(assessment.get("code", []), self.heads[str(evidence["mr"])], "assessment.code")
+        result = dict(state=state, reason=crlib.norm(assessment["reason"]), basis=basis, code=code)
+        verified = any(row["status"] == "verified" for row in code)
+        unavailable = any(row["status"] == "unavailable" for row in code)
+        if ((state == "accepted" and not verified) or
+                (state == "rejected" and not basis and not verified)):
+            result.update(state="unknown", declared_state=state)
+            result["reason"] += ";" + ("最终代码对象不可读,采纳状态未知" if unavailable else
+                                      "缺少可核对的最终代码落实依据;回复或 resolved 本身不能证明采纳" if state == "accepted" else
+                                      "缺少同线程明确反对或最终代码依据,不能认定未采纳")
+        return result
 
     def observations(self):
         found, observed, excluded = set(), [], []
@@ -143,22 +167,29 @@ def coverage_review(work, root, c):
     frozen = load(os.path.join(work, "rules-sources.json"))
     require(isinstance(frozen, list), "规则来源快照应为数组")
     head = crlib.read_kv(os.path.join(work, "meta.txt")).get("head")
-    repository = crlib.Source(root, head)
+    repository = mining_evidence.CodeEvidence(root)
     issues = [r["file"] for r in frozen if r.get("issues")]
     for source in review["sources"]:
         require(isinstance(source, dict), "已有约束来源应为对象")
         path, quote = source.get("file"), source.get("quote")
         require(isinstance(path, str) and path and isinstance(quote, str) and quote.strip(), "已有约束来源缺少文件或原文")
+        mining_evidence.safe_path(path)
         records = [r for r in frozen if r.get("file") == path]
         if records:
             text = next((r["text"] for r in records if not r.get("issues") and quote in r.get("text", "")), "")
         else:
             require(head and re.fullmatch(r"[0-9a-f]{40,64}", head), "额外复核来源缺少固定仓库版本")
-            require(not os.path.isabs(path) and ".." not in path.split("/") and not project_rules._credential_path(path), "复核来源须为仓库内非凭证文件")
-            require(path in repository.files(), "复核来源不是固定版本的仓库文件")
-            text = repository.read(path) or ""
+            text, _, issue = repository.read(head, path)
+            require(text is not None, "复核来源不可读:" + issue)
         require(quote in text, "已有约束引文在来源里找不到:" + path)
-        sources.append(dict(file=path, quote=quote, content_sha256=rule_candidates.fingerprint(text), ref="snapshot" if records else head))
+        source_row = dict(file=path, quote=quote, content_sha256=rule_candidates.fingerprint(text), ref="snapshot" if records else head)
+        if "line" in source:
+            line = source["line"]
+            require(type(line) is int and line > 0 and
+                    "\n".join(text.splitlines()[line - 1:line - 1 + len(quote.splitlines())]) == quote.rstrip("\n"),
+                    "已有约束引文行号与来源不符:" + path)
+            source_row["line"] = line
+        sources.append(source_row)
     require(sources or review["status"] == "unknown", "没有核对来源时只能标记 unknown,不能宣称未覆盖")
     status, reason = review["status"], crlib.norm(review["reason"])
     if issues and status != "covered":
@@ -185,7 +216,12 @@ def main(argv):
         obs_threads = {o["id"]: {e["thread"] for e in o["evidence"]} for o in observations}
         used = set()
         feedback_used = set()
-        dropped = [dict(rule="线程 " + ",".join(x["threads"]), reason=x["reason"]) for x in excluded]
+        dropped = [dict(rule="线程 " + ",".join(x["threads"]), pattern="线程 " + ",".join(x["threads"]),
+                        reason=x["reason"], disposition="exclude", observations=[], feedback=[], threads=x["threads"],
+                        evidence=[inputs.evidence(dict(mr=n["mr"], note=n["id"], quote=n["body"]))
+                                  for n in inputs.notes.values() if n["thread"] in x["threads"]]) for x in excluded]
+        root = inputs.meta.get("repo_root", "")
+        observation_map = {o["id"]: o for o in observations}
         for item in result["candidates"] + result["excluded"]:
             require(isinstance(item, dict), "归并条目应为对象")
             refs = strings(item.get("observations"), "observations")
@@ -198,16 +234,34 @@ def main(argv):
             require(ids or item["observations"], "排除项没有关联观察或判断记录")
             require(ids <= inputs.feedback_ids, "排除项引用未知判断记录")
             feedback_used.update(ids)
-            dropped.append(dict(rule=crlib.norm(item.get("pattern", "")) or ",".join(item["observations"]), reason=crlib.norm(item["reason"])))
+            disposition = item.get("disposition", "exclude")
+            require(disposition in ("watch", "maintain", "exclude"), "disposition 应为 watch、maintain 或 exclude")
+            pattern = crlib.norm(item.get("pattern", "")) or ",".join(item["observations"]) or ",".join(sorted(ids))
+            row = dict(rule=pattern, pattern=pattern, reason=crlib.norm(item["reason"]), disposition=disposition,
+                       observations=sorted(item["observations"]), feedback=sorted(ids),
+                       evidence=[e for ref in sorted(item["observations"]) for e in observation_map[ref]["evidence"]] +
+                                [inputs.evidence(dict(feedback=key, quote=inputs.feedback[key]["reason"])) for key in sorted(ids)])
+            if "practice" in item:
+                row["practice"] = inputs.code.practice(item["practice"], inputs.meta.get("head"))
+            if disposition == "maintain":
+                # reason 兼作语义复核说明，保持 excluded 的最小输入接口。
+                row["review"] = crlib.norm(item.get("review") or item["reason"])
+                row["coverage"] = coverage_review(work, root, dict(item, review=row["review"]))
+                locations = {(s["ref"], s["file"], s.get("line"), s["quote"]) for s in row["coverage"]["sources"]}
+                require(len(locations) >= 2, "维护冲突须保留可核对的双方原文来源;同一文件两处原文也可")
+            dropped.append(row)
         kept = []
-        root = inputs.meta.get("repo_root", "")
         for c in result["candidates"]:
             rule, kind = crlib.norm(c.get("rule", "")).rstrip(crlib.RULE_PUNCT), c.get("kind", "rule")
             # 即使候选不合格也记录其已核对的判断记录,避免把排除误报当漏处理。
             for e in c.get("evidence", []) if isinstance(c.get("evidence"), list) else []:
                 if isinstance(e, dict) and str(e.get("feedback", "")) in inputs.feedback:
                     feedback_used.add(inputs.feedback[str(e["feedback"])]["key"])
+            ev, practice, coverage = [], None, None
+            disposition = "exclude"
             try:
+                if "practice" in c:
+                    practice = inputs.code.practice(c["practice"], inputs.meta.get("head"))
                 require(kind in FB_VERDICTS, "kind 应为 rule 或 suppress")
                 problems = crlib.rule_problems(kind, rule, c.get("severity", ""), c.get("exceptions", ""))
                 require(not problems, "写法不合格:" + ";".join(problems))
@@ -226,7 +280,8 @@ def main(argv):
                 coverage = coverage_review(work, root, c)
                 require(coverage["status"] != "covered", "已有约束覆盖:" + coverage["reason"])
                 ev, refs, people, states, bad = [], set(), set(), {}, []
-                for item in c.get("evidence", []):
+                require(isinstance(c.get("evidence"), list), "候选 evidence 应为数组")
+                for item in c["evidence"]:
                     try:
                         e = inputs.evidence(item)
                         if e.get("feedback"):
@@ -237,14 +292,9 @@ def main(argv):
                                 people.add(e["author"])
                         else:
                             require(any(e["thread"] in obs_threads[o] for o in c["observations"]), "候选证据不属于引用的观察线程")
-                            assessment = item.get("assessment", {})
-                            state = assessment.get("state")
-                            require(state in STATES and nonempty(assessment.get("reason")), "评论缺少采纳判断与依据")
-                            require(isinstance(assessment.get("basis"), list), "采纳依据 basis 应为数组")
-                            basis = [inputs.evidence(b) for b in assessment["basis"]]
-                            require(all(b.get("thread") == e["thread"] for b in basis), "采纳依据不在同一讨论")
-                            require(basis or state == "unknown", "采纳/拒绝须附同讨论的原文依据")
-                            e.update(state=STATES[state], assessment=dict(state=state, reason=crlib.norm(assessment["reason"]), basis=basis))
+                            assessment = inputs.assessment(item, e)
+                            state = assessment["state"]
+                            e.update(state=STATES[state], assessment=assessment)
                             ref = "mr:%s" % e["mr"]
                             if e["author"] and e["author"] != e["mr_author"]:
                                 people.add(e["author"])
@@ -253,17 +303,31 @@ def main(argv):
                         states.setdefault(ref, set()).add(state)
                     except (ValueError, TypeError, AttributeError) as error:
                         bad.append(str(error))
-                require(len(refs) >= 2, "证据不足:核对后只剩 %d 个 MR/判断记录(至少 2 个);%s" % (len(refs), ";".join(bad)))
                 require(not bad, "证据未全部核对通过:" + ";".join(bad))
+                require(refs, "证据不足:缺少 MR 或判断记录")
                 # 同一 MR 的矛盾结论不自动算支持,由模型重新核对,脚本只保守汇总。
                 accepted = {r for r, s in states.items() if s == {"accepted"}}
                 unknown = {r for r, s in states.items() if "unknown" in s or len(s) > 1}
-                require(len(accepted | unknown) >= 2, "接受案例不足:明确未采纳的 MR 不凑支持案例")
+                practice_verified = practice and any(e["status"] == "verified" for e in practice["examples"])
+                if not accepted and not (unknown and (len(refs) > 1 or practice_verified)):
+                    disposition = "watch"
+                    require(False, "待观察:明确未采纳的 MR 不凑支持案例" if not unknown else
+                            "待观察:单次观察缺少最终代码落实依据与可核对的独立惯例")
                 unmet = []
-                if len(people) < 2:
-                    unmet.append("待确认:评审人仅 %d 位" % len(people))
-                if len(accepted) < 2:
-                    unmet.append("待确认:模型判断已采纳的只有 %d 个" % len(accepted))
+                if len(refs) == 1:
+                    unmet.append("待确认:单次历史观察,需确认仓库相关性与适用边界")
+                if unknown:
+                    unmet.append("待确认:存在未知或不一致的采纳判断,须补核最终代码")
+                if any("rejected" in s or len(s) > 1 for s in states.values()):
+                    unmet.append("待确认:存在未采纳或冲突反证,须明确适用边界")
+                if practice is not None:
+                    unmet.append("待确认:仓库惯例仅作相关性线索,独立性及规范正确性仍需确认")
+                    if practice["counterexamples"]:
+                        unmet.append("待确认:仓库惯例存在未解反例")
+                    if any(e["status"] == "unavailable" for e in practice["examples"] + practice["counterexamples"]):
+                        unmet.append("待确认:仓库惯例的固定代码对象未读完整")
+                if any(code["status"] == "unavailable" for e in ev for code in e.get("assessment", {}).get("code", [])):
+                    unmet.append("待确认:最终代码证据未读完整")
                 if coverage["status"] == "unknown":
                     unmet.append("待确认:已有约束未核对完整")
                 if kind == "rule" and not (c.get("bad_example") and c.get("good_example")):
@@ -286,8 +350,22 @@ def main(argv):
                                  mentions=len(refs), support=len(accepted), unknown=len(unknown), people=len(people),
                                  unmet=unmet, unmatched=bad, coverage=coverage,
                                  review=crlib.norm(c["review"]), observations=sorted(c["observations"])))
+                if practice is not None:
+                    kept[-1]["practice"] = practice
             except (ValueError, TypeError, AttributeError) as error:
-                dropped.append(dict(rule=rule, kind=kind, reason=str(error)))
+                row = dict(rule=rule, pattern=rule, kind=kind, reason=str(error), disposition=disposition,
+                           observations=sorted(c["observations"]),
+                           feedback=sorted({inputs.feedback[str(e["feedback"])]["key"]
+                                            for e in (c.get("evidence") if isinstance(c.get("evidence"), list) else []) if isinstance(e, dict) and
+                                            str(e.get("feedback", "")) in inputs.feedback}),
+                           evidence=ev, input_evidence=c.get("evidence", []))
+                # 原始条目与归一后的证据均保留；错误引用明确不合格，不能静默删除。
+                row["input"] = c
+                if practice is not None:
+                    row["practice"] = practice
+                if coverage is not None:
+                    row["coverage"] = coverage
+                dropped.append(row)
         require(feedback_used == inputs.feedback_ids, "全局归并遗漏判断记录:" + ",".join(sorted(inputs.feedback_ids - feedback_used)))
         merged = []
         for c in sorted(kept, key=lambda x: (-x["support"], -x["people"], x["rule"], rule_candidates.fingerprint(x))):
@@ -295,22 +373,29 @@ def main(argv):
                 merged.append(c)
         for i, c in enumerate(merged, 1):
             c["no"] = i
+        dropped.sort(key=lambda row: (row["rule"], row["disposition"], rule_candidates.fingerprint(row)))
         out = os.path.join(work, rule_candidates.FILE)
-        if os.path.exists(out):
-            previous = load(os.path.join(work, "candidates.json"))
-            with open(out, encoding="utf-8") as f:
-                require(previous == merged and rule_candidates.bound(f.read(), previous),
-                        "已有候选规则文件与 candidates.json 的配对已冻结,原文件未修改;请在新采集目录重新生成候选规则")
+        candidates_path, dropped_path = (os.path.join(work, name) for name in ("candidates.json", "dropped.json"))
+        if any(os.path.exists(p) for p in (out, candidates_path, dropped_path)):
+            require(os.path.exists(candidates_path) and os.path.exists(dropped_path), "候选与 dropped.json 冻结配对缺失,原文件未修改")
+            previous = load(candidates_path)
+            require(previous == merged and load(dropped_path) == dropped,
+                    "已有 candidates.json 与 dropped.json 已冻结,原文件未修改;请在新采集目录重新生成")
+            if os.path.exists(out):
+                with open(out, encoding="utf-8") as f:
+                    require(rule_candidates.bound(f.read(), previous),
+                            "已有候选规则文件与 candidates.json 的配对已冻结,原文件未修改;请在新采集目录重新生成候选规则")
         else:
-            crlib.save_json(os.path.join(work, "candidates.json"), merged)
-            crlib.save_json(os.path.join(work, "dropped.json"), dropped)
+            crlib.save_json(candidates_path, merged)
+            crlib.save_json(dropped_path, dropped)
         print("candidates=%d dropped=%d" % (len(merged), len(dropped)))
         for c in merged:
             tag = "不要报 · " + c["topic"] if c["kind"] == "suppress" else "%s · %s" % (c["topic"], c["severity"])
             print("%d. [%s] %s → %s%s" % (c["no"], tag, c["rule"], rule_candidates.suggest_dest(c, root),
                                          "(" + ";".join(c["unmet"]) + ")" if c["unmet"] else ""))
         for item in dropped:
-            print("排除: %s — %s" % (item["rule"], item["reason"]))
+            label = {"watch": "待观察", "maintain": "待维护", "exclude": "排除"}[item["disposition"]]
+            print("%s: %s — %s" % (label, item["rule"], item["reason"]))
         if os.path.exists(out):
             print("NOTE: %s 已存在,没有覆盖;它与 candidates.json 的配对保持不变。" % out)
         else:
