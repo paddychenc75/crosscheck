@@ -1,6 +1,6 @@
 {
   "name": "crosscheck",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "本地运行的 AI 代码审查:先找可疑问题,再独立核实,只报有依据的发现。支持本地分支、GitHub PR 和 GitLab MR。",
   "skills": "./skills/",
   "hooks": "./hooks/codex-hooks.json"

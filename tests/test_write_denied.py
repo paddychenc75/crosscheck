@@ -154,6 +154,16 @@ class WritePoints(unittest.TestCase):
         self.assertIn("storage_mode", text)
         self.assertIn("不要换目录", text)
 
+    def test_improve_asks_purpose_once_when_unclear(self):
+        text = Path(fixture.PLUGIN, "skills", "improve", "SKILL.md").read_text(encoding="utf-8")
+        head = text.split("\n---", 1)[0]
+        self.assertIn("Bash(git remote get-url *)", re.search(r"(?m)^allowed-tools: (.*)$", head).group(1))
+        self.assertIn("没说清用途时先问一次", re.search(r"(?m)^description: (.*)$", head).group(1))
+        for phrase in ("问一次用途", "没有 origin 时历史归纳做不了,不问", "已知是非交互运行", "CR_NONINTERACTIVE=1", "不等待回答,直接本地维护", "无法判断时照常提问",
+                       "用途已经说清就直接执行,不问"):
+            with self.subTest(phrase):
+                self.assertIn(phrase, text)
+
     def test_skills_explain_how_to_handle_denied_writes(self):
         for skill in ("review", "improve", "describe"):
             with self.subTest(skill):

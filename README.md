@@ -136,7 +136,8 @@
 
 | 命令 | 做什么 |
 |---|---|
-| `/crosscheck:improve` | 联合检查本地 rules 与 `REVIEW.md`,整理成维护草稿,不自动拉取历史 MR |
+| `/crosscheck:improve` | 先问一次:本地维护,还是从历史 MR 归纳(默认最近 90 天)。没有 origin,或已知是非交互运行(说明无人在场或 `CR_NONINTERACTIVE=1`)时直接本地维护 |
+| `/crosscheck:improve 整理现有规则` | 联合检查本地 rules 与 `REVIEW.md`,整理成维护草稿,不问、不拉取历史 MR |
 | `/crosscheck:improve 补充一条:查询必须限制在调用方租户内` | 结合现有规则和代码整理要求、范围及例外,无需凑历史 MR 证据 |
 | `/crosscheck:improve 这条规则和 REVIEW.md 冲突,一起整理` | 展示冲突和建议取舍,在同一份草稿中新增、修改、合并或删除相关内容 |
 | `/crosscheck:improve 从最近 30 天的评审沉淀规则` | 只读采集已合并 MR,分批观察和全局归并,把候选编入同一维护草稿 |

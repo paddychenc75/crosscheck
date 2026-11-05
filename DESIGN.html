@@ -945,9 +945,9 @@ nav.toc a.top.active { color: var(--accent); }
       </div>
       <div class="fc-wrap" id="fc-improve">
         <span id="demo-improve"></span>
-        <div class="fc-head"><b>improve：明确需求 → 联查规则 → 维护草稿 → 预演 → 确认 → 写入</b><span class="muted">默认本地维护；历史沉淀只补充材料</span></div>
+        <div class="fc-head"><b>improve：明确需求 → 联查规则 → 维护草稿 → 预演 → 确认 → 写入</b><span class="muted">用途不明先问一次；历史沉淀只补充材料</span></div>
         <ol class="fc" aria-label="improve 流程">
-          <li><div class="fc-step"><a class="fc-t" href="#improve-modes"><span class="fc-n">1</span>明确需求</a><span class="fc-who">你 · 主 agent</span><p class="fc-d">从本地维护开始。新增、改、删、合并都进入同一流程。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的要求、已有对话；明确要求历史沉淀时才拉 MR</dd><dt>产出</dt><dd>本次维护范围；是否保存记录</dd></dl></details></div></li>
+          <li><div class="fc-step"><a class="fc-t" href="#improve-modes"><span class="fc-n">1</span>明确需求</a><span class="fc-who">你 · 主 agent</span><p class="fc-d">用途不明时先问本地维护还是历史归纳。新增、改、删、合并都进入同一流程。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>你的要求、已有对话；明确要求历史沉淀时才拉 MR</dd><dt>产出</dt><dd>本次维护范围；是否保存记录</dd></dl></details></div></li>
           <li><div class="fc-step"><a class="fc-t" href="#imp-inspect"><span class="fc-n">2</span>联查规则</a><span class="fc-who">主 agent · 只读材料采集</span><p class="fc-d">一起看代码规则和 REVIEW.md，核对分工、冲突、价值与范围。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>本地规则与项目事实；可选的 MR 讨论和判断记录</dd><dt>产出</dt><dd>维护建议与来源；历史推断保留内部候选和证据</dd></dl></details></div></li>
           <li><div class="fc-step"><a class="fc-t" href="#rule-candidates"><span class="fc-n">3</span>维护草稿</a><span class="fc-who">你 ↔ 主 agent</span><p class="fc-d">生成 <code>rules-draft.md</code>，明确每个目标文件的原内容、拟写内容和来源。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>用户要求、联查结果、可选历史候选</dd><dt>产出</dt><dd><code>rules-draft.md</code>、限定文件清单、待确认项</dd></dl></details></div></li>
           <li><div class="fc-step"><a class="fc-t" href="#improve-apply"><span class="fc-n">4</span>预演</a><span class="fc-who">脚本</span><p class="fc-d">展示实际 diff、当前指纹和待确认项，目标文件尚未改动。</p><details class="fc-io"><summary>输入 / 产出</summary><dl><dt>输入</dt><dd>当前草稿、目标文件原内容、来源</dd><dt>产出</dt><dd>diff 与当前版本指纹；没有应用到工作区</dd></dl></details></div></li>
@@ -1760,7 +1760,7 @@ globs: "src/orders/**"
 
     <section id="improve">
       <h2>四、规则维护（improve）</h2>
-      <p class="sec-lead"><b>解决什么：</b>统一维护项目规则，把用户补充、已有规则和可选的历史证据汇入同一份 <code>rules-draft.md</code>。<b>入口：</b><code>/crosscheck:improve</code>（Codex <code>$crosscheck:improve</code>，Cursor <code>/improve</code>）；默认本地维护，明确要求历史沉淀才拉 MR。流程图和动画见<a href="#fc-improve">流程总览</a>，规则分工见<a href="#rules">规则机制</a>。</p>
+      <p class="sec-lead"><b>解决什么：</b>统一维护项目规则，把用户补充、已有规则和可选的历史证据汇入同一份 <code>rules-draft.md</code>。<b>入口：</b><code>/crosscheck:improve</code>（Codex <code>$crosscheck:improve</code>，Cursor <code>/improve</code>）；用途不明时先问一次走本地维护还是历史归纳，明确要求历史沉淀才拉 MR。流程图和动画见<a href="#fc-improve">流程总览</a>，规则分工见<a href="#rules">规则机制</a>。</p>
       <p>无论新增、修改、删除还是合并，都先联查代码规则与 <code>REVIEW.md</code>，再生成维护草稿、预演 diff、确认当前版本，最后只写工作区。默认保存维护材料；明确“不保存 / 不留记录”时使用 <code>--no-store</code>，草稿和中间材料仍在临时目录，能继续对话修改，不改原配置和历史记录，也不影响已确认的规则写入。</p>
       <div class="lifecycle"><span class="state s1">用户需求 · 本地规则 · 可选历史证据</span><span class="edge">联查职责、价值和范围</span><span class="state s3">rules-draft.md</span><span class="edge">预演 diff 与指纹</span><span class="state s3">用户确认当前版本</span><span class="edge">再核对目标文件</span><span class="state s2">只写工作区</span></div>
 
@@ -1769,7 +1769,8 @@ globs: "src/orders/**"
         <p>本地维护用 <code>python3 &lt;cr_dir&gt;/scripts/crlib.py init-work &lt;repo_root&gt; [--no-store]</code> 创建本次 <code>work</code>；历史采集仍由 <code>mine-mrs.sh [--no-store]</code> 返回 <code>work</code>。这里 <code>&lt;cr_dir&gt;</code> 是 <code>skills/review</code>。<code>meta.txt</code> 的 <code>storage_mode</code> 记录 <code>persistent</code> 或 <code>temporary</code>，这次选择不改变原配置。</p>
         <div class="table-wrap"><table>
           <tr><th>你怎么说</th><th>怎么处理</th></tr>
-          <tr><td>不带参数，或“检查 / 整理项目规则”</td><td>从本地规则开始，联查 <code>.agents/rules</code> 与各级 <code>REVIEW.md</code>，形成维护草稿；不强迫先选三个模式，也不默认拉 MR。</td></tr>
+          <tr><td>不带参数，或只说“最近半年”</td><td>先问一次：本地维护，还是从历史 MR 归纳（默认最近 90 天）。仓库没有 origin 时不问，直接本地维护；已知是非交互运行（调用方说明无人在场或 <code>CR_NONINTERACTIVE=1</code>）时不等回答，直接本地维护并说明怎么改为历史归纳；判断不了就照常提问。</td></tr>
+          <tr><td>“检查 / 整理项目规则”</td><td>从本地规则开始，联查 <code>.agents/rules</code> 与各级 <code>REVIEW.md</code>，形成维护草稿；不问模式，也不拉 MR。</td></tr>
           <tr><td>“新增方向图标要判断 rtl”“这条删掉”“两条合并”</td><td>明确要求直接进入草稿，不要求凑两个 MR。仍检查适用范围、冲突、工程价值及应该放在哪里，写入前照常预演并确认。</td></tr>
           <tr><td>“从最近半年的 MR 沉淀规则”</td><td>明确要求后只读采集历史，按证据门槛归纳；结果汇入同一份草稿，不另开一种写入流程。</td></tr>
           <tr><td>“再加一条”“范围只限新增代码”“这次不留记录”</td><td>接着当前草稿修改，不重新走选择菜单。补充内容会使旧预演和确认失效；不保存只改变本次记录的保存方式。</td></tr>
@@ -2960,7 +2961,7 @@ python3 &lt;cr_dir&gt;/scripts/rules-draft.py &lt;work&gt; --propose &lt;request
 
   var cr = document.getElementById('crDemo');
   if (cr) stepDemo(cr, { fc: 'fc-improve', start: 'rules', info: {
-    rules: '谁：项目负责人 · 默认本地维护 · 明确要求直接进入草稿，补充后重新预演确认；本例不保存持久记录',
+    rules: '谁：项目负责人 · 选择本地维护 · 明确要求直接进入草稿，补充后重新预演确认；本例不保存持久记录',
     review: '谁：项目负责人 · 明确要求才采集 MR 历史 · 历史推断保留证据门槛，汇入同一份草稿再预演确认'
   } });
   var ds = document.getElementById('dsDemo');

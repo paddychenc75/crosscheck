@@ -1,7 +1,7 @@
 ---
 name: improve
-allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git rev-parse *), Bash(git ls-files *), Bash(git grep *), Bash(git cat-file *)
-description: 维护项目规则(只能用命令调用)。联合整理 .agents/rules 与 REVIEW.md,把用户要求或有依据的改进整理为 rules-draft.md 草稿,展示理由、目标文件、实际 diff 和待确认项;用户确认本次具体版本后只写工作区,不提交。支持新增、修改、删除和合并。只有明确要求从历史归纳才读取 MR;不带参数默认本地维护。可用 --no-store 或「不留存」把本次材料放临时目录。Claude Code 里是 /crosscheck:improve,不由自然语言触发。
+allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(git rev-parse *), Bash(git ls-files *), Bash(git grep *), Bash(git cat-file *), Bash(git remote get-url *)
+description: 维护项目规则(只能用命令调用)。联合整理 .agents/rules 与 REVIEW.md,把用户要求或有依据的改进整理为 rules-draft.md 草稿,展示理由、目标文件、实际 diff 和待确认项;用户确认本次具体版本后只写工作区,不提交。支持新增、修改、删除和合并。只有明确要求从历史归纳才读取 MR;没说清用途时先问一次走本地维护还是历史归纳,非交互或无 origin 时直接本地维护。可用 --no-store 或「不留存」把本次材料放临时目录。Claude Code 里是 /crosscheck:improve,不由自然语言触发。
 disable-model-invocation: true
 ---
 
@@ -14,8 +14,11 @@ disable-model-invocation: true
 不要求用户先选“沉淀/检查/整理”菜单。它们是内部能力,可以按本次目标组合:
 
 - 有明确目标,就读取目标涉及的规则、相关 REVIEW.md、必要配置和代码;跨文件核对覆盖和冲突,不顺带全仓审计。用户直接提出的规则不需要历史 MR 支持。
-- 不带参数,默认本地维护:查看现有 rules 与 REVIEW.md 的组织和有效性,提出值得做的改动草稿。没有规则也不为了填满文件制造约束。
-- 用户明确说“从 MR 评论沉淀”“从最近半年历史归纳”时才走历史材料管线。单独一个时间范围不自动授权采集,先澄清用途。检查/整理本地规则不默认读历史 MR 或本机判断记录。
+- 不带参数,或只给时间范围、没说用途时,先用 `git remote get-url origin` 看能否采集,再问一次用途,不直接开工:
+  - 本地维护:查看现有 rules 与 REVIEW.md 的组织和有效性,提出值得做的改动草稿。不访问托管平台。
+  - 从历史 MR 归纳:默认最近 90 天,用户给了时间范围就用它;说明会只读访问托管平台、耗时较长。
+  一个问题问完,选完就执行,不再追问模式。宿主有提问工具就用它。没有 origin 时历史归纳做不了,不问,直接本地维护并说明原因。已知是非交互运行(调用方说明没有人在场,或环境设置了 `CR_NONINTERACTIVE=1`)时不等待回答,直接本地维护,并在结果里说明可以明确要求「从历史 MR 归纳」。无法判断时照常提问并停下等回答,不替用户选。
+- 用途已经说清就直接执行,不问:“检查/整理项目规则”“把 xxx 加成规则”等走本地维护;“从 MR 评论沉淀”“从最近半年历史归纳”等走历史材料管线。本地维护不读历史 MR 或本机判断记录。没有规则也不为了填满文件制造约束。
 - 用户指定判断记录作为误报分析材料时再读取相应记录。未命中、低命中率不构成删除理由;不能把一次不修变成长期不报。
 
 来源分为 `user`(用户本次明确要求,保留原话)和 `inferred`(从本地事实或历史材料推断,保留依据与未知)。两类都复核范围、可检查性和已有冲突。历史来源数量只描述支持情况,不是唯一准入门槛;单 MR 已落实或有仓库惯例也可以提出待确认。用户同意采用不等于它变成已采纳的历史共识。
