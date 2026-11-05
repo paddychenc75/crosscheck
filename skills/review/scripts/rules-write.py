@@ -14,6 +14,7 @@ import sys
 
 sys.dont_write_bytecode = True
 import crlib
+import mining_evidence
 import project_rules
 import rule_candidates
 import rules_draft
@@ -37,6 +38,8 @@ def block_of(c):
     if c.get("why"):
         lines.append("- **原因**:" + c["why"])
     lines.append("- **严重级别**:" + (c.get("severity") or "轻微"))
+    if c.get("incident"):
+        lines.append("- **情形**:" + c["incident"])
     lines += rule_candidates.example_lines("反例", c.get("bad_example"), c.get("bad_lang", ""))
     lines += rule_candidates.example_lines("正例", c.get("good_example"), c.get("good_lang", ""))
     lines.append("- **不要报**:" + c.get("exceptions", ""))
@@ -278,6 +281,7 @@ def check_block(b, c, root):
             s = s[1:-1] if len(s) > 1 and s[0] == s[-1] == "`" else s
         return s
     merged = dict(c, title=b["title"], rule=rule, why=why, exceptions=exceptions, paths=paths,
+                  incident=crlib.norm(f.get("情形", "")),
                   severity=crlib.RULE_SEVERITY.get(severity.strip(), ""), dest=dest,
                   bad_example=example("反例"), good_example=example("正例"),
                   bad_lang=b.get("lang", {}).get("反例", ""), good_lang=b.get("lang", {}).get("正例", ""))
@@ -407,7 +411,7 @@ def history(work):
 
 
 def topic_detail(row, label, title, reason, picked, rest):
-    """一个待观察 / 维护主题在材料文件里的完整记录。"""
+    """一个案例 / 维护主题在材料文件里的完整记录。"""
     out = ["", "## %s:%s" % (label, title), "", "- 理由:" + reason]
     refs = list(row.get("observations", [])) + ["feedback:" + str(x) for x in row.get("feedback", [])]
     if refs:
@@ -459,6 +463,142 @@ def file_source(items):
     return reason, dict(type="inferred", basis=basis, candidates=nos)
 
 
+EDITOR_INPUT, EDITOR = "editor-input.md", "editor.json"
+
+
+def compact(text):
+    return "".join(str(text or "").split())
+
+
+def code_rows(text):
+    """示例里要对照的代码行,去掉全部空白;空行、省略号行和只有括号标点的行不算。"""
+    rows = []
+    for row in str(text or "").split("\n"):
+        s = compact(row)
+        if not s or re.fullmatch(r"(//|#|/\*|\*|--|<!--)?(\.\.\.|…+)(\*/|-->)?", s) or re.fullmatch(r"[{}()\[\];,]+", s):
+            continue
+        rows.append(s)
+    return rows
+
+
+class CodeSources:
+    """核对示例用的代码:评论时的代码窗口(快照里评论的 code)、各 MR 最终 head 与采集时固定 head 上的相关文件。
+    只读 Git 对象,不读工作区;读不到的当作没有。"""
+
+    def __init__(self, work, root):
+        path = os.path.join(work, "snapshot.json")
+        snapshot = json.loads(rules_draft.read(path)) if os.path.isfile(path) else {}
+        self.windows, self.heads = {}, {}
+        for rec in snapshot.get("records", []):
+            self.heads[str(rec.get("iid"))] = rec.get("head_sha") or ""
+            for note in rec.get("notes", []):
+                self.windows[(str(rec.get("iid")), str(note.get("id")))] = str(note.get("code") or "")
+        self.head = crlib.read_kv(os.path.join(work, "meta.txt")).get("head", "")
+        self.code = mining_evidence.CodeEvidence(root)
+
+    def blob(self, ref, path):
+        if not ref or not path:
+            return ""
+        try:
+            return self.code.read(ref, path)[0] or ""
+        except ValueError:
+            return ""
+
+    def texts(self, c):
+        """-> (评论时的代码窗口, 全部可对照的代码),都已去掉空白。"""
+        windows, final, files = [], [], set()
+        for e in c.get("evidence", []):
+            if "mr" not in e:
+                continue
+            windows.append(self.windows.get((str(e["mr"]), str(e.get("note"))), ""))
+            names = {e.get("file")} | {x.get("file") for x in e.get("assessment", {}).get("code", [])}
+            final += [self.blob(self.heads.get(str(e["mr"])), name) for name in sorted(x for x in names if x)]
+            files |= names
+        practice = c.get("practice") or {}
+        files |= {x.get("file") for key in ("examples", "counterexamples") for x in practice.get(key, [])}
+        base = [self.blob(self.head, name) for name in sorted(x for x in files if x)]
+        return [compact(w) for w in windows if w], [compact(t) for t in windows + final + base if t]
+
+
+def example_warnings(c, sources):
+    """反例要能在真实代码里找到;正例改动的行不该在评论时的代码里早就有。只警告,不拦写入。"""
+    if c["kind"] != "rule" or not c.get("bad_example"):
+        return []
+    windows, texts = sources.texts(c)
+    if not texts:
+        return ["没有可对照的评论代码或最终代码,请人工确认反例来自真实代码"]
+    out = []
+    bad = code_rows(c["bad_example"])
+    missing = [row for row in bad if not any(row in t for t in texts)]
+    if missing:
+        out.append("反例有 %d 行在评论时的代码、MR 最终代码和采集时 head 里都找不到,请确认它来自真实代码" % len(missing))
+    fixed = [row for row in code_rows(c.get("good_example")) if row not in bad]
+    if c.get("good_example") and not fixed:
+        out.append("正例和反例没有不同的代码行,正例应是反例的修复")
+    elif fixed and windows and all(any(row in w for w in windows) for row in fixed):
+        out.append("正例改动的行在评论时的代码里已经有了,可能不是这次的修复")
+    return out
+
+
+def editor_reviews(work):
+    """editor.json 里独立读者的结论 -> {候选编号: 结论}。文件由主任务按 roles/editor.md 保存,没有时为空。"""
+    path = os.path.join(work, EDITOR)
+    if not os.path.isfile(path):
+        return {}
+    data = json.loads(rules_draft.read(path))
+    rows = data.get("reviews") if isinstance(data, dict) else None
+    rules_draft.require(isinstance(rows, list), "editor.json 应为 {\"reviews\": [...]}")
+    out = {}
+    for row in rows:
+        rules_draft.require(isinstance(row, dict) and isinstance(row.get("cand"), int) and row.get("verdict") in rule_candidates.VERDICTS,
+                            "editor.json 每条要有整数 cand 和结论 verdict(%s)" % " / ".join(rule_candidates.VERDICTS))
+        rules_draft.require(row["cand"] not in out, "editor.json 里候选 %d 重复" % row["cand"])
+        out[row["cand"]] = row["verdict"]
+    return out
+
+
+def editor_input(todo):
+    """给独立读者的材料:只放要写入的块的字段,不带证据、链接和讨论;候选编号只用来对回结论。"""
+    lines = ["# 待复核的规则", "", "按 roles/editor.md 逐条回答。只读这份文件,不查讨论、不看仓库。"]
+    for b, c in todo:
+        lines += ["", "## 候选 %d. %s" % (b["cand"], b["title"]), "",
+                  "- **类别**:" + ("规则" if c["kind"] == "rule" else "不要报")]
+        for name, key in (("规则", "rule"), ("情形", "incident"), ("原因", "why"), ("严重级别", "severity")):
+            if c.get(key):
+                lines.append("- **%s**:%s" % (name, c[key]))
+        lines.append("- **范围**:" + ", ".join(c["paths"]))
+        lines += rule_candidates.example_lines("反例", c.get("bad_example"), c.get("bad_lang", ""))
+        lines += rule_candidates.example_lines("正例", c.get("good_example"), c.get("good_lang", ""))
+        if c["kind"] == "rule":
+            lines.append("- **不要报**:" + c.get("exceptions", ""))
+    return "\n".join(lines) + "\n"
+
+
+def review_gate(work, todo):
+    """写入的块都要有独立读者的复核:「复核」字段的结论和 editor.json 一致,且不是退回的案例。
+    还有没复核的块时把它们写进 editor-input.md 并报错,让主任务先复核。"""
+    reviews, errors, waiting = editor_reviews(work), [], []
+    for b, _ in todo:
+        verdict = b["fields"].get("复核", "").strip()
+        word = re.split(r"[::\s(（]", verdict, 1)[0]
+        if not verdict:
+            waiting.append((b, _))
+        elif b["cand"] not in reviews:
+            errors.append((b["label"], "复核", "editor.json 里没有候选 %d 的复核结论" % b["cand"]))
+        elif word != reviews[b["cand"]]:
+            errors.append((b["label"], "复核", "和 editor.json 的结论「%s」不一致,照原结论抄" % reviews[b["cand"]]))
+        elif word == "案例":
+            errors.append((b["label"], "复核", "独立复核退回为案例:动作改成跳过"))
+    if waiting:
+        path = os.path.join(work, EDITOR_INPUT)
+        with crlib.record_write(path):
+            rules_draft.atomic(path, editor_input(waiting))
+        errors += [(b["label"], "复核", "还没有独立复核;待复核的块已写到 %s:按 roles/editor.md 交给独立读者,"
+                    "回复按候选编号合并进 %s,再把结论(写入 / 改写 / 案例,加一句理由)抄进「复核」后重新 --prepare"
+                    % (path, os.path.join(work, EDITOR))) for b, _ in waiting]
+    return errors
+
+
 def unmet_text(text):
     """mine-check 的未满足项以「待确认:」开头;它会放在「待确认」节里,不重复这个前缀。"""
     return text[len("待确认:"):] if text.startswith("待确认:") else text
@@ -502,8 +642,14 @@ def prepare(work, root=""):
             if not errs:
                 todo.append((b, merged))
                 unmet += ["%s:%s" % (who, unmet_text(x)) for x in cands[b["cand"]].get("unmet", [])]
+    errors = errors or review_gate(work, todo)
     if errors:
         raise ValueError("\nERROR: ".join(("块 %s %s: %s" % row) if row[0] is not None else "头部 %s: %s" % row[1:] for row in errors))
+    sources, quality = CodeSources(work, root), []
+    for b, c in todo:
+        for text in crlib.rule_warnings(c["kind"], c["rule"], c["paths"], c.get("exceptions", "")) + example_warnings(c, sources):
+            quality.append("候选 %s「%s」:%s" % (b["label"], b["title"], text))
+            print("WARN: " + quality[-1])
     originals, placed = {}, {}
     skips, touched, before, changed, wrote, warns, rule_files = build(root, todo, originals, placed)
     rels = [os.path.relpath(p, root) for p in touched]
@@ -528,7 +674,7 @@ def prepare(work, root=""):
     # AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,这里不再传接入字段。
     request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes,
                    rule_targets=[os.path.relpath(p, root) for p in rule_files],
-                   pending=pending + unmet, notes=skips + warns, history=past)
+                   pending=pending + unmet, notes=skips + warns + quality, history=past)
     data = rules_draft.propose(work, request, bindings=bindings)
     print("RULES_DRAFT: " + os.path.join(work, rules_draft.VIEW))
     return data

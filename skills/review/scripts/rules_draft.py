@@ -37,7 +37,7 @@ LEGACY_INDEX = re.compile(r"- \[[^\]\r\n]+\]\(\.agents/rules/[^)\r\n]+\.md\):改
 HINT_SOURCE = dict(type="inferred", basis="规则写入 .agents/rules,读 AGENTS.md 的宿主需要知道去哪里找")
 LINK_SOURCE = dict(type="inferred", basis="Claude Code 按 .claude/rules 的 paths 原生加载规则")
 LINK_KINDS = ("missing", "symlink", "file", "other")
-HISTORY_LABELS = {"watch": "待观察", "maintain": "维护已有规范"}
+HISTORY_LABELS = {"watch": "案例", "maintain": "维护已有规范"}
 
 
 def require(ok, message):

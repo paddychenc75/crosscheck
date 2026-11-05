@@ -11,13 +11,15 @@ import crlib
 
 FILE = "mined-candidates.md"    # 内部材料,与 candidates.json 按指纹冻结配对;人读总草稿是 rules-draft.md
 TITLE = "# 候选规则"
-FIELDS = ("候选", "去向", "动作", "规则", "原因", "严重级别", "范围", "反例", "正例", "不要报")
-# 各类候选必填的字段;suppress 类不用严重级别、反例、正例、不要报
-REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重级别", "不要报"),
+FIELDS = ("候选", "去向", "动作", "复核", "规则", "原因", "严重级别", "情形", "范围", "反例", "正例", "不要报")
+# 各类候选必填的字段;suppress 类不用严重级别、情形、反例、正例、不要报。「复核」只在写入时必填,由 rules-write.py 查
+REQUIRED = {"rule": ("候选", "去向", "动作", "规则", "范围", "严重级别", "情形", "不要报"),
             "suppress": ("候选", "去向", "动作", "规则", "范围")}
-SUPPRESS_ONLY_FORBIDS = ("严重级别", "反例", "正例", "不要报")
+SUPPRESS_ONLY_FORBIDS = ("严重级别", "情形", "反例", "正例", "不要报")
 EXAMPLES = ("反例", "正例")
 ACTIONS = ("待定", "写入", "跳过")
+# 独立读者复核(roles/editor.md)的结论:写入 = 读得懂、可复用;改写 = 已按意见改过;案例 = 只是一次修复,退回不写
+VERDICTS = ("写入", "改写", "案例")
 RULES_DIR = ".agents/rules"
 # 头部字段:写在头部(第一个 ## 块之前),不属于任何候选块。0.3.13 起没有可写的头部字段:
 # AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,旧的「接入 AGENTS.md」报错提示删掉。
@@ -237,11 +239,13 @@ def render_block(c, dest):
     lines += ["- **候选**:%d(%s;评审人 %d 位)" % (c["no"], count_refs(c) or "-", c.get("people", 0)),
              "- **去向**:" + dest,
              "- **动作**:待定",
+             "- **复核**:",
              "- **规则**:" + one(c["rule"]).rstrip(crlib.RULE_PUNCT)]
     if c.get("why"):
         lines.append("- **原因**:" + one(c["why"]))
     if c["kind"] == "rule":
         lines.append("- **严重级别**:" + (c.get("severity") or "轻微"))
+        lines.append("- **情形**:" + one(c.get("incident")))
     lines.append("- **范围**:" + ", ".join(c.get("paths") or ["**"]))
     if c["kind"] == "rule":
         for name, key in (("反例", "bad_example"), ("正例", "good_example")):

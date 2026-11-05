@@ -102,12 +102,13 @@ sh "<cr_dir>/scripts/mine-mrs.sh" [--days <n>] [--limit <n>] [--repo "<仓库根
 默认90天,不隐含数量上限;用户指定数量/时间范围时准确传参并披露采集范围。平台只通过 origin 绑定入口读取。无 origin 时不能采集,本地维护仍可继续。EMPTY 或未完整分页、未知缓存版本时说明材料局限,不生成伪完整结论。
 
 1. 以 `snapshot.json` 固定本次材料。按 `roles/miner.md`“观察”读取完整批次,把回复原样存 `result-<n>.json`,运行 `mine-check.py "<work_dir>" --observations`。需要代理且宿主支持时按配置 `model.finder` 执行,任务中指定由该角色将原始 JSON 写入 `<work_dir>/result-<n>.json`;否则顺序完成相同契约。
-2. 按 miner“全局归并”按约束的条件、行为、范围和例外汇合观察,不要求评论文字相同。回查最终代码判断采纳,作者回复只作辅助;仓库惯例按采集时固定 head 核对,保留相反实现,不与历史落实混算。单 MR 也可待确认,无足够依据的经验进入 watch,已有规范冲突进入 maintain。保存 `synthesis.json`,运行 `mine-check.py "<work_dir>" "<work_dir>/synthesis.json"`。委托子代理时指定由该角色把原始 JSON 写入 `<work_dir>/synthesis.json`。角色完成后读取约定文件,不依赖完成通知是否附带正文;没有文件写入工具时保存实际 JSON 回复。两者都缺失时说明未收到结果,不补造、不进入下一步。
-3. 输出冻结的 `candidates.json`、内部材料 `mined-candidates.md`、去向材料 `dropped.json`,以及统一 `rules-draft.md`。watch 和 maintain 在草稿末尾「参考材料」里每个主题一行(标题、理由、典型 MR;维护项带现有规范原文),不进待确认;观察编号、全部引文和仓库核对写在本轮 `rules-materials.md`。即使零新增候选也要展示这些建议。初始仅摘要的草稿是材料中间态,不能当作完成的维护草稿交付。确实没有值得改动的内容时说明依据。
-4. 你按用户维护目标和证据复核,主动把值得提出的候选整理优化并在内部标“写入”,使它进入具体文件 diff;不要求用户先逐项操作候选选单。待定只留未能判断的事项,跳过的说明原因。内部“写入”只是选择进草稿,不是最终写入授权。来源按候选编号从绑定机器材料取,不能靠改证据文字伪造。改变约束或扩大范围必须重新复核,新增用户要求走 user 提案,不能借旧 MR 当依据。
-5. 运行 `rules-write.py "<work_dir>" --prepare` 把选定候选和历史去向编译成统一清单;它不写仓库。每个文件的理由和来源只列实际写进它的候选。历史去向存在清单的 `history` 里,之后的 `--propose` 自动沿用,不要抄进 notes/pending,提案里也不写 history。需要修改现有规则或 REVIEW.md 时,先 capture 相关目标,基于清单的 changes 组织具体 proposal,来源用 inferred 并引用对应观察和规范原文,保留已有材料绑定,再 propose/check。取舍未定只留待确认,不能静默改为任选一边。
+2. 按 miner“全局归并”按约束的条件、行为、范围和例外汇合观察,不要求评论文字相同。回查最终代码判断采纳,作者回复只作辅助;仓库惯例按采集时固定 head 核对,保留相反实现,不与历史落实混算。单 MR 也可待确认,无足够依据的经验和离不开这次业务名词的一次修复进入 watch(草稿里叫「案例」),已有规范冲突进入 maintain。每条规则候选先写情形、再写比情形宽一级的通用原则,并做回代测试。保存 `synthesis.json`,运行 `mine-check.py "<work_dir>" "<work_dir>/synthesis.json"`。委托子代理时指定由该角色把原始 JSON 写入 `<work_dir>/synthesis.json`。角色完成后读取约定文件,不依赖完成通知是否附带正文;没有文件写入工具时保存实际 JSON 回复。两者都缺失时说明未收到结果,不补造、不进入下一步。
+3. 输出冻结的 `candidates.json`、内部材料 `mined-candidates.md`、去向材料 `dropped.json`,以及统一 `rules-draft.md`。案例(watch)和维护建议(maintain)在草稿末尾「参考材料」里每个主题一行(标题、理由、典型 MR;维护项带现有规范原文),不进待确认;观察编号、全部引文和仓库核对写在本轮 `rules-materials.md`。即使零新增候选也要展示这些建议。初始仅摘要的草稿是材料中间态,不能当作完成的维护草稿交付。确实没有值得改动的内容时说明依据。
+4. 你按用户维护目标和证据复核,主动把值得提出的候选整理优化并在内部标“写入”,使它进入具体文件 diff。逐条核对:规则句是范围加通用原则,一条只一个「必须 / 禁止」;情形写清这次发生了什么;原因只写后果;反例取自真实代码,正例是它的修复;不要报只一个条件、一个对象。不要求用户先逐项操作候选选单。待定只留未能判断的事项,跳过的说明原因。内部“写入”只是选择进草稿,不是最终写入授权。来源按候选编号从绑定机器材料取,不能靠改证据文字伪造。改变约束或扩大范围必须重新复核,新增用户要求走 user 提案,不能借旧 MR 当依据。
+5. 运行 `rules-write.py "<work_dir>" --prepare`。标了写入但「复核」为空的块会被写进 `editor-input.md` 并报错:按 `roles/editor.md` 交给一个不看讨论的读者。需要代理且宿主支持时按配置 `model.finder` 执行,任务中只给 `editor-input.md`,指定由该角色把原始 JSON 写入 `<work_dir>/editor.json`;已有 editor.json 时写到新文件,再按候选编号合并进去。宿主不支持代理时你只读 editor-input.md 顺序完成同一契约,并在交付时说明复核不是独立读者做的。把每条结论(写入 / 改写 / 案例,加一句理由)抄进块的「复核」:改写的照 `rewrite` 改字段,案例把动作改成跳过,然后重新 --prepare。写入块还有只警告的检查(反例找不到来源、正例早已存在、范围全是具体文件、多处必须 / 禁止、不要报叠条件),列在草稿的核对说明,由你判断要不要改,不能自动放宽范围。
+6. 复核齐了 --prepare 才把选定候选和历史去向编译成统一清单;它不写仓库。每个文件的理由和来源只列实际写进它的候选。历史去向存在清单的 `history` 里,之后的 `--propose` 自动沿用,不要抄进 notes/pending,提案里也不写 history。需要修改现有规则或 REVIEW.md 时,先 capture 相关目标,基于清单的 changes 组织具体 proposal,来源用 inferred 并引用对应观察和规范原文,保留已有材料绑定,再 propose/check。取舍未定只留待确认,不能静默改为任选一边。
 
-历史材料全文留在机器文件和 `rules-materials.md` 供追问,人读草稿只放简短来源与待确认。候选与去向一起冻结;最终 apply 核对 candidates.json、mined-candidates.md、dropped.json、snapshot.json、rules-sources.json 的绑定。代码引文核对不能证明语义正确。待观察复用本轮材料,没有永久观察库或自动晋升;要重用旧记录需明确选择并重新核验,`--no-store` 不承诺跨轮留存。
+历史材料全文留在机器文件和 `rules-materials.md` 供追问,人读草稿只放简短来源与待确认。候选与去向一起冻结;最终 apply 核对 candidates.json、mined-candidates.md、dropped.json、snapshot.json、rules-sources.json 的绑定。代码引文核对和读者复核都不能证明语义正确。案例复用本轮材料,没有永久观察库或自动晋升;要重用旧记录需明确选择并重新核验,`--no-store` 不承诺跨轮留存。
 
 ## 唯一确认与写入出口
 

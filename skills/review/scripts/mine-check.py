@@ -311,8 +311,8 @@ def main(argv):
                 practice_verified = practice and any(e["status"] == "verified" for e in practice["examples"])
                 if not accepted and not (unknown and (len(refs) > 1 or practice_verified)):
                     disposition = "watch"
-                    require(False, "待观察:明确未采纳的 MR 不凑支持案例" if not unknown else
-                            "待观察:单次观察缺少最终代码落实依据与可核对的独立惯例")
+                    require(False, "案例:明确未采纳的 MR 不凑支持案例" if not unknown else
+                            "案例:单次观察缺少最终代码落实依据与可核对的独立惯例")
                 unmet = []
                 if len(refs) == 1:
                     unmet.append("待确认:单次历史观察,需确认仓库相关性与适用边界")
@@ -332,6 +332,11 @@ def main(argv):
                     unmet.append("待确认:已有约束未核对完整")
                 if kind == "rule" and not (c.get("bad_example") and c.get("good_example")):
                     unmet.append("待确认:缺反例或正例")
+                incident, wider = crlib.norm(c.get("incident", "")), crlib.norm(c.get("generalized", ""))
+                if kind == "rule" and not incident:
+                    unmet.append("待确认:缺「情形」(这次具体发生了什么、反例错在哪、正例为什么修好了)")
+                if wider:
+                    unmet.append("待确认:原则比情形宽一级," + wider)
                 why = crlib.norm(c.get("why", ""))
                 if crlib.MR_REF.search(why):
                     unmet.append("待确认:原因里写了 MR 号,写入前要删掉(来源由脚本写在注释里)")
@@ -340,7 +345,7 @@ def main(argv):
                 # 示例的代码块语言:证据所在文件的扩展名一致时取它,否则留空,不猜
                 exts = {os.path.splitext(e["file"])[1][1:].lower() for e in ev if e.get("file")}
                 kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule,
-                                 why=why, severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""),
+                                 why=why, severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""), incident=incident,
                                  severity_reason=crlib.norm(severity_reason),
                                  bad_example=str(c.get("bad_example") or ""), good_example=str(c.get("good_example") or ""),
                                  lang=next(iter(exts)) if len(exts) == 1 else "",
@@ -394,7 +399,7 @@ def main(argv):
             print("%d. [%s] %s → %s%s" % (c["no"], tag, c["rule"], rule_candidates.suggest_dest(c, root),
                                          "(" + ";".join(c["unmet"]) + ")" if c["unmet"] else ""))
         for item in dropped:
-            label = {"watch": "待观察", "maintain": "待维护", "exclude": "排除"}[item["disposition"]]
+            label = {"watch": "案例", "maintain": "待维护", "exclude": "排除"}[item["disposition"]]
             print("%s: %s — %s" % (label, item["rule"], item["reason"]))
         if os.path.exists(out):
             print("NOTE: %s 已存在,没有覆盖;它与 candidates.json 的配对保持不变。" % out)

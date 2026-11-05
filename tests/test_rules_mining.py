@@ -38,7 +38,8 @@ def note(nid, who, body, path=None, line=None, sha=None, system=False, bot=False
 
 def rule(**kw):
     c = {"kind": "rule", "topic": "api", "title": "分页参数要有上限", "rule": "在 src/api/** 的接口里,必须校验分页参数的上限",
-         "why": "不校验会查全表", "severity": "重要", "bad_example": "list(limit)", "good_example": "list(Math.min(limit, 100))",
+         "why": "不校验会查全表", "severity": "重要", "incident": "订单列表把请求的 limit 直接拿去查询;正例加了上限",
+         "bad_example": "list(limit)", "good_example": "list(Math.min(limit, 100))",
          "exceptions": "内部管理后台接口不限", "paths": ["src/api/**"],
          "evidence": [{"mr": 12, "note": 101, "quote": "分页参数没校验上限"}, {"mr": 15, "note": 201, "quote": "limit 要加上限"}]}
     c.update(kw)
@@ -203,7 +204,7 @@ class RulesMining(fixture.Base):
         if len(args) != 1 or args[0] not in ("--check", "--apply"):
             return self.run_py("rules-write.py", work, *args, check=False)
         draft_work = tempfile.mkdtemp(prefix="draft-", dir=self.tmp)
-        for name in ("meta.txt", "candidates.json", "dropped.json", "mined-candidates.md"):
+        for name in ("meta.txt", "candidates.json", "dropped.json", "mined-candidates.md", "editor.json", "snapshot.json"):
             if Path(work, name).exists():
                 shutil.copyfile(Path(work, name), Path(draft_work, name))
         result = self.run_py("rules-write.py", draft_work, "--prepare", check=False)
@@ -429,6 +430,20 @@ class RulesMining(fixture.Base):
                 last = max(i for i in range(start, end) if lines[i].strip())
                 lines.insert(last + 1, "- **%s**:%s" % (field, value))
         Path(work, "mined-candidates.md").write_text("\n".join(lines), encoding="utf-8")
+        if field == "动作" and value == "写入":
+            self.reviewed(work, n)
+
+    def reviewed(self, work, n, verdict="写入"):
+        """模拟独立读者复核:结论存进 editor.json,并抄进块的「复核」(已有就不动)。"""
+        path = Path(work, "editor.json")
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"reviews": []}
+        data["reviews"] = [r for r in data["reviews"] if r["cand"] != n] + [
+            {"cand": n, "restated": "测试复述", "verdict": verdict, "reason": "测试"}]
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        lines = self.md_text(work).split("\n")
+        start = next(i for i, x in enumerate(lines) if x.startswith("## %d. " % n))
+        if any(x == "- **复核**:" for x in lines[start:start + 8]):
+            self.edit_block(work, n, "复核", verdict + ":测试")
 
     def write_all(self, work, nos, dest=None):
         for n in nos:
@@ -716,7 +731,8 @@ class RulesMining(fixture.Base):
         text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
         self.assertTrue(text.startswith('---\npaths: "src/api/**"\nglobs: "src/api/**"\n---\n# api\n'))   # Claude 读 paths,Cursor 读 globs
         self.assertIn("## 分页参数要有上限\n\n- **规则**:在 src/api/** 的接口里,必须校验分页参数的上限(最多 100)\n"
-                      "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **反例**:\n  ```ts\n  list(limit)\n  ```\n"
+                      "- **原因**:不校验会查全表\n- **严重级别**:重要\n- **情形**:订单列表把请求的 limit 直接拿去查询;正例加了上限\n"
+                      "- **反例**:\n  ```ts\n  list(limit)\n  ```\n"
                       "- **正例**:\n  ```ts\n  list(Math.min(limit, 100))\n  ```\n- **不要报**:内部管理后台接口不限\n" + SRC, text)
         # 内部历史材料保持冻结;完成状态写在统一草稿
         after = self.md_text(work)
@@ -1350,6 +1366,73 @@ class RulesMining(fixture.Base):
         head = skill.joinpath("SKILL.md").read_text(encoding="utf-8").split("---")[1]
         self.assertIn("disable-model-invocation: true", head.splitlines())
         self.assertIn("allow_implicit_invocation: false", skill.joinpath("agents", "openai.yaml").read_text(encoding="utf-8"))
+
+    # ---------- 情形、读者复核、只警告的检查 ----------
+
+    def test_incident_is_required_and_generalization_is_pending(self):
+        wide = rule(title="查询有上限", rule="在 src/api/** 的查询接口里,必须限制返回条数", generalized="从订单列表推广到所有查询接口")
+        bare = rule(title="金额不用浮点", rule="在 src/api/** 里,金额计算禁止使用浮点数", incident="")
+        work, no = self.prepare(wide, bare)
+        nw, nb = no[wide["rule"]], no[bare["rule"]]
+        cands = {c["no"]: c for c in self.load(os.path.join(work, "candidates.json"))}
+        self.assertIn("待确认:原则比情形宽一级,从订单列表推广到所有查询接口", cands[nw]["unmet"])
+        self.assertTrue(any("缺「情形」" in x for x in cands[nb]["unmet"]))
+        self.assertIn("- **情形**:" + wide["incident"], self.md_text(work))
+        # 情形为空的规则不能写入;补上后写进规则文件,紧跟严重级别
+        self.write_all(work, [nb])
+        r = self.run_write(work, "--check")
+        self.assertIn("ERROR: 块 %d 情形: 不能为空" % nb, r.stdout)
+        self.edit_block(work, nb, "情形", "结算页把两个金额相加后出现小数误差;正例改成按分计算")
+        self.write_rules(work, "--apply")
+        text = Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8")
+        self.assertIn("- **严重级别**:重要\n- **情形**:结算页把两个金额相加后出现小数误差", text)
+
+    def test_write_needs_reader_review_matching_editor_json(self):
+        work, no = self.prepare(rule(), self.sup())
+        n, ns = no[rule()["rule"]], no[self.sup()["rule"]]
+        self.write_all(work, [n, ns])
+        for x in (n, ns):
+            self.edit_block(work, x, "复核", "")
+        os.remove(os.path.join(work, "editor.json"))
+        r = self.run_py("rules-write.py", work, "--prepare", check=False)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("ERROR: 块 %d 复核: 还没有独立复核" % n, r.stdout)
+        self.assertIn("ERROR: 块 %d 复核: 还没有独立复核" % ns, r.stdout)
+        self.assertFalse(Path(self.repo, ".agents").exists())
+        given = Path(work, "editor-input.md").read_text(encoding="utf-8")
+        self.assertIn("## 候选 %d. 分页参数要有上限" % n, given)
+        self.assertIn("- **情形**:" + rule()["incident"], given)
+        self.assertIn("- **类别**:不要报", given)
+        for leaked in ("merge_requests", "!12", "分页参数没校验上限", "\n> "):   # 读者看不到证据、链接和讨论
+            self.assertNotIn(leaked, given)
+        # 抄进块的结论要和 editor.json 一致;退回为案例的不能写入
+        self.reviewed(work, n)
+        self.reviewed(work, ns)
+        self.edit_block(work, n, "复核", "改写:按意见改过")
+        r = self.run_py("rules-write.py", work, "--prepare", check=False)
+        self.assertIn("ERROR: 块 %d 复核: 和 editor.json 的结论「写入」不一致" % n, r.stdout)
+        self.reviewed(work, n, "案例")
+        self.edit_block(work, n, "复核", "案例:只是一次修复")
+        r = self.run_py("rules-write.py", work, "--prepare", check=False)
+        self.assertIn("ERROR: 块 %d 复核: 独立复核退回为案例:动作改成跳过" % n, r.stdout)
+        self.edit_block(work, n, "动作", "跳过")
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: src/api/REVIEW.md", out)
+        self.assertNotIn(".agents/rules/api.md", out)
+
+    def test_quality_checks_only_warn(self):
+        loose = rule(title="订单金额", rule="在订单接口里,必须用分表示金额,禁止返回浮点", paths=["src/api/orders.ts"],
+                     exceptions="内部接口、测试数据不限", bad_example="return price * 1.0", good_example="return price * 1.0")
+        work, no = self.prepare(rule(), loose)
+        n, nl = no[rule()["rule"]], no[loose["rule"]]
+        self.write_all(work, [n, nl])
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: .agents/rules/", out)                      # 只警告,照样进草稿
+        notes = [x for x in out.split("\n") if x.startswith("NOTE: 候选 %d「" % nl)]
+        for text in ("范围全是具体文件(src/api/orders.ts)", "规则里有 2 处「必须 / 禁止」", "「不要报」叠了多个条件或对象",
+                     "反例有 1 行在评论时的代码、MR 最终代码和采集时 head 里都找不到", "正例和反例没有不同的代码行"):
+            self.assertTrue(any(text in x for x in notes), text)
+        self.assertNotIn("NOTE: 候选 %d「" % n, out)                   # 反例取自评论时的代码,范围是目录:没有警告
 
 
 class EvidenceDigest(fixture.unittest.TestCase):

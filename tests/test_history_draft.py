@@ -43,7 +43,7 @@ class HistoryDraft(Base):
         view = (self.work / 'rules-draft.md').read_text()
         refs = view.split('## 参考材料', 1)[1]
         for text in ('维护已有规范', '统一请求重试约定', '失败后重试', '写请求不得自动重试',
-                     '待观察', '关闭页面后的回调', '一次改动已修复',
+                     '案例', '关闭页面后的回调', '一次改动已修复',
                      '[!7](https://code.example.com/demo/shop/-/merge_requests/7)', '已排除 1 个', 'rules-materials.md'):
             self.assertIn(text, refs)
         # 待观察、维护项只做参考,不进待确认;观察编号和引文留在本轮材料
