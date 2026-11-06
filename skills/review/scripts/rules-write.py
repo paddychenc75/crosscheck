@@ -371,7 +371,7 @@ MATERIALS = "rules-materials.md"
 
 
 def history(work):
-    """未成为新增规则的历史主题:草稿只放每个主题一行(rules_draft 渲染到「参考材料」),不进待确认;
+    """未成为新增规则的历史主题:草稿只放维护建议和写得出下一次改动的案例,每个一行(rules_draft 渲染到「参考材料」),不进待确认;
     来源编号、全部引文、规范原文和仓库核对写到本轮材料 rules-materials.md。只展示,不据此自动修改规则。
     返回 (草稿里的 history, 材料全文)。"""
     path = os.path.join(work, "dropped.json")
@@ -395,7 +395,7 @@ def history(work):
         if not title or not reason:
             raise ValueError("历史主题缺少标题或理由")
         picked, rest = rule_candidates.typical(row)
-        topics.append(dict(kind=disposition, title=title, reason=reason,
+        topics.append(dict(kind=disposition, title=title, reason=reason, next_change=rule_candidates.one(row.get("next_change")),
                            links=[rule_candidates.mr_ref(e["mr"], e["url"]) for e in picked], more=len(rest),
                            feedback=len(rule_candidates.feedback_rows(row)),
                            sources=["%s「%s」" % (rule_candidates.one(s["file"]), rule_candidates.one(s["quote"]))
@@ -404,7 +404,7 @@ def history(work):
     if not topics and not excluded:
         return None, ""
     text = ["# 本轮历史材料", "",
-            "rules-write.py --prepare 按 dropped.json 生成,供追问和核对;草稿 rules-draft.md 只放每个主题一行。"] + detail
+            "rules-write.py --prepare 按 dropped.json 生成,供追问和核对;草稿 rules-draft.md 只放维护建议和写得出下一次改动的案例,每个一行。"] + detail
     if excluded:
         text += ["", "## 已排除(%d)" % len(excluded), ""] + excluded
     return dict(topics=topics, excluded=len(excluded), materials=MATERIALS), "\n".join(text) + "\n"
@@ -413,6 +413,8 @@ def history(work):
 def topic_detail(row, label, title, reason, picked, rest):
     """一个案例 / 维护主题在材料文件里的完整记录。"""
     out = ["", "## %s:%s" % (label, title), "", "- 理由:" + reason]
+    if row.get("next_change"):
+        out.append("- 下一次:" + rule_candidates.one(row["next_change"]))
     refs = list(row.get("observations", [])) + ["feedback:" + str(x) for x in row.get("feedback", [])]
     if refs:
         out.append("- 观察:" + ", ".join(refs))
@@ -576,7 +578,8 @@ def editor_input(todo):
     for b, c in todo:
         lines += ["", "## 候选 %d. %s" % (b["cand"], b["title"]), "",
                   "- **类别**:" + ("规则" if c["kind"] == "rule" else "不要报")]
-        for name, key in (("规则", "rule"), ("情形", "incident"), ("原因", "why"), ("严重级别", "severity"), ("推广", "generalized")):
+        for name, key in (("规则", "rule"), ("情形", "incident"), ("原因", "why"), ("严重级别", "severity"), ("推广", "generalized"),
+                          ("下一次", "next_change")):
             if c.get(key):
                 lines.append("- **%s**:%s" % (name, c[key]))
         lines.append("- **范围**:" + ", ".join(c["paths"]))
@@ -612,9 +615,21 @@ def review_gate(work, todo):
     return errors
 
 
+NOTE_PREFIXES = ("依据:", "未核对:")
+
+
 def unmet_text(text):
-    """mine-check 的未满足项以「待确认:」开头;它会放在「待确认」节里,不重复这个前缀。"""
-    return text[len("待确认:"):] if text.startswith("待确认:") else text
+    """mine-check 的未满足项 -> (去向, 正文)。「待确认:」放在「待确认」节里,不重复这个前缀;
+    「依据:」「未核对:」进「核对说明」,保留前缀;没有已知前缀的旧材料按待确认处理。"""
+    if text.startswith(NOTE_PREFIXES):
+        return "notes", text
+    return "pending", text[len("待确认:"):] if text.startswith("待确认:") else text
+
+
+def split_unmet(who, rows, pending, notes):
+    for row in rows:
+        where, text = unmet_text(row)
+        (pending if where == "pending" else notes).append("%s:%s" % (who, text))
 
 
 def prepare(work, root=""):
@@ -631,7 +646,7 @@ def prepare(work, root=""):
     blocks, errors = rule_candidates.parse(md_text)
     _, field_errors = rule_candidates.head_fields(md_text)
     errors += field_errors
-    todo, pending, unmet = [], [], []
+    todo, pending, unmet, basis = [], [], [], []
     for b in blocks:
         action = b["fields"].get("动作", "")
         if action not in rule_candidates.ACTIONS:
@@ -648,13 +663,13 @@ def prepare(work, root=""):
         who = "候选 %s「%s」" % (b["label"], b["title"])
         if action == "待定":
             pending.append(who + ":尚未选入拟写内容")
-            unmet += ["%s:%s" % (who, unmet_text(x)) for x in cands[b["cand"]].get("unmet", [])]
+            split_unmet(who, cands[b["cand"]].get("unmet", []), unmet, basis)
             unmet += ["%s 的%s:%s" % (who, name, why) for name, why in errs]
         else:
             errors += [(b["label"], name, why) for name, why in errs]
             if not errs:
                 todo.append((b, merged))
-                unmet += ["%s:%s" % (who, unmet_text(x)) for x in cands[b["cand"]].get("unmet", [])]
+                split_unmet(who, cands[b["cand"]].get("unmet", []), unmet, basis)
     errors = errors or review_gate(work, todo)
     if errors:
         raise ValueError("\nERROR: ".join(("块 %s %s: %s" % row) if row[0] is not None else "头部 %s: %s" % row[1:] for row in errors))
@@ -687,7 +702,7 @@ def prepare(work, root=""):
     # AGENTS.md 提示和 .claude/rules 链接由 rules_draft 按规则变更自动生成,这里不再传接入字段。
     request = dict(goal="从明确指定的历史材料维护项目规则", changes=changes,
                    rule_targets=[os.path.relpath(p, root) for p in rule_files],
-                   pending=pending + unmet, notes=skips + warns + quality, history=past)
+                   pending=pending + unmet, notes=skips + warns + quality + basis, history=past)
     data = rules_draft.propose(work, request, bindings=bindings)
     print("RULES_DRAFT: " + os.path.join(work, rules_draft.VIEW))
     return data

@@ -219,7 +219,8 @@ def render(data):
 
 
 def history_lines(past):
-    """历史归纳中没有成为规则改动的主题:每个一行,完整来源在本轮材料文件里。"""
+    """历史归纳中没有成为规则改动的主题,完整来源在本轮材料文件里。维护建议每个一行;
+    案例只列写得出下一次改动(next_change)的,其余只给个数,全部案例仍在材料文件里。"""
     if not past:
         return []
     topics = past.get("topics", [])
@@ -233,6 +234,14 @@ def history_lines(past):
         if not group:
             continue
         out += ["", "### %s" % HISTORY_LABELS[kind], ""]
+        if kind == "watch":
+            listed = [t for t in group if t.get("next_change")]
+            out += ["下面只列写得出下一次改动的 %d 个;其余 %d 个只在本轮材料 %s。"
+                    % (len(listed), len(group) - len(listed), past.get("materials", "")) if listed else
+                    "没有写得出下一次改动的案例,全部 %d 个见本轮材料 %s。" % (len(group), past.get("materials", ""))]
+            if listed:
+                out.append("")
+            group = listed
         for t in group:
             refs = list(t.get("links", []))
             if t.get("more"):
@@ -241,7 +250,8 @@ def history_lines(past):
                 refs.append("判断记录 %d 条" % t["feedback"])
             if kind == "maintain" and t.get("sources"):
                 refs.append("现有规范:" + ";".join(t["sources"]))
-            out.append("- %s — %s%s" % (t["title"], t["reason"], "(%s)" % ";".join(refs) if refs else ""))
+            reason = "下一次:%s;缺:%s" % (t["next_change"], t["reason"]) if kind == "watch" else t["reason"]
+            out.append("- %s — %s%s" % (t["title"], reason, "(%s)" % ";".join(refs) if refs else ""))
     return out
 
 
@@ -414,7 +424,7 @@ def hookup(data):
             current = None
             why = ("是符号链接,脚本不改它指向的文件" if os.path.islink(os.path.join(root, AGENTS))
                    else "脚本不能安全修改(%s)" % error)
-            pending.append("%s %s;如需让 Codex、Cursor 找到规则,请在它实际所在的文件里「## %s」下手动加一句:%s"
+            pending.append("%s %s;如需让 Codex、Cursor 找到规则,请在它实际所在的文件里找「## %s」节手动加一句:%s;没有这一节就在文件末尾新建"
                            % (AGENTS, why, AGENTS_SECTION, AGENTS_HINT))
         if current is not None:
             content = hint_content(current["content"] or "")

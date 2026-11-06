@@ -537,9 +537,10 @@ class RulesMining(fixture.Base):
         self.assertNotIn("判断依据", md)
         self.assertNotIn("测试夹具预置的语义判断", md)
         self.assertIn("> 提及 2 个 MR:模型判断已采纳 2,未知/结论不一致 0,未采纳 0", md)
-        self.assertIn("> 待确认:缺反例或正例\n\n- **候选**:", md)
+        self.assertIn("> 依据:只有正例,历史上没有真实违反版本\n\n- **候选**:", md)   # 块头照样渲染全部 unmet,各带前缀
+        self.assertNotIn("缺反例或正例", md)
         self.assertIn('待确认:存在未采纳或冲突反证', md)
-        self.assertEqual(md.count("待确认"), 2)
+        self.assertEqual(md.count("待确认"), 1)
         # 引用块不影响解析:字段、标题、候选编号和去掉引用块后完全一样,也没有吞掉后面的行
         blocks = self.parse_md(md)
         plain = self.parse_md("\n".join(x for x in md.split("\n") if not x.startswith(">")))
@@ -1155,12 +1156,15 @@ class RulesMining(fixture.Base):
         n1, n2 = no[rule()["rule"]], no[lone["rule"]]
         self.write_all(work, [n1, n2])
         out = self.write_rules(work, "--check")
-        self.assertRegex(out, r"PENDING: 候选 %d「[^」]+」:缺反例或正例\n" % n2)
+        # 只有正例是依据说明,进核对说明、保留前缀,不进待确认
+        self.assertRegex(out, r"NOTE: 候选 %d「[^」]+」:依据:只有正例,历史上没有真实违反版本\n" % n2)
+        self.assertNotIn("PENDING: 候选 %d「" % n2, out)
         self.assertNotIn("PENDING: 候选 %d「" % n1, out)
-        self.assertNotIn(":待确认:", out)                                         # 已在待确认里,不重复前缀
+        self.assertNotIn(":待确认:", out)                                         # 待确认的不重复前缀
+        self.assertNotIn("缺反例或正例", out)
         self.assertIn("WRITE: .agents/rules/api.md", out)                          # 只提醒,不拦
         out = self.write_rules(work, "--apply")
-        self.assertIn("PENDING: 候选 %d「" % n2, out)
+        self.assertIn("NOTE: 候选 %d「" % n2, out)
         self.assertIn("金额相关的计算禁止使用浮点数", Path(self.repo, ".agents/rules/api.md").read_text(encoding="utf-8"))
 
     def test_reason_must_not_carry_mr_numbers(self):
@@ -1247,7 +1251,7 @@ class RulesMining(fixture.Base):
         self.assertEqual((got[0]["support"], got[0]["mentions"], got[0]["unknown"]), (1, 2, 1))
         self.assertEqual({e["mr"]: e["state"] for e in got[0]["evidence"]}, {12: "模型判断已采纳", 17: "未知"})
         self.assertNotIn("待确认:模型判断已采纳的只有 1 个", got[0]["unmet"])
-        self.assertIn("待确认:存在未知或不一致的采纳判断,须补核最终代码", got[0]["unmet"])
+        self.assertIn("未核对:存在未知或不一致的采纳判断,须补核最终代码", got[0]["unmet"])
 
     def test_wontfix_and_feedback_context(self):
         self.standard_mrs()
@@ -1378,15 +1382,89 @@ class RulesMining(fixture.Base):
         row = next(r for r in self.load(os.path.join(work, "dropped.json")) if r["rule"] == lone["rule"])
         self.assertEqual(row["disposition"], "watch")
         self.assertIn("推广到情形之外", row["reason"])
+        self.assertNotIn("next_change", row)                    # 没写下一次改动时不加键,保持旧形状
+
+    def test_demoted_case_keeps_next_change_in_reference(self):
+        # 被推广门槛退成案例的候选,写了下一次改动的照样带进 dropped.json 和草稿的参考材料
+        lone = rule(title="查询有上限", rule="在 src/api/** 的查询接口里,必须限制返回条数", generalized="从订单列表推广到所有查询接口",
+                    next_change="新加的商品搜索接口也直接用请求里的条数,落在 src/api/search.ts",
+                    evidence=[rule()["evidence"][0]])
+        work, no = self.prepare(lone)
+        self.assertNotIn(lone["rule"], no)
+        row = next(r for r in self.load(os.path.join(work, "dropped.json")) if r["rule"] == lone["rule"])
+        self.assertEqual((row["disposition"], row["next_change"]), ("watch", lone["next_change"]))
+        refs = Path(work, "rules-draft.md").read_text(encoding="utf-8").split("## 参考材料", 1)[1]
+        self.assertIn("下面只列写得出下一次改动的 1 个", refs)
+        self.assertIn("- %s — 下一次:%s;缺:" % (lone["rule"], lone["next_change"]), refs)
+        self.assertIn("- 下一次:" + lone["next_change"], Path(work, "rules-materials.md").read_text(encoding="utf-8"))
+
+    def test_next_change_is_shown_but_never_written(self):
+        # 单个 MR、没有推广、写了下一次改动:仍是候选;只透传给候选文件和读者,不写进规则文件
+        r = rule(rule="在 src/api/** 的列表接口里,必须给分页参数设上限", generalized="",
+                 next_change="新加的导出接口也会读分页参数,落在 src/api/export.ts", evidence=[rule()["evidence"][0]])
+        work, no = self.prepare(r)
+        n = no[r["rule"]]
+        c = next(x for x in self.load(os.path.join(work, "candidates.json")) if x["no"] == n)
+        self.assertEqual((c["next_change"], c["generalized"]), (r["next_change"], ""))
+        self.assertIn("> 下一次(前推测试):" + r["next_change"] + "\n", self.md_text(work))
+        self.assertNotIn("- **下一次**", self.md_text(work))       # 不是可编辑字段
+        self.write_all(work, [n])
+        self.edit_block(work, n, "复核", "")
+        os.remove(os.path.join(work, "editor.json"))
+        self.run_py("rules-write.py", work, "--prepare", check=False)
+        given = Path(work, "editor-input.md").read_text(encoding="utf-8")
+        self.assertIn("- **严重级别**:重要\n- **下一次**:" + r["next_change"] + "\n- **范围**:", given)
+        self.reviewed(work, n)
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        self.assertNotIn("下一次", out)
+
+    def test_prepare_routes_unmet_by_prefix(self):
+        # 同一候选:待确认进待确认并去掉前缀;依据、未核对进核对说明并保留前缀
+        r = rule(title="分页上限只有正例", rule="在 src/api/** 的列表接口里,必须给分页参数设上限", bad_example="",
+                 evidence=[rule()["evidence"][0], {"mr": 17, "note": 302, "quote": "limit 也要加上限"}],
+                 coverage={"status": "unknown", "reason": "测试里不核对已有规范", "sources": []})
+        work, no = self.prepare(r)
+        n = no[r["rule"]]
+        c = next(x for x in self.load(os.path.join(work, "candidates.json")) if x["no"] == n)
+        self.assertEqual(sorted(c["unmet"]), sorted(["待确认:存在未采纳或冲突反证,须明确适用边界",
+                                                     "依据:只有正例,历史上没有真实违反版本", "未核对:已有约束未核对完整"]))
+        who = "候选 %d「分页上限只有正例」:" % n
+        for action in ("待定", "写入"):
+            if action == "写入":
+                self.write_all(work, [n])
+                self.run_py("rules-write.py", work, "--prepare")
+            draft = self.load(os.path.join(work, "rules-draft.json"))
+            # 待定块的「尚未选入拟写内容」照旧进待确认
+            self.assertEqual(who + "尚未选入拟写内容" in draft["pending"], action == "待定")
+            self.assertIn(who + "存在未采纳或冲突反证,须明确适用边界", draft["pending"], action)
+            self.assertIn(who + "依据:只有正例,历史上没有真实违反版本", draft["notes"], action)
+            self.assertIn(who + "未核对:已有约束未核对完整", draft["notes"], action)
+            self.assertFalse([x for x in draft["pending"] if "依据:" in x or "未核对:" in x or ":待确认:" in x], action)
+
+    def test_only_good_example_is_basis_not_missing(self):
+        # 只有正例:说明历史上没有真实违反版本,不当成缺示例;写入不报错,也不报示例警告
+        r = rule(title="金额用分", rule="在 src/api/** 里,金额必须用整数分表示", bad_example="", good_example="const amountCents = 100;",
+                 evidence=[{"mr": 18, "note": 401, "quote": "金额要用分"}, {"mr": 12, "note": 101, "quote": "分页参数"}])
+        work, no = self.prepare(r)
+        n = no[r["rule"]]
+        c = next(x for x in self.load(os.path.join(work, "candidates.json")) if x["no"] == n)
+        self.assertIn("依据:只有正例,历史上没有真实违反版本", c["unmet"])
+        self.assertFalse([x for x in c["unmet"] if "缺反例或正例" in x])
+        self.write_all(work, [n])
+        out = self.write_rules(work, "--check")
+        self.assertIn("WRITE: .agents/rules/api.md", out)
+        for text in ("反例有", "正例和反例", "正例改动的行", "请人工确认反例"):
+            self.assertNotIn(text, out)
 
     def test_incident_is_required_and_generalization_is_pending(self):
-        # 第二个 MR 是情形之外的依据:推广照常进待确认,并交给读者看
+        # 第二个 MR 是情形之外的依据:推广作为依据说明保留,并交给读者看
         wide = rule(title="查询有上限", rule="在 src/api/** 的查询接口里,必须限制返回条数", generalized="从订单列表推广到所有查询接口")
         bare = rule(title="金额不用浮点", rule="在 src/api/** 里,金额计算禁止使用浮点数", incident="")
         work, no = self.prepare(wide, bare)
         nw, nb = no[wide["rule"]], no[bare["rule"]]
         cands = {c["no"]: c for c in self.load(os.path.join(work, "candidates.json"))}
-        self.assertIn("待确认:原则比情形宽一级,从订单列表推广到所有查询接口", cands[nw]["unmet"])
+        self.assertIn("依据:原则比情形宽一级,从订单列表推广到所有查询接口", cands[nw]["unmet"])
         self.write_all(work, [nw])
         self.edit_block(work, nw, "复核", "")
         os.remove(os.path.join(work, "editor.json"))

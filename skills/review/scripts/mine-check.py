@@ -241,6 +241,9 @@ def main(argv):
                        observations=sorted(item["observations"]), feedback=sorted(ids),
                        evidence=[e for ref in sorted(item["observations"]) for e in observation_map[ref]["evidence"]] +
                                 [inputs.evidence(dict(feedback=key, quote=inputs.feedback[key]["reason"])) for key in sorted(ids)])
+            # 前推测试的答案只透传;没有就不加键,保持旧 dropped.json 形状
+            if nonempty(item.get("next_change")):
+                row["next_change"] = crlib.norm(item["next_change"])
             if "practice" in item:
                 row["practice"] = inputs.code.practice(item["practice"], inputs.meta.get("head"))
             if disposition == "maintain":
@@ -313,25 +316,26 @@ def main(argv):
                     disposition = "watch"
                     require(False, "案例:明确未采纳的 MR 不凑支持案例" if not unknown else
                             "案例:单次观察缺少最终代码落实依据与可核对的独立惯例")
+                # 前缀分三种:待确认=负责人要拍板的取舍;依据=证据多少、推广靠什么;未核对=归并时没核完的
                 unmet = []
                 if len(refs) == 1:
-                    unmet.append("待确认:单次历史观察,需确认仓库相关性与适用边界")
+                    unmet.append("依据:单次历史观察,适用边界以情形和不要报为准")
                 if unknown:
-                    unmet.append("待确认:存在未知或不一致的采纳判断,须补核最终代码")
+                    unmet.append("未核对:存在未知或不一致的采纳判断,须补核最终代码")
                 if any("rejected" in s or len(s) > 1 for s in states.values()):
                     unmet.append("待确认:存在未采纳或冲突反证,须明确适用边界")
                 if practice is not None:
-                    unmet.append("待确认:仓库惯例仅作相关性线索,独立性及规范正确性仍需确认")
+                    unmet.append("依据:仓库核对(惯例或共同机制位置)只作相关性线索,独立性及规范正确性仍需确认")
                     if practice["counterexamples"]:
                         unmet.append("待确认:仓库惯例存在未解反例")
                     if any(e["status"] == "unavailable" for e in practice["examples"] + practice["counterexamples"]):
-                        unmet.append("待确认:仓库惯例的固定代码对象未读完整")
+                        unmet.append("未核对:仓库惯例的固定代码对象未读完整")
                 if any(code["status"] == "unavailable" for e in ev for code in e.get("assessment", {}).get("code", [])):
-                    unmet.append("待确认:最终代码证据未读完整")
+                    unmet.append("未核对:最终代码证据未读完整")
                 if coverage["status"] == "unknown":
-                    unmet.append("待确认:已有约束未核对完整")
+                    unmet.append("未核对:已有约束未核对完整")
                 if kind == "rule" and not (c.get("bad_example") and c.get("good_example")):
-                    unmet.append("待确认:缺反例或正例")
+                    unmet.append("依据:只有正例,历史上没有真实违反版本" if c.get("good_example") else "依据:缺反例或正例")
                 incident, wider = crlib.norm(c.get("incident", "")), crlib.norm(c.get("generalized", ""))
                 if kind == "rule" and not incident:
                     unmet.append("待确认:缺「情形」(这次具体发生了什么、反例错在哪、正例为什么修好了)")
@@ -340,7 +344,7 @@ def main(argv):
                     if not (len(refs) > 1 or practice_verified):
                         disposition = "watch"
                         require(False, "案例:推广到情形之外,但没有第二个 MR 或固定 head 上已核对的独立实现作依据")
-                    unmet.append("待确认:原则比情形宽一级," + wider)
+                    unmet.append("依据:原则比情形宽一级," + wider)
                 why = crlib.norm(c.get("why", ""))
                 if crlib.MR_REF.search(why):
                     unmet.append("待确认:原因里写了 MR 号,写入前要删掉(来源由脚本写在注释里)")
@@ -350,7 +354,7 @@ def main(argv):
                 exts = {os.path.splitext(e["file"])[1][1:].lower() for e in ev if e.get("file")}
                 kept.append(dict(kind=kind, title=crlib.norm(c.get("title", "")) or rule[:24], rule=rule,
                                  why=why, severity=crlib.RULE_SEVERITY.get(c.get("severity"), ""), incident=incident,
-                                 generalized=wider,
+                                 generalized=wider, next_change=crlib.norm(c.get("next_change", "")),
                                  severity_reason=crlib.norm(severity_reason),
                                  bad_example=str(c.get("bad_example") or ""), good_example=str(c.get("good_example") or ""),
                                  lang=next(iter(exts)) if len(exts) == 1 else "",
@@ -371,6 +375,9 @@ def main(argv):
                            evidence=ev, input_evidence=c.get("evidence", []))
                 # 原始条目与归一后的证据均保留；错误引用明确不合格，不能静默删除。
                 row["input"] = c
+                # 被退成案例的候选也带上前推测试的答案,草稿里才看得到
+                if nonempty(c.get("next_change")):
+                    row["next_change"] = crlib.norm(c["next_change"])
                 if practice is not None:
                     row["practice"] = practice
                 if coverage is not None:

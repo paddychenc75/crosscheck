@@ -221,6 +221,9 @@ def evidence_lines(c):
         out.append("> 语义复核(模型判断):" + first_sentence(c["review"], REVIEW_CHARS))
     if c.get("severity_reason"):
         out.append("> 严重级别依据(模型判断):" + one(c["severity_reason"]))
+    if c.get("next_change"):
+        # 前推测试的答案:和情形不同、按这条也该判的改动及其位置;只展示,不是可编辑字段
+        out.append("> 下一次(前推测试):" + one(c["next_change"]))
     if c["kind"] == "suppress":
         of = c.get("exception_of")
         out.append("> 不要报的类别(模型判断):" + ("已有规则的例外,%s「%s」" % (one(of["file"]), one(of["title"])) if of else "通用直觉"))
