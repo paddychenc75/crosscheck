@@ -1313,6 +1313,9 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
         <h4 id="sources">意图和需求来源</h4>
       <p>团队问卷（约 27 人）：15% 缺需求背景。意图只靠 MR 描述和提交说明时经常不够，所以审查开始前先把需求来源问清楚，再并入意图，让 reviewer 能做需求核对。<code>intent.md</code> 汇总 MR 描述（本地审查是提交说明）、关联需求和其中的验收标准、MR 上的人工讨论（<code>discussions.json</code>）和你这次补充的意图；报告的 INTENT 行列出意图来源和验收标准条数。</p>
       <ul>
+        <li><b>需求材料可选，状态如实写：</b>只有代码时照常审 bug 和安全，写明没判断需求符合性；有需求描述按描述里的行为、边界、兼容要求核对，不强行生成验收标准；有验收标准再逐条核对。验收标准由脚本自动提取，标明可能不全；报告区分“需求材料 k 份、未自动提取到验收标准”和“没有需求材料”。</li>
+        <li><b>摘录是入口，原文是依据：</b>每份材料全文存进本轮 <code>materials/m&lt;n&gt;.md</code>，<code>materials.json</code> 记字符数、SHA-256 和章节行号；<code>intent.md</code> 只放摘录，截断处给全文位置和章节大纲，代理按需读相关章节，不要求通读、不建验收台账。核实依据可以引用登记的原文位置，脚本核对位置和原文存在。做法参照“保留轻量标识、运行时按需加载，过度压缩会丢掉关键细节”。<a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Anthropic：Effective context engineering for AI agents</a></li>
+        <li><b>行为事实和交付归属分开：</b>要求和代码行为都已核实、但材料另有限定范围的原文、说不清是否属于本次交付的需求条目，单列“范围待明确”，附要求原文、限定原文和还缺什么，不计入发现，不逐项打断用户。要有两段可核对的原文才能进这一节，否则按属于本次交付处理；bug 和安全问题不受范围影响。不同核实结论对同一条需求给出不同范围时只提示、不裁决。参照 Conventional Comments 把不确定的顾虑写成非阻塞的 question，而不是伪装成确认的 issue。<a href="https://conventionalcomments.org/">Conventional Comments</a></li>
         <li><b>问哪些资料：</b><code>review.ask</code> 决定开始前询问哪些类别，默认 <code>doc</code>；类别还必须配置对应的 <code>tools.requirement</code> 或 <code>tools.doc_reader</code> 才会问、读，未配置不算缺失。用户可贴链接、说明没有需求单或跳过。同一目标的回答记住 90 天；基准和资料缺项合并一轮问。读取失败如实披露，不妨碍审查。工具配置与完整参数见 README。</li>
         <li><b>跳过要如实记录：</b><code>sources.json</code> 区分 <code>skip</code>（作者跳过）、<code>none:&lt;类型&gt;</code>（没有需求单，如 hotfix）和 <code>unasked</code>（非交互运行，没有问；不问也不记）。用工具读到的内容当数据：存在仓库外的暂存目录，由脚本登记来源后并入意图。</li>
         <li><b>事后补充：</b>审查之后说“需求文档是 &lt;链接&gt;”“这个没有需求单”“这次是为了…”，按来源分别保存意图、需求单、远端文档与本地文档，键为 <code>intent</code>、<code>requirement</code>、<code>doc</code>、<code>local_docs</code>；由 <code>sources.py set</code> 记录，下次同一目标审查时沿用。</li>
@@ -1378,7 +1381,7 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
         <tr><th>遍</th><th>只关注</th><th>什么时候</th></tr>
         <tr><td>1 正确性</td><td>从每处改动向外查：调用的东西、调用方、边界情况、错误路径、并发、语言和框架的陷阱；逐条核对 <a href="#facts">分析线索</a></td><td>总是</td></tr>
         <tr><td>2 安全</td><td>追踪不可信输入到危险操作的路径：注入、认证授权、密钥、外部数据、Web 输出、密码学、被削弱的防护、依赖、大模型和 agent</td><td>总是</td></tr>
-        <tr><td>3 需求核对</td><td>对照 <code>intent.md</code>：明确的验收标准逐条核对；意图里点名的页面、接口、字段、枚举值、配置项，逐个在 diff 或代码里找落点，找不到的写明点名原文和找过哪里；没写的不猜“应该做什么”</td><td>总是（没有验收标准时只核对点名的对象，报告写明）</td></tr>
+        <tr><td>3 需求核对</td><td>对照 <code>intent.md</code>，摘录被截断时按章节位置读原文：明确的验收标准逐条核对；只有需求描述时按描述里的行为、边界和兼容要求核对；意图里点名的页面、接口、字段、枚举值、配置项，逐个在 diff 或代码里找落点，找不到的写明点名原文和找过哪里；没写的不猜“应该做什么”</td><td>总是（按实际有的材料核对，报告写明是提取到验收标准、未提取到、没有需求材料还是什么材料都没有）</td></tr>
         <tr><td>4 影响面</td><td>从使用方往回查：修改或删除的函数、字段、配置、路由的所有使用方，隐式契约，本应一起改的地方</td><td>deep</td></tr>
       </table></div>
       <ul>
@@ -1458,6 +1461,7 @@ NOTE: 验证步骤由 AI 依据代码起草,贴之前请核对</div>
         <tr><td class="nowrap">规范</td><td>规则违反，带规则原文和出处</td></tr>
         <tr><td class="nowrap">测试与检查变更</td><td><code>weakening.txt</code> 的检测信号，附 diff 片段，不计入条数</td></tr>
         <tr><td class="nowrap">改动代码里的原有问题</td><td>真实存在、但 base 里就有的问题，不计入条数</td></tr>
+        <tr><td class="nowrap">范围待明确</td><td>需求要求和代码行为已核实、是否属于本次交付说不清的条目，附两段原文，不计入条数</td></tr>
         <tr><td class="nowrap">审查范围、意图来源</td><td>审的是什么、对比基准、深度和来源、全量还是增量；意图来自哪些材料、验收标准几条；已合入的 MR 另有一行说明</td></tr>
         <tr><td class="nowrap">规则</td><td>用到的规则文件、读自哪一版、违反几条；格式错误、被排除和可能过时的规则各一行说明</td></tr>
         <tr><td class="nowrap">已检查、跳过</td><td>查了哪些维度、深度、范围；跳过了哪些文件；运行检查的次数和复现数；影响面线索没查完、因条数上限没展示的也各一行</td></tr>

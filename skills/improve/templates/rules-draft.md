@@ -101,3 +101,7 @@ UNLINK: .claude/rules/query.md
 ## 核对说明
 
 - 现有规则与 REVIEW.md 重复;约束归 rules,审查配置保留在 REVIEW.md
+
+---
+
+生成:crosscheck <插件版本,读不到时脚本不写这一行>

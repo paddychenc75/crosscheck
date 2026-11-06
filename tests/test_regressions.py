@@ -25,7 +25,8 @@ class PipelineRegressions(fixture.ProjectFixture):
         s = self.run_script('report-lines.sh', rd).stdout
         self.assertIn('查找模型配置:sonnet', s)
         self.assertNotIn('查找模型:sonnet', s)
-        self.assertIn('需求核对(没有验收标准,只核对意图里点名的对象)', s)
+        # 只有提交说明、没有需求材料:按改动说明核对(旧记录没有 acceptance_state 时的旧文案见 test_materials)
+        self.assertIn('需求核对(没有需求材料,按改动说明核对其中点名的行为和对象)', s)
         self.assertNotIn('未完成', s)
 
 

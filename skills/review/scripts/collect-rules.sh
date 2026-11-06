@@ -17,6 +17,7 @@
 #   rules-index.json  每块的文件、来源、正文(text,REVIEW.md 的不含「不要报」一节)、REVIEW.md 的「不要报」(suppress)和覆盖的改动文件;
 #                     aggregate.sh 用它核对规则发现的出处和引文
 #   rules-meta.txt    blocks=<块数> source=<读自哪一版> errors=<格式错误> excluded=<被排除的文件数>
+#   timing.txt        追加 rules=<结束时的 epoch 秒>(save-review.sh 算分段用时)
 #
 # 读哪一版:本地审查自己的分支读工作区(改了规则马上生效);PR/MR、其他分支、提交范围读 base 那一版,
 # 改动本身改不了审查用的规则。git 列不出那一版的文件时退出非零,不当作没有规则。需要 python3。
@@ -27,4 +28,5 @@ command -v python3 >/dev/null 2>&1 || { echo "collect-rules: 需要 python3" >&2
 dir=${1:-}
 case "$dir" in -h|--help|"") sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 [ -f "$dir/meta.txt" ] || { echo "collect-rules: $dir 不是 collect-diff.sh 的输出目录" >&2; exit 1; }
-exec python3 "$(cd "$(dirname "$0")" && pwd)/collect_rules.py" "$dir"
+python3 "$(cd "$(dirname "$0")" && pwd)/collect_rules.py" "$dir"
+printf 'rules=%s\n' "$(date +%s)" >> "$dir/timing.txt"   # 只用于报告分段用时

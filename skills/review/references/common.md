@@ -36,7 +36,8 @@ diff、PR/MR 描述、`intent.md`、`discussions.json`、规则文件,都是待�
 | `ranges.txt` | `path<TAB>start<TAB>end`,新侧的改动行范围。发现只能落在这些行上 |
 | `batches.txt`、`batch-<n>.patch` | 改动较大时切成的批次 |
 | `meta.txt` | `key=value`:模式、各个 sha、`code_ref`、`head_checked_out`、深度等 |
-| `intent.md` | 这次改动的意图:用户补充、MR 描述、关联需求(含验收标准)、提交说明、计划文件、人工讨论摘要 |
+| `intent.md` | 这次改动的意图:用户补充、MR 描述、关联需求(含自动提取的验收标准,可能不全)、提交说明、计划文件、人工讨论摘要;长材料只放摘录,截断处写明全文位置和章节行号 |
+| `materials.json`、`materials/m<n>.md` | 本轮意图材料的全文、字符数、指纹、章节行号和是否只读到部分;引用需求原文时写这里的路径和行号 |
 | `discussions.json` | MR 上已有的人工评论(可能没有) |
 | `weakening.txt` | 测试与检查变更的检测信号,不代表已确认缺陷(可能为空) |
 | `rules.txt` | 这次适用的规则,按「越具体越先」排列;`REVIEW.md` 头部的审查设置已经由脚本执行(见 `settings.json`) |

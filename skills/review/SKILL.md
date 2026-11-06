@@ -93,7 +93,7 @@ sh <skill_dir>/scripts/collect-diff.sh [target] [--depth quick|standard|deep] [-
 
 **需要本地仓库。** 当前目录不是仓库时脚本会报错:知道仓库在哪就加 `--repo <目录>`;不知道就问用户,不要在磁盘上到处找。读代码时以 `meta.txt` 的 `repo_root` 为准。
 
-输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含验收标准)、`discussions.json`(MR 上的人工评论,可能没有)、`weakening.txt`(测试与检查变更的检测信号,不代表已确认缺陷)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)、`analysis-facts.json`(代码块编号、改动的符号,以及给 reviewer 第 1 遍核对的线索:待核对的调用方、被删改行引入时的修复提交、历史上常一起改这次没改的文件;没查完的写在 `limits`)。增量时还有 `incremental.txt`、`prev-findings.json`。
+输出的最后一行是 `review_dir`。除了改动本身(`diff.patch`、`files.txt`、`ranges.txt`、批次等),脚本还准备好了:`intent.md`(意图,含自动提取的验收标准;长材料只放摘录并写明全文位置)、`materials.json` 与 `materials/`(本轮意图材料的全文、指纹和章节行号,需要时按位置读原文)、`discussions.json`(MR 上的人工评论,可能没有)、`weakening.txt`(测试与检查变更的检测信号,不代表已确认缺陷)、`settings.json`(REVIEW.md 的审查设置,skip 的路径已经排除)、`history.json`(项目里的历史判断)、`analysis-facts.json`(代码块编号、改动的符号,以及给 reviewer 第 1 遍核对的线索:待核对的调用方、被删改行引入时的修复提交、历史上常一起改这次没改的文件;没查完的写在 `limits`)。增量时还有 `incremental.txt`、`prev-findings.json`。
 
 基准由脚本解析:当次明确选择优先,其次是保存的项目规则、MR/PR 目标、可验证的本地创建来源。自动选择不保存规则;不自行猜基准。实际版本及来源以 `SCOPE:` 为准。
 
@@ -168,7 +168,7 @@ reviewer 先读一遍材料和改动的代码,再在同一个上下文里逐遍�
 sh <skill_dir>/scripts/prepare-verify.sh <review_dir>
 ```
 
-它校验原始候选来源并补回遗漏的已交候选,给候选编号;自动补入主文件/符号依赖变化、引用证据文件快照变化、缺少旧快照或关联历史「不成立/不修」的遗留发现。历史关联使用 ID、已确认根因或旧代码锚点,不因 full 重审更换 ID 而免除重核,也不自动抑制。旧分数、证据、根因及快照均清除,重核必须使用当前输入。按文件分成每批最多 3 条的 `verify/batch-<n>.json`,严重(critical)的单独一批(去掉了 `found_by`、`pass_hits` 和 `pass`)。「规则可能过时 / 规则冲突」这类说明不送去核实。候选为零时跳到第 5 步。
+它校验原始候选来源并补回遗漏的已交候选,给候选编号;自动补入主文件/符号依赖变化、引用证据文件快照变化、缺少旧快照或关联历史「不成立/不修」的遗留发现。历史关联使用 ID、已确认根因或旧代码锚点,不因 full 重审更换 ID 而免除重核,也不自动抑制。旧分数、证据、根因及快照均清除,重核必须使用当前输入。按文件排序后连续装成每批最多 3 条的 `verify/batch-<n>.json`(同文件的候选相邻,批次可以跨文件,同批不代表同根因),严重(critical)的单独一批(去掉了 `found_by`、`pass_hits` 和 `pass`)。「规则可能过时 / 规则冲突」这类说明不送去核实。候选为零时跳到第 5 步。
 
 **有子代理时**(standard 和 deep):每批启动一个 verifier,全部同时启动:
 
@@ -212,7 +212,7 @@ sh <skill_dir>/scripts/check-state.sh <review_dir>
 sh <skill_dir>/scripts/report-lines.sh <review_dir>
 ```
 
-然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,按 report-format 的标签表原样写。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,标题和首句明确写「审查未完成」及「已检查部分确认 <N> 条发现」(N 沿用展示计数),并说明具体缺项或覆盖限制。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。
+然后按 `templates/report.md` 的骨架和 `references/report-format.md` 的填写规则写报告(两个都读一遍再写)。有 `MERGED:` 行时,按 report-format 的标签表原样写。报告用中文,代码、标识符、路径和规则原文保持原样。`report-lines.sh` 输出 `INCOMPLETE:` 时,照 report-format 放进报告,标题和首句明确写「审查未完成」及「已检查部分确认 <N> 条发现」(N 沿用展示计数),并说明具体缺项或覆盖限制。不要说流程已经完整,也不要为了消掉它去补写 `finders/` 或 `verify/` 里的文件。`PREEXIST:` 行是改动代码里的原有问题(真实存在,但 base 版本里就有,不计入发现),有的话放在报告末尾单列的「改动代码里的原有问题」一节,按 report-format 写;没有就不写这一节。`UNCLEAR:` 行是交付范围待明确的需求条目(行为已核实,归属说不清,不计入发现),按 report-format 放进「范围待明确」一节,不逐项打断用户确认。
 
 **完成报告是流程的一部分**,两种模式都执行 `save-review.sh <review_dir>`。默认归档;明确 `--no-store` 的运行仅完成临时报告与用量,脚本自行阻止长期归档,不能靠 agent 跳过命令实现。
 

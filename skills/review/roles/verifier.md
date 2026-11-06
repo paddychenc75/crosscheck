@@ -27,7 +27,7 @@
    - 是否有守卫、校验、类型或调用方使场景不可达,是否已被项目的编译器、类型检查器或 linter 拒绝(封顶第 3、4 项)。打开调用方和上游代码去确认。
    - 是否被误报清单或 `rules.txt` 里覆盖这个文件的 `REVIEW.md`「不要报」一节覆盖;规则类发现还要看那条规则块自己的「不要报」字段(命中例外的不算违反,打 0 分)(封顶第 6 项)。覆盖时在 `suppressed_by` 里写明是哪一条。
    - `rules` 发现:`rule_quote` 真的逐字出现在 `rule_file` 的规则里吗,那块规则的 `scope` 覆盖这个文件吗,改动的行确实违反了规则的字面意思吗(封顶第 7 项)?
-   - `intent` 发现:对应的验收标准或点名的对象在 `intent.md` 里写得明确吗,代码确实没做到、也确实找不到落点吗(封顶第 8 项)?
+   - `intent` 发现:对应的验收标准或点名的对象在 `intent.md` 或 `materials.json` 登记的原文(`materials/m<n>.md`)里写得明确吗,代码确实没做到、也确实找不到落点吗(封顶第 8 项)?`intent.md` 里的摘录被截断时去读原文的相关章节,不能因为摘录里没有就判不存在。行为事实和交付归属分开判断:要求明确、代码确实没做到,但材料里另有限定范围的原文,使它是否属于本次交付说不清时,按 `finding-schema.md` 的 `delivery_scope` 填 `unclear`,不要把「范围说不清」打成「问题不存在」;有原文明确排除时填 `out`。局部任务写的「本轮不扩展范围」只限定它点名的对象、条件和版本,不能当成整次交付排除了别的要求。
 3. 如果它没被推翻,用现有字段串起证据链:`failure_scenario` 说清触发输入/前提及后果;`evidence.note` 指出支持入口、关键路径、守卫和后果的代码;`ruled_out` 简述反证检查及 base 对照(两版路径、结果、差异)。不另建重复的大字段,不要求规则违反机械提供攻击入口等无关内容。尚未确认的必要环节要明说;仅列出存在的行号并不证明语义。
 4. 按评分标准打分,并写出依据(见「输出」)。
 
@@ -73,7 +73,7 @@ sh <skill_dir>/scripts/run-check.sh <review_dir> --kind test|check|repro -- <命
 
 ## 输出
 
-返回一个 JSON 数组,每条候选对应一项,顺序不变。每一项是该候选(含修正后的字段;`cid` 等原有字段原样保留;`needs_check` 去掉),再加上 `confidence`、`verdict`、`evidence`、`ruled_out`、`verification`,以及按需加上的 `pre_existing`、`history_match`、`previously`、`compat`、`suppressed_by`。这些字段的规则见 `finding-schema.md` 的「verifier 填写的字段」,分数规则见 `scoring-rubric.md`。
+返回一个 JSON 数组,每条候选对应一项,顺序不变。每一项是该候选(含修正后的字段;`cid` 等原有字段原样保留;`needs_check` 去掉),再加上 `confidence`、`verdict`、`evidence`、`ruled_out`、`verification`,以及按需加上的 `pre_existing`、`delivery_scope`、`scope_basis`、`history_match`、`previously`、`compat`、`suppressed_by`。这些字段的规则见 `finding-schema.md` 的「verifier 填写的字段」,分数规则见 `scoring-rubric.md`。
 
 `verification` 读代码判断时写 `{"method": "inferred"}` 或省略;用 `run-check.sh` 跑过时写 `{"method": "executed", "runs": ["r1"], "outcome": "reproduced" | "refuted" | "inconclusive"}`。不要自己写 `repro`:报告里展示的命令和输出由脚本从运行记录里取。
 

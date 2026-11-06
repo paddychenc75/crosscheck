@@ -16,7 +16,9 @@
 #   report=<报告的路径>
 #   link=<报告的 file:// 链接>
 #   dir=<保存到的目录>
-#   cost=<这次审查的用时和消耗>     用时一定有;token 只在宿主的 hook 记到了用量时才有
+#   cost=<这次审查的用时和消耗>     用时一定有,后面括号里是 timing.txt 算出的分段(收集 · 查找 · 核实 · 汇总与报告);
+#                                   token 只在宿主的 hook 记到了用量时才有
+#   version=<crosscheck 版本>       读到插件版本时给出,也作为报告最后一行「生成:crosscheck <版本>」
 #   incomplete=<流程缺项>           报告里还没写到的流程缺项,用 ; 分隔;没有就不输出
 #   model_note=<模型与配置不一致>   配置的模型没有出现在会话记录里时给出;没有就不输出(已追加进报告)
 #
@@ -33,7 +35,7 @@ set -eu
 die() { printf 'save-review: %s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
-  -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   "") die "需要指定 collect-diff.sh 的输出目录" ;;
 esac
 dir=$1; shift
@@ -103,9 +105,27 @@ run_verifiers=$(find "$dir/verify" -maxdepth 1 -name 'result-*.json' 2>/dev/null
 
 # 这次审查的成本:用时、启动的角色数、候选数,以及 hook 记到的 token 用量(如果有)。
 started_epoch=$(meta started_epoch)
+now=$(date +%s)
 duration=""
-case "$started_epoch" in ""|*[!0-9]*) ;; *) duration=$(($(date +%s) - started_epoch)) ;; esac
+case "$started_epoch" in ""|*[!0-9]*) ;; *) duration=$((now - started_epoch)) ;; esac
 num() { case "$1" in ""|*[!0-9]*) return 1 ;; esac; }
+span() { if [ "$1" -ge 60 ]; then printf '%s 分 %s 秒' "$(($1 / 60))" "$(($1 % 60))"; else printf '%s 秒' "$1"; fi; }
+# 分段用时取自 timing.txt(各步骤结束或开始时追加的 <stage>=<epoch 秒>,同一 stage 以最后一行为准):
+# 收集 = collected - started;查找 = verify_start - max(collected, rules);核实 = aggregated - verify_start;汇总与报告 = 现在 - aggregated。
+# 缺端点或算出负数的那段不写。只是计时,不影响任何判断。
+stamp_of() { v=$(sed -n "s/^$1=//p" "$dir/timing.txt" 2>/dev/null | tail -n 1); if num "$v"; then printf '%s' "$v"; fi; }
+t_collected=$(stamp_of collected); t_rules=$(stamp_of rules); t_verify=$(stamp_of verify_start); t_agg=$(stamp_of aggregated)
+t_found=$t_collected
+if [ -n "$t_rules" ] && { [ -z "$t_found" ] || [ "$t_rules" -gt "$t_found" ]; }; then t_found=$t_rules; fi
+stages=""
+add_stage() { # 名称 起点 终点
+  [ -n "$2" ] && [ -n "$3" ] && [ "$3" -ge "$2" ] || return 0
+  stages="${stages:+$stages · }$1 $(span $(($3 - $2)))"
+}
+num "$started_epoch" && add_stage 收集 "$started_epoch" "$t_collected"
+add_stage 查找 "$t_found" "$t_verify"
+add_stage 核实 "$t_verify" "$t_agg"
+add_stage 汇总与报告 "$t_agg" "$now"
 {
   [ -z "$duration" ] || printf 'duration_s=%s\n' "$duration"
   if num "$run_finders"; then printf 'run_finders=%s\n' "$run_finders"; fi
@@ -118,7 +138,7 @@ saved() { sed -n "s/^$1=//p" "$dest/meta.txt" | tail -n 1; }
 human() { awk -v n="$1" 'BEGIN { if (n >= 1000000) printf "%.1fM", n / 1000000; else if (n >= 1000) printf "%.0fK", n / 1000; else printf "%d", n }'; }
 cost=""
 if [ -n "$duration" ]; then
-  if [ "$duration" -ge 60 ]; then cost="用时 $((duration / 60)) 分 $((duration % 60)) 秒"; else cost="用时 ${duration} 秒"; fi
+  cost="用时 $(span "$duration")${stages:+($stages)}"
 fi
 if num "$run_finders" && num "$run_verifiers"; then cost="${cost:+$cost · }查找 ${run_finders} 个角色、核实 ${run_verifiers} 个"; fi
 if num "$run_candidates" && num "$run_passed"; then cost="${cost:+$cost · }候选 ${run_candidates} 条、通过 ${run_passed} 条"; fi
@@ -152,6 +172,12 @@ if [ -n "$models" ]; then
     case "$lm" in *"$lw"*) ;; *) model_note="${model_note:+$model_note；}配置的${role}模型 $want 没有出现在会话记录里(记录到的模型:$models)" ;; esac
   done
 fi
+# 临时模式下 dest 就是运行目录,重复保存时 report.md 末尾可能已有上次追加的版本行:先去掉,保证它只出现一次且在最后。
+version=$(python3 "$here/crlib.py" version 2>/dev/null || true)
+if [ "$(awk 'NF { last = $0 } END { print last }' "$dest/report.md")" = "生成:crosscheck $version" ] && [ -n "$version" ]; then
+  awk -v v="生成:crosscheck $version" '{ l[NR] = $0 } END { n = NR; while (n > 0 && l[n] == "") n--; if (l[n] == v) n--; while (n > 0 && l[n] == "") n--; for (i = 1; i <= n; i++) print l[i] }' \
+    "$dest/report.md" > "$dest/report.md.tmp" && mv "$dest/report.md.tmp" "$dest/report.md"
+fi
 # 保存的报告里也补上这一行,这样打开文件就能看到,不用去翻 meta.txt。
 [ -z "$cost" ] || printf '\n消耗:%s\n' "$cost" >> "$dest/report.md"
 [ -z "$model_note" ] || printf '\n模型与配置不一致:%s\n' "$model_note" >> "$dest/report.md"
@@ -181,6 +207,8 @@ case "$(saved depth)" in standard|deep)
     printf '\n独立性存疑:%s\n' "$subagent_note" >> "$dest/report.md"
   fi ;;
 esac
+# 生成报告的 crosscheck 版本,作为报告最后一行;拷贝安装读不到版本时不写。
+[ -z "$version" ] || printf '\n生成:crosscheck %s\n' "$version" >> "$dest/report.md"
 
 if [ "$storage_mode" = persistent ]; then
   printf '%s\n' "$stamp" > "$store/latest"
@@ -198,6 +226,7 @@ printf 'dir=%s\n' "$dest"
 printf 'storage_mode=%s\ncompleted=%s\n' "$storage_mode" "$dir"
 [ "$storage_mode" != temporary ] || printf 'NOTE: 本次没有保存长期记录;报告和后续反馈使用此临时目录: %s\n' "$dir"
 [ -z "$cost" ] || printf 'cost=%s\n' "$cost"
+[ -z "$version" ] || printf 'version=%s\n' "$version"
 [ -z "$missing" ] || printf 'incomplete=%s\n' "$missing"
 [ -z "$model_note" ] || printf 'model_note=%s\n' "$model_note"
 [ -z "$subagent_note" ] || printf 'subagent_note=%s\n' "$subagent_note"

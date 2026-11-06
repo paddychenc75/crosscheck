@@ -52,6 +52,27 @@ def read_text(path):
         return None
 
 
+def mark_stage(review_dir, stage):
+    """在 timing.txt 追加一行 <stage>=<epoch 秒>,只用于报告分段用时;同一 stage 以最后一行为准。"""
+    import time
+    with open(os.path.join(review_dir, "timing.txt"), "a", encoding="utf-8") as f:
+        f.write("%s=%d\n" % (stage, int(time.time())))
+
+
+PLUGIN_MANIFESTS = (".claude-plugin", ".codex-plugin", ".cursor-plugin")
+
+
+def plugin_version(root=None):
+    """插件根目录(本文件往上三级)下各家 plugin.json 里第一个非空的 version;拷贝安装可能都没有,那时返回空串。"""
+    root = root or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    for d in PLUGIN_MANIFESTS:
+        v = load_json(os.path.join(root, d, "plugin.json"), {})
+        v = v.get("version") if isinstance(v, dict) else None
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
 def clip(s, n):
     """截到 n 个字符,并注明已截断。"""
     s = (s or "").strip()
@@ -682,10 +703,12 @@ def author_hash(root=None):
 
 
 if __name__ == "__main__":
-    # 给 shell 脚本用:repo-id / base 仓库 目标 head;配置 CLI 在插件 scripts/config.py
+    # 给 shell 脚本用:repo-id / version / base 仓库 目标 head;配置 CLI 在插件 scripts/config.py
     import sys
     cmd = sys.argv[1:2]
-    if cmd == ["base"] and len(sys.argv) == 5:
+    if cmd == ["version"]:
+        print(plugin_version())
+    elif cmd == ["base"] and len(sys.argv) == 5:
         try:
             b, m = pick_base(sys.argv[2], sys.argv[3], sys.argv[4])
         except ValueError as e:

@@ -121,7 +121,8 @@ def parse_arg(value):
 
 
 def read_staged(stage_dir):
-    """agent 读到的文档:<kind>[-n].md,头部 url:/title:/tool: 几行,然后一行 ---,其余是正文。"""
+    """agent 读到的文档:<kind>[-n].md,头部 url:/title:/tool: 几行,然后一行 ---,其余是正文。
+    读取工具只能取到部分内容时,头部另写一行 partial: <说明>;读不到时写 error: <原因>。"""
     docs = []
     if not stage_dir or not os.path.isdir(stage_dir):
         return docs
@@ -142,7 +143,8 @@ def read_staged(stage_dir):
                 k, v = line.split(":", 1)
                 info[k.strip().lower()] = v.strip()
         docs.append({"kind": m.group(1), "url": info.get("url", ""), "title": info.get("title", ""),
-                     "tool": info.get("tool", ""), "error": info.get("error", ""), "text": body.strip(), "file": name})
+                     "tool": info.get("tool", ""), "error": info.get("error", ""), "partial": info.get("partial", ""),
+                     "text": body.strip(), "file": name})
     return docs
 
 
@@ -186,7 +188,7 @@ def resolve(meta, review_dir, text, args, stage_dir, has_issue_ref=False, cfg=No
             local_files = [x.strip() for x in (crlib.read_text(os.path.join(review_dir, "doc-files.txt")) or "").splitlines() if x.strip()]
             if not local_files and meta.get("plan_file"):
                 local_files = [meta["plan_file"]]
-            entry = {"status": "given", "source": "本地文档", "local_files": local_files[:5]}
+            entry = {"status": "given", "source": "本地文档", "local_files": local_files}
         if entry is None and kdocs:
             entry = {"status": "given", "url": kdocs[0]["url"], "source": "暂存文档"}
         if entry and entry.get("status") == "given" and kdocs and not entry.get("title"):

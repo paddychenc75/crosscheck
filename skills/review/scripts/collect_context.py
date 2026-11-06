@@ -24,10 +24,24 @@ def main(review_dir):
     weak = weakening.scan(review_dir)
     weakening.write(review_dir, weak)
 
+    # 读取状态:登记了几份材料、其中几份是需求材料、几份在 intent.md 里只放了摘录、几份只读到部分内容
+    mats = it.materials
+    requirement = sum(1 for x in mats if x["kind"] in ("issue", "doc", "staged"))
+    if it.acceptance:
+        state = "extracted"
+    elif requirement:
+        state = "not_extracted"
+    else:
+        state = "no_requirement"
     extra = {
         "sources_missing": ",".join(missing),
         "intent_sources": "、".join(dict.fromkeys(it.sources)) or "无",
         "intent_acceptance": len(it.acceptance),
+        "intent_materials": len(mats),
+        "requirement_materials": requirement,
+        "materials_clipped": sum(1 for x in mats if x["clipped"]),
+        "materials_partial": sum(1 for x in mats if x.get("partial")),
+        "acceptance_state": state,
         "discussions": len(found),
         "weakening": len(weak),
     }

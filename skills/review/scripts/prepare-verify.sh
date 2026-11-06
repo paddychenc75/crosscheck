@@ -4,12 +4,13 @@
 # 用法: prepare-verify.sh DIR [--per N]
 #
 #   读取 DIR/candidates.json:编排者合并去重后的全部候选(含 found_by、pass_hits;
-#   增量时还有带 from_prev 的上次发现)。给每条候选编号(cid),按文件分批,每批最多 N 条(默认 3);
-#   严重(critical)的候选单独一批,
+#   增量时还有带 from_prev 的上次发现)。给每条候选编号(cid),按文件排序后连续装批,同一文件的候选尽量相邻,
+#   每批最多 N 条(默认 3),批次可以跨文件;严重(critical)的候选单独一批,
 #   写出 DIR/verify/batch-<n>.json。批次里去掉了 found_by、pass_hits 和 pass,verifier 看不到是谁、哪一遍、查到几遍。
 #   带 from_prev 的上次发现,去掉上次核实留下的分数、结论、依据、编号等,只留发现本身,保证这次是独立核实。
 #   「规则可能过时:」「规则冲突:」这类说明不是候选,移到 rules-notes.json,不送去核实。
 #
+# 开始时在 DIR/timing.txt 追加 verify_start=<epoch 秒>(查找结束、开始核实;save-review.sh 算分段用时)。
 # 输出每个批次文件的路径,最后一行是 batches=<n> candidates=<n>。
 
 set -eu

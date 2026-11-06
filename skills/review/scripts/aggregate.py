@@ -1,5 +1,5 @@
 """aggregate.sh 的实现,用法和说明见 aggregate.sh。"""
-import glob, json, os, re, sys
+import glob, hashlib, json, os, re, sys
 sys.dont_write_bytecode = True
 import crlib
 
@@ -147,6 +147,44 @@ def clean_also_at(items, f, line, check_ranges=True):
         out.append({"file": af, "line": al})
     return out
 
+# 登记过的意图和需求材料全文(materials.json,collect-context 写):依据可以按 path 或 id 引用,只认登记过的,
+# 文件内容要和登记的 sha256 一致。
+materials = {}
+for m in crlib.load_json(os.path.join(d, "materials.json"), []):
+    if isinstance(m, dict) and re.fullmatch(r"materials/m\d+\.md", str(m.get("path", ""))):
+        materials[m["path"]] = materials[str(m.get("id", ""))] = m
+_material_cache = {}
+def material_text(f):
+    m = materials.get(str(f or ""))
+    if m is None:
+        return None
+    if m["path"] not in _material_cache:
+        t = crlib.read_text(os.path.join(d, m["path"]))
+        ok = t is not None and hashlib.sha256(t.encode("utf-8")).hexdigest() == m.get("sha256")
+        _material_cache[m["path"]] = t if ok else ""
+    return _material_cache[m["path"]]
+
+def locate(f, where):
+    """核对一处引用:返回 (位置是否存在, 那个文件的全文)。登记的材料按行号范围或文字核对;
+    review_dir 里不含 / 的材料文件(intent.md、rules.txt…)只核对文件存在;其余按被审查那一版的代码核对。"""
+    mt = material_text(f)
+    if mt is not None:
+        ls = mt.split("\n") if mt else []
+        rg = crlib.parse_lines(where)
+        w = str(where or "").strip()
+        if rg is not None:
+            return bool(ls) and 1 <= rg[0] <= rg[1] <= len(ls), mt
+        return bool(mt and w and w in mt), mt
+    if f and "/" not in f and not file_lines(f) and os.path.isfile(os.path.join(d, f)):
+        return True, crlib.read_text(os.path.join(d, f)) or ""   # 位置可以是「验收标准 2」这类文字
+    rg = crlib.parse_lines(where)
+    ls = file_lines(f) if f else None
+    if ls is not None and rg is None and str(where or "").strip() and str(where).strip() in "\n".join(ls):
+        return True, "\n".join(ls)  # 用文字定位(如 REVIEW.md 里的「PRJ-001」),那段文字在文件里就算存在
+    if ls is None or rg is None or rg[0] < 1 or rg[1] > len(ls):
+        return False, None
+    return True, "\n".join(ls)
+
 def check_evidence(item):
     ev = item.get("evidence")
     if not isinstance(ev, list) or not ev:
@@ -156,18 +194,26 @@ def check_evidence(item):
         if not isinstance(e, dict):
             bad.append(str(e)); continue
         f = e.get("file") or item.get("file")
-        where = e.get("lines", e.get("line"))
-        if f and "/" not in f and not file_lines(f) and os.path.isfile(os.path.join(d, f)):
-            continue  # review_dir 里的材料(intent.md、rules.txt…),位置可以是「验收标准 2」这类文字
-        rg = crlib.parse_lines(where)
-        ls = file_lines(f) if f else None
-        if ls is not None and rg is None and str(where or "").strip() and str(where).strip() in "\n".join(ls):
-            continue  # 用文字定位(如 REVIEW.md 里的「PRJ-001」),那段文字在文件里就算存在
-        if ls is None or rg is None or rg[0] < 1 or rg[1] > len(ls):
+        if not locate(f, e.get("lines", e.get("line")))[0]:
             bad.append("%s:%s" % (f, e.get("lines", e.get("line"))))
     if bad:
         return False, "依据引用的位置不存在:" + "、".join(bad[:3])
     return True, ""
+
+def check_scope_ref(ref, what):
+    """交付范围的一处引用(要求或限定):位置要存在,quote 要在那个文件里找得到。返回 (引用键, 不成立的原因)。"""
+    if not isinstance(ref, dict) or not ref.get("file"):
+        return None, "缺少%s的引用" % what
+    f, where = str(ref["file"]), ref.get("lines", ref.get("line"))
+    quote = str(ref.get("quote") or "").strip()
+    found, text = locate(f, where)
+    if not found:
+        return None, "%s引用的位置不存在:%s:%s" % (what, f, where)
+    if not quote:
+        return None, "%s没有引用原文" % what
+    if quote not in (text or ""):
+        return None, "%s引用的原文在 %s 里找不到" % (what, f)
+    return "%s:%s" % ((materials.get(f) or {}).get("path", f), str(where or "").strip()), ""
 
 # 运行记录:verifier 声称跑过的命令必须经 run-check.sh 留下记录;报告展示的输出取自记录的日志。
 runs_dir = os.path.join(d, "runs")
@@ -225,6 +271,7 @@ def group_of(cat):
 
 passed, rejected, history, pre = [], [], [], []
 pre_ids = set()   # 原有问题的历史发现编号:既不带入也不算已解决
+scope_notes, scope_refs, scope_ids = [], [], set()   # 交付范围待明确的条目、核对过的要求引用 (条目, 范围, 引用键)、它们的历史编号
 skipped_by_settings = 0
 for c in cands:
     r = result_for(c)
@@ -292,6 +339,37 @@ for c in cands:
         item.pop("history_match", None)
         if item.get("suppressed_by") == "history": item.pop("suppressed_by", None)
         reasons.append("历史抑制缺少匹配记录或当前场景/前提核对说明")
+    # 需求核对的交付范围:要求和限定两处原文都核对过,才按 unclear(单列 scope_notes,不计入发现)或 out(拒绝)处理;
+    # 引用不成立的按默认 in 照常处理,原因留档。只对 intent 生效,bug、安全不能因为范围不清降级。
+    if cat == "intent":
+        scope = item.get("delivery_scope") or "in"
+        basis = item.get("scope_basis") if isinstance(item.get("scope_basis"), dict) else {}
+        req_key, req_why = check_scope_ref(basis.get("requirement"), "要求") if basis else (None, "")
+        if scope in ("unclear", "out") and (scope == "out" or conf >= THRESHOLD):
+            lim_key, lim_why = check_scope_ref(basis.get("limit"), "限定")
+            why = lim_why if scope == "out" else (req_why or lim_why)
+            if why:
+                item["scope_basis_invalid"] = why
+                scope = "in"
+            elif scope == "unclear":
+                note = {k: item.get(k) for k in ("summary", "file", "line", "failure_scenario", "verdict", "confidence", "scope_basis", "id")}
+                note["line"] = line
+                scope_notes.append(note)
+                if req_key:
+                    scope_refs.append((note, "unclear", req_key))
+                scope_ids.add(item.get("id"))
+                continue
+            else:
+                quote = str(basis["limit"].get("quote") or "").strip()
+                item["reject_reason"] = ";".join(["按需求材料不属于本次交付:" + quote[:80]] + reasons)
+                rejected.append(item)
+                if req_key:
+                    scope_refs.append((item, "out", req_key))
+                continue
+        elif scope not in ("in", "unclear", "out"):
+            scope = "in"
+        if scope == "in" and req_key and conf >= THRESHOLD:
+            scope_refs.append((item, "in", req_key))
     # 缺陷真实存在,但对 base 版本同样存在、不是本次引入的:不进 findings,单列在 pre_existing 里
     if conf >= THRESHOLD and item.get("pre_existing") is True:
         pre.append({"file": f, "line": line, "summary": item.get("summary", ""), "verdict": item.get("verdict", ""),
@@ -327,7 +405,7 @@ for p in prev:
     elif st in (None, "removed"):
         resolved.append(dict(p, resolved_reason="文件已不在改动里"))
     elif p.get("id") in resubmitted:
-        if p.get("id") not in reverified and p.get("id") not in pre_ids:
+        if p.get("id") not in reverified and p.get("id") not in pre_ids and p.get("id") not in scope_ids:
             resolved.append(dict(p, resolved_reason="重新核实后不再成立"))
     elif st == "unchanged":
         carried.append(dict(p, carried_unchanged=True))
@@ -452,9 +530,18 @@ crlib.save_json(os.path.join(d, "findings.json"), [record(x) for x in standing])
 for i, x in enumerate(rejected, 1):
     x["id"] = x.get("id") or "%s-r%d" % (stamp, i)
 crlib.save_json(os.path.join(d, "rejected.json"), [{k: v for k, v in x.items() if k != "cid"} for x in rejected])
+for i, x in enumerate(scope_notes, 1):
+    x["id"] = x.get("id") or "%s-s%d" % (stamp, i)
+# 同一处要求上,不同条目的交付范围结论不一致:只提示,不改去向。in 只算本轮仍成立的发现(合并掉的不算)
+by_req = {}
+for x, scope, key in scope_refs:
+    if scope == "in" and not any(x is y for y in standing):
+        continue
+    by_req.setdefault(key, {"in": [], "unclear": [], "out": []})[scope].append(x.get("id"))
+scope_conflicts = [{"requirement": k, "scopes": v} for k, v in by_req.items() if sum(1 for ids in v.values() if ids) > 1]
 counts = {"candidates": len(cands), "verified": len([c for c in cands if c.get("cid") in by_cid]) or len(results),
           "passed": len(passed), "rejected": len(rejected), "skipped_by_settings": skipped_by_settings,
-          "pre_existing": len(pre)}
+          "pre_existing": len(pre), "scope_notes": len(scope_notes)}
 run_summary = {"total": len(glob.glob(os.path.join(runs_dir, "r*.json"))),
                "reproduced": len([x for x in passed if x.get("mark") == "已复现"
                                   and (x.get("verification") or {}).get("outcome") == "reproduced"]),
@@ -462,7 +549,7 @@ run_summary = {"total": len(glob.glob(os.path.join(runs_dir, "r*.json"))),
 final = {
     "scope": meta.get("review_scope", "full"), "depth": meta.get("depth", "standard"),
     "groups": {k: [x for x in shown[k]] for k in shown}, "resolved": resolved, "ignored_by_history": history,
-    "pre_existing": pre,
+    "pre_existing": pre, "scope_notes": scope_notes, "scope_conflicts": scope_conflicts,
     "trimmed": trimmed, "limits": limits, "counts": counts, "runs": run_summary,
     "notes": crlib.load_json(os.path.join(d, "rules-notes.json"), []),
 }
@@ -470,3 +557,4 @@ crlib.save_json(os.path.join(d, "final.json"), final)
 print("passed=%d rejected=%d new=%d carried=%d resolved=%d trimmed=%d ignored_by_history=%d" % (
     len(passed), len(rejected), len([x for x in standing if x["status"].startswith("new")]),
     len([x for x in standing if x["status"].startswith("carried")]), len(resolved), sum(trimmed.values()), len(history)))
+crlib.mark_stage(d, "aggregated")

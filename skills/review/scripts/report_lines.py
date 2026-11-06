@@ -53,9 +53,21 @@ if m.get("depth_invalid"):
 print("SCOPE: 审查范围:%s · 深度:%s%s · %s%s" % (what, DEPTH.get(m.get("depth"), m.get("depth")),
       "(%s)" % depth_from if depth_from else "", scope, ref_note))
 
-# 意图
-print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"),
-      ";验收标准 %s 条" % m["intent_acceptance"] if m.get("intent_acceptance", "0") not in ("", "0") else ""))
+# 意图。acceptance_state 是读取状态(extracted|not_extracted|no_requirement);旧记录没有这个字段,按验收标准条数写
+num = lambda k: int(m.get(k, "0") or 0)
+accept_state = m.get("acceptance_state")
+intent_note = ""
+if accept_state == "extracted":
+    intent_note = ";验收标准 %d 条(自动提取,可能不全)" % num("intent_acceptance")
+elif accept_state == "not_extracted":
+    intent_note = ";需求材料 %d 份,未自动提取到验收标准" % num("requirement_materials")
+elif accept_state is None and num("intent_acceptance"):
+    intent_note = ";验收标准 %d 条" % num("intent_acceptance")
+if num("materials_clipped"):
+    intent_note += ";%d 份材料较长,intent.md 只放摘录,全文在 materials/" % num("materials_clipped")
+if num("materials_partial"):
+    intent_note += ";%d 份只读到部分内容" % num("materials_partial")
+print("INTENT: 意图来源:%s%s" % (m.get("intent_sources", "无"), intent_note))
 
 # 规则
 rm_blocks = int(rm.get("blocks", "0") or 0)
@@ -110,9 +122,18 @@ dims = ["bug", "安全", "需求核对", "项目规则"] if only == "all" else [
 if (rm_blocks == 0 or quick) and "项目规则" in dims:
     dims.remove("项目规则")
 extra = []
-if "需求核对" in dims and int(m.get("intent_acceptance", "0") or 0) == 0:
-    # 没有验收标准时第 3 遍仍核对意图里点名的对象有没有落点,只是没有逐条验收
-    dims[dims.index("需求核对")] = "需求核对(没有验收标准,只核对意图里点名的对象)"
+if "需求核对" in dims:
+    # 没有验收标准时第 3 遍仍按能拿到的材料核对,只是没有逐条验收;说清按什么核对的
+    check = None
+    if accept_state == "not_extracted":
+        check = "需求核对(未自动提取到验收标准,按需求材料原文核对明确的要求)"
+    elif accept_state == "no_requirement":
+        check = ("需求核对(没有需求材料,按改动说明核对其中点名的行为和对象)" if num("intent_materials")
+                 else "需求核对(没有意图和需求材料,未判断需求符合性)")
+    elif accept_state is None and num("intent_acceptance") == 0:
+        check = "需求核对(没有验收标准,只核对意图里点名的对象)"
+    if check:
+        dims[dims.index("需求核对")] = check
 st = crlib.load_json(os.path.join(d, "settings.json"), {})
 if any(st.get(k) for k in ("skip", "limits")) or m.get("depth_source") == "review":
     extra.append("已应用 REVIEW.md 的审查设置(读自 %s)" % st.get("source", ""))
@@ -166,6 +187,16 @@ if gaps:
 # 改动代码里的原有问题:真实存在,但 base 版本里同样存在、不是本次引入的(不计入发现,放在报告末尾单列)
 for p in final.get("pre_existing") or []:
     print("PREEXIST: %s:%s\t%s\t%s" % (p.get("file", ""), p.get("line", ""), p.get("summary", ""), p.get("verdict", "")))
+
+# 需求核对里交付范围待明确的条目:要求和限定两处原文都核对过,不计入发现;同一要求上核实结论不一致的单独提示
+flat = lambda v: " ".join(str(v or "").split())
+for n in final.get("scope_notes") or []:
+    basis = n.get("scope_basis") or {}
+    print("UNCLEAR: %s:%s\t%s\t%s\t%s\t%s" % (n.get("file", ""), n.get("line", ""), flat(n.get("summary")),
+          flat((basis.get("requirement") or {}).get("quote")), flat((basis.get("limit") or {}).get("quote")), flat(basis.get("missing"))))
+for c in final.get("scope_conflicts") or []:
+    print("SCOPE_CONFLICT: %s 上不同核实结论的交付范围不一致:%s" % (c.get("requirement", ""),
+          ";".join("%s=%s" % (k, ",".join(v)) for k, v in (c.get("scopes") or {}).items() if v)))
 
 # 默认只为本次展示且能对应记录的发现提示反馈;被隐藏或否决的条目按用户询问另行处理。
 findings = crlib.load_json(os.path.join(d, "findings.json"), [])

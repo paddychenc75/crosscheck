@@ -17,6 +17,11 @@
 #   4. 置信度 80 分以上的才报,其余连同分数和理由写进 rejected.json。
 #   5. 增量:上次的发现分成遗留(文件没变的原样带入;文件变了且再次通过核实的)和已解决。
 #   5b. 核实判为「原有问题」(pre_existing 为真)且达到阈值的,不进 findings、不计数,单列进 final.json 的 pre_existing。
+#   5c. 需求核对(category=intent)的交付范围 delivery_scope:unclear 且达到阈值、scope_basis 的 requirement 和 limit
+#       两处引用位置存在、quote 在对应文件里找得到的,不进 findings、不计数,单列进 final.json 的 scope_notes;
+#       out 且 limit 引用核对通过的进 rejected.json;引用不成立的按默认 in 照常处理,记 scope_basis_invalid。
+#       同一处要求引用上出现不同结论的写进 scope_conflicts,只提示。其他类别的这两个字段忽略。
+#       依据和范围引用可以指向 materials.json 登记的材料(path 或 id),按行号范围或文字核对;未登记的子路径不认。
 #   6. 仅对位置、类别、严重程度、摘要、场景、建议等关键字段完全相同的条目去重,保留 candidate_ids/source_refs 映射;
 #      位置相近、摘要相似或同一规则不证明同根因。按严重程度、置信度排序;套用展示条数上限
 #      (默认缺陷 10 条、quick 5 条,需求核对、规范各 5 条;REVIEW.md 的 limits 可覆盖,
@@ -25,7 +30,8 @@
 # 写出:
 #   completeness.txt  流程缺项与覆盖限制(completeness.py 写):回复/核实缺项、预算达限、覆盖受限或声明缺失;只提示,不阻止汇总
 #   final.json     报告要用的全部内容:groups(defects/intent/rules,每条带 no 和 status:new|carried)、
-#                  resolved、ignored_by_history、trimmed、counts、notes
+#                  resolved、ignored_by_history、pre_existing、scope_notes、scope_conflicts、trimmed、counts、notes
+#   timing.txt     成功结束时追加 aggregated=<epoch 秒>(save-review.sh 算分段用时)
 #   findings.json  本次结束时仍然成立的全部发现(含因条数上限没展示的),供 save-review.sh 保存和下次增量
 #   rejected.json  没通过的候选,带分数和理由,用户问起时查看
 # 最后一行输出:passed=… rejected=… new=… carried=… resolved=… trimmed=… ignored_by_history=…

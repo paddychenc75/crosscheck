@@ -72,13 +72,14 @@ verifier 保留候选的全部字段(包括 `cid`),修正有偏差的 `line`、`
 | `root_cause` | 确认缺陷时填写 `{file, lines, mechanism, constraint, fix}`,均为非空字符串。锚定错误表达式/状态转换、被破坏的具体约束和局部修复,不含本次输入或摘要;根因位置须有同范围 evidence 引用。本轮独立核实的结构完全相同才可跨主位置合并,保留双方场景、证据和来源。不同根因或无法确认时保持独立。 |
 | `confidence` | 0–100 的整数,按 `scoring-rubric.md` 打分。 |
 | `verdict` | 一句话:检查了什么、看到了什么,足以支撑这个分数。 |
-| `evidence` | 依据:核实时读过、能支撑结论的代码位置,`[{"file": "...", "lines": "38-47", "note": "改动处"}]`。脚本会核对这些位置在被审查的那一版里真实存在(引用审查材料时写文件名即可,如 `{"file": "intent.md", "lines": "验收标准 2"}`);没给依据或引用不存在的,分数封顶见 `scoring-rubric.md`。 |
+| `evidence` | 依据:核实时读过、能支撑结论的代码位置,`[{"file": "...", "lines": "38-47", "note": "改动处"}]`。脚本会核对这些位置在被审查的那一版里真实存在(引用审查材料时写文件名即可,如 `{"file": "intent.md", "lines": "验收标准 2"}`;引用需求原文时写 `materials.json` 登记的路径和行号,如 `{"file": "materials/m2.md", "lines": "40-46"}`,未登记的路径不算);没给依据或引用不存在的,分数封顶见 `scoring-rubric.md`。 |
 | `ruled_out` | 排除了哪些可能,字符串数组,例如「base 版本用的是 Math.ceil,问题由本次改动引入」「唯一调用方没有对 total 取整」。 |
 | `verification` | 怎么确认的:`{"method": "inferred"}`(读代码判断,可省略),或 `{"method": "executed", "runs": ["r1"], "outcome": "reproduced" \| "refuted" \| "inconclusive"}`(deep 下经 `run-check.sh` 运行过,`runs` 是它输出的编号)。脚本核对每个编号都有运行记录,没有的改为 `inferred`,分数封顶见 `scoring-rubric.md`。 |
 | `verification.observation` | 执行后的实际观察及局限,简述输入/路径与结果如何对应候选;`reproduced` 必填。退出码本身不证明复现,`inconclusive` 仍可依充分代码证据通过,`refuted` 不得作为确认展示。 |
 | `compat` | 可选。修复会改变函数签名、公共行为、默认值、数据或序列化格式时才写:哪些行为保持不变、哪些调用方受影响、有没有更兼容的改法。 |
 | `history_match` / `history_context` / `previously` | `history_match` 引用仍适用的历史处理记录 id(无 id 用时间),`history_context` 简述对当前场景、调用环境与历史前提的重新核对;仅代码没变不够。`previously` 说明历史前提变化及重新提出的原因。「不修」保留事实分数,脚本在 `ignored_by_history` 另存 `history_decision`、`suppression_reason`,不覆盖事实 `verdict`。 |
 | `pre_existing` | 改动行上的缺陷在 base 里已以同样结果存在时填 `true`,判断规则见 `scoring-rubric.md` 封顶第 2 项;否则省略。`true` 的发现不计入本次发现,展示方式见 `report-format.md`。 |
+| `delivery_scope` / `scope_basis` | 只用于 `intent`。默认属于本次交付,不填。`unclear`:要求原文明确、代码确实没做到(分数照常按事实打),但材料里另有限定、排除或相互冲突的原文,使它是否属于本次交付无法判断。`out`:材料有原文明确把它排除在本次交付之外。两者都要填 `scope_basis: {"requirement": {"file", "lines", "quote"}, "limit": {"file", "lines", "quote"}, "missing": "还缺什么判断"}`(`out` 至少要 `limit`),`quote` 是原文片段。脚本核对引用和原文;核对不过按属于本次交付处理。`unclear` 的不计入发现,在报告「范围待明确」一节列出;`out` 的进被否决记录。`bug`、`security` 不用这两个字段:范围说不清不能让缺陷降级。只凭猜测、没有限定原文的,不填。 |
 | `suppressed_by` | 因为命中 `rules.txt` 里覆盖这个文件的 `REVIEW.md`「不要报」一节(写 `review`;规则类发现命中那条规则块自己的「不要报」字段也写这个值)、误报清单(`false-positives`)或历史判断(`history`)而打低分时填写,报告和被否决的记录里能看出是被什么挡掉的。 |
 
 证据链复用三个字段:`failure_scenario` 表达触发输入/前提到后果,`evidence.note` 连接关键路径和支持该环的代码,`ruled_out` 记录守卫等反证与 base 路径/结果对照。按发现类别写相关环节,不机械要求规则违反也提供攻击入口,不重复创建大字段。脚本核对位置存在,并不证明整条语义链成立。

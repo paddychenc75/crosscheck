@@ -58,7 +58,9 @@
 #   hashes.txt      hash<TAB>path          — 每个文件 diff 的哈希,用于判断下次是否需要重审
 #   settings.json   REVIEW.md 头部的审查设置(settings.sh)
 #   intent.md、sources.json、discussions.json、weakening.txt   见 collect-context.sh
-#   analysis-facts.json  代码块编号(H1…)与按名字搜到的调用方,reviewer 用(analysis_facts.py)
+#   analysis-facts.json  代码块编号(H1…)与按名字搜到的调用方,reviewer 用(analysis_facts.py);
+#                   交互运行这次要先问用户(BASE_UNSET、LARGE、SOURCES_MISSING)时不生成,回答后重新运行再生成
+#   timing.txt      分段用时:collected=<收集结束的 epoch 秒>,后续步骤各自追加(见 save-review.sh)
 #
 # 增量:同一仓库、同一目标之前有过一次覆盖范围不小于本次的审查时(记录在
 # ~/.crosscheck/reviews/<项目名>/<目标>/ 下,由 save-review.sh 写入),diff.patch 等文件
@@ -881,7 +883,7 @@ printf 'source_dir=%s\n' "$source_dir" >> "$out/meta.txt"
 rm -f "$out/discussions.json"
 context_out=$(sh "$script_dir/collect-context.sh" "$out")
 printf '%s\n' "$context_out" > "$out/context-notes.txt"
-grep -E '^(intent_sources|intent_acceptance|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
+grep -E '^(intent_sources|intent_acceptance|intent_materials|requirement_materials|materials_clipped|materials_partial|acceptance_state|discussions|weakening|sources_missing|source_dir)=' "$out/meta.txt" > "$out/context-meta.txt" || true
 python3 "$script_dir/context_hash.py" "$out"
 # 在裁掉未变文件前读取完整目标的反馈,让增量判定能复用既有重核规则。
 rm -f "$out/history.json"
@@ -1021,9 +1023,19 @@ changed_lines=$(grep -c '^[+-][^+-]' "$out/diff.patch" || true)
 
 cat "$out/context-meta.txt" >> "$out/meta.txt"
 
+# 这次会不会停下来先问用户(对比基准、需求单和需求资料、改动过大):问的时候不写「进行中」标记,也不做调用方搜索这类重计算,
+# 回答后重新运行会重新生成。非交互运行没人可问,照常往下走;describe 自己决定问不问(会丢掉这里的 SOURCES_MISSING),也照常往下走。
+asking=no
+if [ "$file_count" -gt 0 ] && { [ -n "$base_ask" ] || { [ "$allow_large" = no ] && [ "$batch_count" -gt "${CR_LARGE_BATCHES:-4}" ]; } \
+   || printf '%s' "$context_out" | grep -q '^SOURCES_\(MISSING\|OPTIONAL\):'; }; then
+  asking=yes
+fi
+
 # 代码块编号(H1…)和按名字搜到的调用方,reviewer 要用。失败不阻止审查,但要披露并记为流程缺项(completeness.py 读 facts-failed.txt)。
-rm -f "$out/facts-failed.txt" "$out/analysis-facts.json"
-if ! python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1; then
+rm -f "$out/facts-failed.txt" "$out/analysis-facts.json" "$out/timing.txt"
+if [ "$asking" = yes ] && [ "${CR_NONINTERACTIVE:-}" != 1 ] && [ "${CR_ASK_SKILL:-review}" != describe ]; then
+  :   # 先问用户,这次不生成 analysis-facts.json
+elif ! python3 "$script_dir/analysis_facts.py" "$out" >/dev/null 2>&1; then
   printf 'analysis-facts.json(代码块编号和调用方搜索结果没有生成)\n' > "$out/facts-failed.txt"
   printf 'NOTE: analysis_facts.py 运行失败,没有 analysis-facts.json:没有代码块编号和调用方搜索结果,reviewer 需自行定位并搜索调用方;已记为流程缺项\n'
 fi
@@ -1032,8 +1044,7 @@ sh "$script_dir/check-state.sh" --save "$out"
 
 # 真正开始审查时写下「进行中」标记,save-review.sh 保存成功后删掉。问用户的那几次(对比基准、需求单和需求资料、改动过大)不写。
 if [ "$storage_mode" = persistent ] && [ "${CR_ASK_SKILL:-review}" != describe ] \
-   && [ "$file_count" -gt 0 ] && [ -z "$base_ask" ] && { [ "$allow_large" = yes ] || [ "$batch_count" -le "${CR_LARGE_BATCHES:-4}" ]; } \
-   && ! printf '%s' "$context_out" | grep -q '^SOURCES_\(MISSING\|OPTIONAL\):'; then
+   && [ "$file_count" -gt 0 ] && [ "$asking" = no ]; then
   sh "$config_sh" mkdir "$store_dir" || exit $?
   printf 'started_at=%s\nreview_dir=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$out" > "$pending"
 fi
@@ -1109,4 +1120,5 @@ elif [ "$allow_large" = no ] && [ "$batch_count" -gt "${CR_LARGE_BATCHES:-4}" ];
     "$file_count" "$changed_lines" "$batch_count" "$batch_count"
 fi
 [ "$storage_mode" != temporary ] || printf 'NOTE: 本次不保存长期记录,临时材料保留在 %s;重跑请使用 --out 该目录并保留原参数。\n' "$out"
+printf 'collected=%s\n' "$(date +%s)" >> "$out/timing.txt"   # 分段用时,见 save-review.sh
 printf '%s\n' "$out"

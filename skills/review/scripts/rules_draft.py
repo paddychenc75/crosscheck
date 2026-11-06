@@ -215,6 +215,10 @@ def render(data):
     if data.get("notes"):
         lines += ["", "## 核对说明", ""] + ["- " + x for x in data["notes"]]
     lines += history_lines(data.get("history"))
+    # 版本只写进视图,不进 data 和指纹;插件升级后旧视图与 --check 不一致,按现有错误重新生成
+    version = crlib.plugin_version()
+    if version:
+        lines += ["", "---", "", "生成:crosscheck " + version]
     return "\n".join(lines) + "\n"
 
 

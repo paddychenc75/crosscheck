@@ -5,6 +5,7 @@ import crlib
 
 d = os.path.abspath(sys.argv[1])
 per = max(1, int(sys.argv[2]))
+crlib.mark_stage(d, "verify_start")   # 查找结束、开始核实(只用于报告分段用时)
 cands = crlib.load_json(os.path.join(d, "candidates.json"), [])
 PREV_VERDICT = ("confidence", "verdict", "evidence", "ruled_out", "no", "status", "history_match", "previously",
                 "suppressed_by", "reject_reason", "compat", "cid", "verification", "mark", "repro", "pass",

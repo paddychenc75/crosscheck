@@ -612,8 +612,7 @@ class Note:
 
 
 def version():
-    v = crlib.load_json(os.path.join(HERE, "..", "..", "..", ".claude-plugin", "plugin.json"), {})
-    return v.get("version", "") if isinstance(v, dict) else ""
+    return crlib.plugin_version()
 
 
 def now_text():
@@ -716,6 +715,10 @@ def main(argv):
             author["tested"] = opts["tested"].strip()
         if "focus" in opts:
             author["focus"] = parse_focus(opts["focus"]) if opts["focus"].strip() else []
+        # 本地记录写下由哪个版本写的,只供排查;读取时不用这个字段
+        author.pop("crosscheck_version", None)
+        if version():
+            author["crosscheck_version"] = version()
         crlib.save_json(os.path.join(out, "author.json"), author)
     r = analysis_check.check(d)
     print("STATUS: %s" % r["status"])
